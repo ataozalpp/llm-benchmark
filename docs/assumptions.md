@@ -1,30 +1,33 @@
-# V1/MVP varsayımları
+# V1/MVP assumptions
 
-- Sonuç deposu V1'de koşu başına append-friendly JSONL ve türetilmiş JSON
-  özettir; SQLite/PostgreSQL sonraki dilime bırakılmıştır.
-- Config tek YAML dosyasıdır. Öncelik built-in Pydantic defaults, YAML ve açık
-  `--set` override sırasındadır. Katmanlı config ve migration V2 konusudur.
-- `schema_version` yalnızca `1` değerini kabul eder; bilinmeyen alanlar hatadır.
-- Fixture verisi sentetiktir ve yalnızca yazılım doğrulaması içindir. Bir
-  benchmark skoru olarak yorumlanmaz.
-- MMLU-Pro `revision` alanı zorunludur. `smoke` 14, `poc` mümkün olduğunda
-  kategori başına 10 örnek seçer; `full` filtrelenmiş test split'inin tamamıdır.
-- MMLU-Pro loader seçenekleri upstream `options`, cevabı `answer`, kimliği
-  varsa `question_id`, yoksa kaynak sıra numarası alanından normalize eder.
-- Mock provider örnek bazlı deterministik senaryolar kullanır ve gerçek sleep
-  yapmaz. Ölçülen sahte latency provider sonucundan gelir.
-- V1 gerçek retry uygulamaz; `attempt_count=1` ve logical latency attempt
-  latency'ye eşittir. Retry yürütme ikinci dilimin işidir.
-- Ana latency özeti yalnızca request'i başarılı sonuçların logical latency
-  değerlerini kullanır. Başarısız latency ayrı `failure_latency_*` alanlarındadır.
-- `incorrect_count`, parse edilebilen yanlış cevapları ifade eder;
-  `unparseable` ve `request_failed` ayrı sayılır. Ana accuracy paydası tüm
-  planlanan örneklerdir.
-- Maliyet V1'de hesaplanmaz ve `estimated_cost` null kalır.
-- Token bilgisi yoksa null tutulur. Token toplamları yalnızca bilinen usage
-  değerlerini toplar ve eksik kayıt sayısı ayrıca raporlanır.
-- Parser A-J yerine her sorunun gerçek `allowed_labels` kümesini kullanır.
-- Log-probability, self-consistency, sayısal tolerans, streaming/TTFT, gerçek
-  provider, veritabanı, web UI ve orchestration sonraki dilimlerdir.
-- Varsayılan çıktı deposu `outputs` olup üretilen koşular Git tarafından yok
-  sayılır.
+- In V1, the result store consists of append-friendly JSONL and a derived JSON
+  summary for each run. SQLite/PostgreSQL is deferred to a later increment.
+- Configuration uses a single YAML file. Precedence is built-in Pydantic
+  defaults, YAML, and explicit `--set` overrides. Layered configuration and
+  migration are V2 concerns.
+- `schema_version` accepts only `1`; unknown fields are errors.
+- The fixture data is synthetic and is intended only for software validation.
+  It must not be interpreted as a benchmark score.
+- The MMLU-Pro `revision` field is required. The `smoke` profile selects 14
+  samples, `poc` selects 10 samples per category when possible, and `full` uses
+  the entire filtered test split.
+- The MMLU-Pro loader normalizes upstream `options` and `answer` fields. It uses
+  `question_id` as the identifier when available and otherwise uses the source
+  row index.
+- The mock provider uses deterministic per-sample scenarios and does not sleep.
+  Its configured synthetic latency is returned in the provider response.
+- V1 does not execute real retries: `attempt_count=1`, and logical latency is
+  equal to attempt latency. Retry execution belongs to the second increment.
+- The primary latency summary uses logical latency only for successful requests.
+  Failed-request latency is reported separately in `failure_latency_*` fields.
+- `incorrect_count` represents parseable wrong answers. `unparseable` and
+  `request_failed` are counted separately. The primary accuracy denominator
+  includes every scheduled sample.
+- Cost is not calculated in V1, and `estimated_cost` remains null.
+- Missing token usage remains null. Token totals include only known usage, and
+  the number of records with missing usage is reported separately.
+- The parser uses each question's actual `allowed_labels` set instead of an A-J
+  assumption.
+- Log-probability scoring, self-consistency, numeric tolerance, streaming/TTFT,
+  real providers, databases, a web UI, and orchestration are later increments.
+- The default output store is `outputs`, and generated runs are ignored by Git.

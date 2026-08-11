@@ -1,10 +1,10 @@
 # LLM Benchmark
 
-Python 3.12 tabanlı, çoktan seçmeli LLM karşılaştırmaları için küçük ve tekrar
-üretilebilir bir benchmark çekirdeği. V1 yalnızca deterministik `MockProvider`
-kullanır; gerçek veya ücretli API çağrısı yapmaz.
+A small, reproducible benchmark core for multiple-choice LLM comparisons,
+compatible with Python 3.12. V1 uses only the deterministic `MockProvider` and
+does not make real or paid API calls.
 
-## Kurulum
+## Installation
 
 ```powershell
 py -3.12 -m venv .venv
@@ -12,39 +12,42 @@ py -3.12 -m venv .venv
 python -m pip install -e ".[dev,huggingface]"
 ```
 
-Hugging Face desteği gerekmiyorsa `python -m pip install -e ".[dev]"` yeterlidir.
+If Hugging Face support is not required, `python -m pip install -e ".[dev]"` is
+sufficient.
 
-## Çalıştırma
+## Running benchmarks
 
-Yerel fixture ile tamamen çevrimdışı örnek:
+Run the fully offline local fixture benchmark:
 
 ```powershell
 llm-benchmark run --config configs/mock_smoke.yaml
-# veya: python -m llm_benchmark run --config configs/mock_smoke.yaml
+# or: python -m llm_benchmark run --config configs/mock_smoke.yaml
 ```
 
-MMLU-Pro smoke (ilk indirmede ağ, sonrasında Hugging Face cache gerekir):
+Run the MMLU-Pro smoke benchmark. The first run requires network access;
+subsequent runs can use the Hugging Face cache:
 
 ```powershell
 llm-benchmark run --config configs/mmlu_pro_smoke.yaml
 ```
 
-CLI override örneği:
+Example CLI override:
 
 ```powershell
 llm-benchmark run --config configs/mock_smoke.yaml --set output_dir=outputs/custom --set seed=7
 ```
 
-Her koşu `outputs/<run_id>/` altında `results.jsonl`, `summary.json`,
-`resolved_config.json`, `dataset_manifest.json` ve `environment.json` üretir.
+Each run creates `results.jsonl`, `summary.json`, `resolved_config.json`,
+`dataset_manifest.json`, and `environment.json` under `outputs/<run_id>/`.
 
-## Testler
+## Tests
 
 ```powershell
 pytest
 ```
 
-Normal test paketi ağ kullanmaz. MMLU-Pro ağ testi isteğe bağlıdır:
+The standard test suite does not use the network. The MMLU-Pro network test is
+optional:
 
 ```powershell
 pytest -m network --run-network
@@ -52,16 +55,25 @@ pytest -m network --run-network
 
 ## MMLU-Pro
 
-Gerçek veri kaynağı [TIGER-Lab/MMLU-Pro](https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro)
-olup örnek config, tekrar üretilebilirlik için tam bir commit revision'ına
-sabitlenmiştir. Veri repoya
-kopyalanmaz; `datasets` kütüphanesinin cache'i kullanılır. Lisans ve citation
-bilgileri upstream veri kartından deney öncesinde doğrulanmalıdır. Smoke/POC
-sonuçları resmî tam benchmark skoru değildir.
+The real dataset source is
+[TIGER-Lab/MMLU-Pro](https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro), and the
+example configuration is pinned to a full commit revision for reproducibility.
+The dataset is not copied into the repository; the `datasets` library cache is
+used. Verify license and citation information against the upstream dataset card
+before running an experiment. Smoke and POC results are not official full
+benchmark scores.
 
-## Sınırlar
+## Purpose of MockProvider and fixture results
 
-V1; retry yürütme, gerçek provider adapter'ları, streaming, fiyat tablosu,
-veritabanı ve web arayüzü içermez. Veri modeli retry ve bilinmeyen token
-değerlerini kaydetmeye hazırdır. Ayrıntılar [varsayımlar](docs/assumptions.md)
-dosyasındadır.
+`MockProvider` exercises successful, incorrect, unparseable, failed-request,
+and missing-token-usage paths deterministically without network access, API
+credentials, cost, or real waiting. The bundled fixture dataset is synthetic
+and exists only to verify the software pipeline. Fixture scores must not be
+interpreted as real model performance.
+
+## Limitations
+
+V1 does not include retry execution, real provider adapters, streaming, a
+pricing table, a database, or a web interface. The data model is ready to record
+retry information and unknown token usage. See the documented
+[assumptions](docs/assumptions.md) for details.

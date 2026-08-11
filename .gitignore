@@ -34,3 +34,10 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.log
+
+# Benchmark outputs (keep the directory placeholder)
+outputs/*
+!outputs/.gitkeep
+
+# Local dataset caches
+.cache/

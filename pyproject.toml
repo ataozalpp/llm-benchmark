@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "llm-benchmark-poc"
+version = "0.1.0"
+description = "Reproducible multiple-choice LLM benchmark POC"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "pydantic>=2.8,<3",
+  "PyYAML>=6.0,<7",
+]
+
+[project.optional-dependencies]
+huggingface = ["datasets>=3.0,<5"]
+dev = ["pytest>=8.2,<9"]
+
+[project.scripts]
+llm-benchmark = "llm_benchmark.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/llm_benchmark"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+markers = ["network: requires network access and Hugging Face"]

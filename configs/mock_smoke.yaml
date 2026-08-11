@@ -1,0 +1,26 @@
+schema_version: 1
+experiment_name: fixture_mock_smoke
+seed: 42
+output_dir: outputs
+dataset:
+  source: local
+  name: synthetic-mcq-fixture
+  path: data/fixtures/mcq_fixture.jsonl
+  split: test
+  profile: full
+models:
+  - provider: mock
+    endpoint_alias: mock-local
+    model_id: mock-model-a
+    scenario_cycle: [correct, correct, incorrect, unparseable, request_failed, missing_usage]
+    mock_latency_ms: 12.5
+  - provider: mock
+    endpoint_alias: mock-local
+    model_id: mock-model-b
+    scenario_cycle: [correct, incorrect, correct]
+    mock_latency_ms: 8.0
+evaluation:
+  prompt_version: mmlu_pro_cot_v1
+  parser_version: mcq_parser_v1
+  evaluator_version: mcq_evaluator_v1
+  scoring_mode: generated_answer

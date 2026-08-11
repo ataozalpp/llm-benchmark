@@ -1,0 +1,8 @@
+{"sample_id":"q01","question":"What is 2 + 2?","options":["3","4","5","6"],"correct_answer":"B","category":"math"}
+{"sample_id":"q02","question":"Which planet is known as the Red Planet?","options":["Venus","Mars","Jupiter","Mercury"],"correct_answer":"B","category":"science"}
+{"sample_id":"q03","question":"Water freezes at what Celsius temperature?","options":["0","10","32","100"],"correct_answer":"A","category":"science"}
+{"sample_id":"q04","question":"Which word is a synonym of rapid?","options":["slow","quick","quiet","late"],"correct_answer":"B","category":"language"}
+{"sample_id":"q05","question":"What is the capital of France?","options":["Rome","Madrid","Paris","Berlin"],"correct_answer":"C","category":"geography"}
+{"sample_id":"q06","question":"Which number is prime?","options":["9","15","17","21"],"correct_answer":"C","category":"math"}
+{"sample_id":"q07","question":"Plants primarily absorb which gas?","options":["Oxygen","Nitrogen","Carbon dioxide","Helium"],"correct_answer":"C","category":"science"}
+{"sample_id":"q08","question":"Which ocean is the largest?","options":["Atlantic","Indian","Arctic","Pacific"],"correct_answer":"D","category":"geography"}

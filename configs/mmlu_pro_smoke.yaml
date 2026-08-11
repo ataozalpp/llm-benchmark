@@ -1,0 +1,16 @@
+schema_version: 1
+experiment_name: mmlu_pro_mock_smoke
+seed: 42
+output_dir: outputs
+dataset:
+  source: huggingface
+  name: TIGER-Lab/MMLU-Pro
+  revision: 475d58ba0cc18a15fd5d4221f41919199e692331
+  split: test
+  profile: smoke
+  sample_size: 14
+models:
+  - provider: mock
+    endpoint_alias: mock-local
+    model_id: mock-mmlu-model
+    scenario_cycle: [correct, correct, incorrect, unparseable]

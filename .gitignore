@@ -4,6 +4,7 @@
 
 # Python cache
 __pycache__/
+**/__pycache__/
 *.py[cod]
 
 # Test and analysis cache
@@ -15,10 +16,17 @@ htmlcov/
 
 # Secrets and environment variables
 .env
+.env.*
 .env.local
 .env.*.local
+*.secret
+*.secrets
+secrets.*
+credentials.*
 *.key
 *.pem
+*.p12
+*.pfx
 
 # Build output
 build/
@@ -41,3 +49,27 @@ outputs/*
 
 # Local dataset caches
 .cache/
+.huggingface/
+huggingface_cache/
+hf_cache/
+data/cache/
+data/downloads/
+data/huggingface/
+data/**/*.arrow
+data/**/*.parquet
+
+# Local model artifacts and runtimes
+models/
+local_models/
+model_cache/
+*.gguf
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# LM Studio local state
+.lmstudio/
+.lmstudio-state/
+lm-studio/

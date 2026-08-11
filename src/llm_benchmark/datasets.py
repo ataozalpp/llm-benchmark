@@ -101,6 +101,8 @@ def load_and_sample(config: DatasetConfig, seed: int) -> tuple[list[DatasetExamp
         "loaded_row_count": len(loaded),
         "final_sample_count": len(selected),
         "selected_sample_ids": [e.sample_id for e in selected],
+        "selected_categories": sorted({e.category for e in selected}),
+        "selected_sample_categories": {e.sample_id: e.category for e in selected},
         "source_file_sha256": source_hash,
         "dataset_license": "MIT" if is_mmlu_pro else "project-owned synthetic fixture",
         "dataset_homepage": "https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro" if is_mmlu_pro else None,

@@ -14,5 +14,7 @@ def test_fixture_pipeline_end_to_end(tmp_path: Path) -> None:
     assert (run_dir / "dataset_manifest.json").exists()
     assert summary["overall"]["total_samples"] == 16
     assert len((run_dir / "results.jsonl").read_text(encoding="utf-8").splitlines()) == 16
+    assert summary["dataset"]["selected_categories"] == ["geography", "language", "math", "science"]
+    assert summary["dataset"]["selected_sample_categories"]["q01"] == "math"
     persisted = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
     assert persisted["run_fingerprint"] == summary["run_fingerprint"]

@@ -171,6 +171,22 @@ A–J when present. The strict parser retains exact `FINAL ANSWER: <label>`
 support for backward compatibility but rejects approximate markers and
 semantic prose. Stop reason is recorded when supplied; otherwise it is null.
 
+## Run the pinned MMLU-Pro LM Studio smoke
+
+With the validated model already running in LM Studio, the separate real-model
+smoke config makes exactly 14 sequential localhost requests using only the
+pinned cached dataset selection:
+
+```powershell
+$env:HF_HUB_OFFLINE = "1"
+$env:HF_DATASETS_OFFLINE = "1"
+python -m llm_benchmark run --config configs/mmlu_pro_lm_studio_smoke.yaml
+```
+
+The validated run completed all 14 requests with 100% request and parse success,
+2 correct answers, and 12 incorrect answers. Its 14.29% accuracy is a tiny
+stratified smoke result, not a statistically sufficient MMLU-Pro benchmark.
+
 ## Output artifacts
 
 Every run creates an ignored directory under `outputs/<run_id>/` containing:

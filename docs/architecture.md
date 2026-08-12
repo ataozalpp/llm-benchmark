@@ -111,6 +111,10 @@ items whose type is `message`. Reasoning items are recorded as token telemetry
 when available but are not parsed as final answers. A generic OpenAI-compatible
 adapter remains a separate future provider.
 
+The native provider path has been validated with both the one-question local
+fixture and the pinned 14-question MMLU-Pro smoke profile. Both paths remain
+sequential and use the same strict standalone-label parser contract.
+
 ## Phased roadmap
 
 ### Phase 1 — Completed validation core

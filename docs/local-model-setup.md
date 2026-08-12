@@ -72,6 +72,21 @@ This config selects one project-owned fixture question and therefore makes one
 real localhost request. It does not run MMLU-Pro, the POC profile, or the full
 dataset.
 
+## Pinned MMLU-Pro smoke command
+
+The separate `configs/mmlu_pro_lm_studio_smoke.yaml` profile selects the same 14
+pinned, category-stratified samples previously validated with MockProvider. It
+makes exactly 14 sequential localhost requests and must use the cached dataset:
+
+```powershell
+$env:HF_HUB_OFFLINE = "1"
+$env:HF_DATASETS_OFFLINE = "1"
+python -m llm_benchmark run --config configs/mmlu_pro_lm_studio_smoke.yaml
+```
+
+It does not run the POC or full profile and does not retry failed, incorrect, or
+unparseable samples.
+
 ## Native response handling
 
 The provider reads the native response `output` array and concatenates text

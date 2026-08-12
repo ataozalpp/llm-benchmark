@@ -14,7 +14,7 @@ from .metrics import summarize
 from .models import BenchmarkResult, DatasetExample
 from .parser import parse_multiple_choice
 from .prompting import build_prompt, prompt_hash
-from .providers import MockProvider
+from .providers import Provider, create_provider
 from .reproducibility import canonical_hash, environment_snapshot
 from .storage import append_result, write_json
 
@@ -24,10 +24,10 @@ def utc_now() -> str:
 
 
 def _evaluate(
-    run_id: str, config: RunConfig, example: DatasetExample, model_config: Any
+    run_id: str, config: RunConfig, example: DatasetExample, model_config: Any, provider: Provider | None = None
 ) -> BenchmarkResult:
     prompt = build_prompt(example)
-    provider = MockProvider(model_config)
+    provider = provider or create_provider(model_config)
     started_at = utc_now()
     response = provider.generate(prompt, example)
     completed_at = utc_now()
@@ -69,6 +69,13 @@ def _evaluate(
         completed_at=completed_at,
         parser_version=config.evaluation.parser_version,
         evaluator_version=config.evaluation.evaluator_version,
+        reasoning_mode=model_config.reasoning,
+        input_tokens=response.input_tokens,
+        total_output_tokens=response.total_output_tokens,
+        reasoning_output_tokens=response.reasoning_output_tokens,
+        tokens_per_second=response.tokens_per_second,
+        time_to_first_token_ms=response.time_to_first_token_ms,
+        stop_reason=response.stop_reason,
     )
 
 
@@ -97,8 +104,9 @@ def run_benchmark(config: RunConfig) -> tuple[Path, dict[str, Any]]:
     started_at = utc_now()
     started_perf = time.perf_counter()
     for model_config in config.models:
+        provider = create_provider(model_config)
         for example in examples:
-            result = _evaluate(run_id, config, example, model_config)
+            result = _evaluate(run_id, config, example, model_config, provider)
             append_result(run_dir / "results.jsonl", result)
             results.append(result)
     wall_time_ms = (time.perf_counter() - started_perf) * 1000

@@ -5,9 +5,9 @@ multiple-choice evaluations across language-model service profiles. Its goal is
 to compare response quality, token usage, latency, reliability, and eventually
 cost under consistent datasets, prompts, parameters, and measurement rules.
 
-The current release is a small proof of concept. It validates the complete
-benchmark pipeline with a deterministic `MockProvider`; it does not call a real
-LLM endpoint.
+The current release is a small proof of concept. It preserves deterministic
+offline validation with `MockProvider` and adds an opt-in LM Studio native API
+path for a manually started local model.
 
 > [!WARNING]
 > `MockProvider` accuracy, token, and latency values are synthetic pipeline
@@ -30,15 +30,18 @@ Completed and validated:
 - Quality, token, latency, reliability, and category-level metrics.
 - Redacted resolved configuration, dataset manifest, environment snapshot,
   hashes, and a combined run fingerprint.
-- Offline unit and integration suite with 23 passing tests.
+- Offline unit and integration suite with 34 passing tests.
 - A completed pinned 14-sample MMLU-Pro smoke validation using MockProvider.
+- An isolated LM Studio native `POST /api/v1/chat` provider with explicit
+  reasoning mode and mocked offline tests.
 
 ## Current non-goals
 
 The current increment intentionally does not include:
 
-- Real OpenAI, Gemini, LM Studio, vLLM, or other provider calls.
-- API keys, credential management, or private endpoint configuration.
+- OpenAI-compatible, OpenAI, Gemini, vLLM, or other provider adapters.
+- API keys or credential management. The local LM Studio slice uses no
+  authentication and remains bound to localhost.
 - Retry execution, concurrency, rate limiting, or resumable work queues.
 - Streaming or time-to-first-token measurements.
 - Pricing tables or cost calculation.
@@ -58,8 +61,11 @@ flowchart LR
     B --> C[Dataset source]
     C --> D[Deterministic sampling]
     D --> E[Prompt builder]
-    E --> F[MockProvider]
-    F --> G[Response parser]
+    E --> F[Provider factory]
+    F --> N[MockProvider]
+    F --> O[LM Studio native provider]
+    N --> G[Response parser]
+    O --> G
     G --> H[Evaluation result]
     H --> I[results.jsonl]
     H --> J[Metrics aggregation]
@@ -142,6 +148,29 @@ The first run may download the official dataset into the Hugging Face cache.
 Subsequent runs can use the cache. The POC and full profiles are not required
 for smoke validation.
 
+## Run the opt-in LM Studio fixture smoke
+
+This command is intentionally not part of the offline test suite. Start the
+validated LM Studio model locally, review
+[the local model setup](docs/local-model-setup.md), and then run:
+
+```powershell
+python -m llm_benchmark run --config configs/lm_studio_fixture_smoke.yaml
+```
+
+The config schedules exactly one synthetic fixture question and sends one
+native request to `http://127.0.0.1:1234/api/v1/chat` with model
+`qwen3.5-0.8b`, reasoning `off`, temperature `0`, and 128 maximum output tokens.
+It also sends `store=false`, so the request does not create persistent native
+chat state. Only native output items with `type="message"` are scored;
+reasoning items are never treated as the final answer. No API key is used.
+
+The canonical prompt response is exactly one uppercase option label and no
+other text. The allowed label range is derived from each question, including
+A–J when present. The strict parser retains exact `FINAL ANSWER: <label>`
+support for backward compatibility but rejects approximate markers and
+semantic prose. Stop reason is recorded when supplied; otherwise it is null.
+
 ## Output artifacts
 
 Every run creates an ignored directory under `outputs/<run_id>/` containing:
@@ -166,6 +195,8 @@ The current summary includes:
 - Request and parse success rates.
 - Format-failure and request-failure counts.
 - Prompt, completion, and total token usage.
+- Native input, total-output, and reasoning-output token totals when reported.
+- Tokens per second and time to first token when reported by LM Studio.
 - Missing-token-usage count and token efficiency metrics.
 - Mean, P50, P95, minimum, and maximum logical-request latency for successful
   requests.
@@ -193,8 +224,8 @@ See [V1 assumptions](docs/assumptions.md) and
 
 ## Limitations
 
-- The runner currently constructs `MockProvider` directly; a provider factory
-  is planned before adding real adapters.
+- The provider factory currently supports MockProvider and the LM Studio native
+  API only; generic OpenAI compatibility remains separate and unimplemented.
 - Retry fields exist in the result schema, but V1 executes one attempt only.
 - Runs are sequential and cannot yet resume after interruption.
 - JSONL has no database transaction or duplicate-work protection.
@@ -202,13 +233,12 @@ See [V1 assumptions](docs/assumptions.md) and
   dataset profile rather than fetched dynamically.
 - Small-sample percentile values are calculated but are not accompanied by
   confidence intervals or minimum-sample warnings.
-- The repository has no project license yet. Licensing must be confirmed before
-  making the repository public.
+- No project license has been selected yet.
 
 ## Roadmap
 
-1. Add a provider factory and one OpenAI-compatible adapter for a mentor-approved
-   LM Studio endpoint and two explicitly selected models.
+1. Validate the isolated LM Studio native provider on the one-question fixture
+   smoke, then compare two explicitly approved local model profiles.
 2. Add attempt-level records, timeout handling, bounded retries, shared rate
    limiting, graceful shutdown, and safe resume.
 3. Add versioned pricing, cost metrics, comparison exports, and a durable
@@ -218,6 +248,5 @@ See [V1 assumptions](docs/assumptions.md) and
 6. Add optional human and calibrated LLM-judge workflows only where
    deterministic evaluation is insufficient.
 
-No real provider integration should proceed until endpoint access, model IDs,
-credentials policy, and budget limits have been explicitly approved.
-
+No additional provider integration should proceed until endpoint access, model
+IDs, credentials policy, and budget limits have been explicitly approved.

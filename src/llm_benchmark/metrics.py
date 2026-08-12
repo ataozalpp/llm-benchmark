@@ -32,6 +32,11 @@ def summarize(results: list[BenchmarkResult], run_wall_time_ms: float) -> dict[s
     total_prompt = sum(r.prompt_tokens or 0 for r in known)
     total_completion = sum(r.completion_tokens or 0 for r in known)
     total_tokens = sum(r.total_tokens or 0 for r in known)
+    known_input = [r.input_tokens for r in results if r.input_tokens is not None]
+    known_output = [r.total_output_tokens for r in results if r.total_output_tokens is not None]
+    known_reasoning = [r.reasoning_output_tokens for r in results if r.reasoning_output_tokens is not None]
+    throughput = [r.tokens_per_second for r in results if r.tokens_per_second is not None]
+    ttft = [r.time_to_first_token_ms for r in results if r.time_to_first_token_ms is not None]
     success_latencies = [r.logical_request_latency_ms for r in results if r.request_status == "succeeded"]
     failure_latencies = [r.logical_request_latency_ms for r in results if r.request_status != "succeeded"]
     return {
@@ -56,6 +61,13 @@ def summarize(results: list[BenchmarkResult], run_wall_time_ms: float) -> dict[s
         "average_tokens_per_successful_request": total_tokens / request_successes if request_successes else None,
         "tokens_per_correct_answer": total_tokens / correct if correct else None,
         "token_usage_missing_count": total - len(known),
+        "total_input_tokens": sum(known_input),
+        "total_output_tokens": sum(known_output),
+        "total_reasoning_output_tokens": sum(known_reasoning),
+        "reasoning_token_usage_missing_count": total - len(known_reasoning),
+        "tokens_per_second_mean": mean(throughput) if throughput else None,
+        "time_to_first_token_mean_ms": mean(ttft) if ttft else None,
+        "time_to_first_token_p50_ms": percentile(ttft, 0.50),
         "latency_population": "successful_logical_requests",
         "latency_count": len(success_latencies),
         "latency_mean_ms": mean(success_latencies) if success_latencies else None,

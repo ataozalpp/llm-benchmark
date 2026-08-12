@@ -32,6 +32,9 @@ def test_metrics_accuracy_tokens_and_latency() -> None:
     assert summary["latency_p50_ms"] == 20
     assert summary["latency_p95_ms"] == pytest.approx(29)
     assert summary["failure_latency_mean_ms"] == 40
+    assert summary["total_input_tokens"] == 0
+    assert summary["total_output_tokens"] == 0
+    assert summary["total_reasoning_output_tokens"] == 0
 
 
 def test_tokens_per_correct_answer_handles_zero() -> None:

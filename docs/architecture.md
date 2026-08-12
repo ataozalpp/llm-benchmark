@@ -17,7 +17,7 @@ extension points for real providers and additional task types.
 | Data models | `src/llm_benchmark/models.py` | Define normalized examples, provider responses, parser results, and benchmark records |
 | Dataset layer | `src/llm_benchmark/datasets.py` | Load local JSONL or pinned MMLU-Pro data, normalize rows, sample deterministically, and build manifests |
 | Prompt layer | `src/llm_benchmark/prompting.py` | Build versioned multiple-choice prompts and hash the template |
-| Provider layer | `src/llm_benchmark/providers.py` | Define the provider protocol and deterministic MockProvider |
+| Provider layer | `src/llm_benchmark/providers.py` | Define the provider protocol, factory, deterministic MockProvider, and isolated LM Studio native provider |
 | Parser | `src/llm_benchmark/parser.py` | Convert generated text to a deterministic allowed answer label or an explicit parse failure |
 | Runner/evaluation | `src/llm_benchmark/runner.py` | Orchestrate the run, classify each result, persist records, and assemble summaries |
 | Metrics | `src/llm_benchmark/metrics.py` | Aggregate quality, reliability, token, latency, and error metrics |
@@ -58,16 +58,17 @@ prompting, parsing, evaluation, metrics, and storage to remain provider-neutral.
 flowchart LR
     A[ModelConfig] --> B[Planned provider factory]
     B --> C[MockProvider]
-    B -. future .-> D[LM Studio OpenAI-compatible adapter]
-    B -. future .-> E[Other approved adapters]
+    B --> D[LM Studio native API provider]
+    B -. future .-> E[Generic OpenAI-compatible provider]
     C --> F[ProviderResponse]
     D --> F
     E --> F
     F --> G[Parser and evaluator]
 ```
 
-The current runner creates `MockProvider` directly. The provider factory shown
-above is planned, not implemented.
+The runner resolves one provider instance per model profile through
+`create_provider()`. LM Studio native handling is deliberately separate from a
+future generic OpenAI-compatible provider.
 
 ## Current MockProvider path
 
@@ -82,11 +83,11 @@ above is planned, not implemented.
 
 This path validates the benchmark software, not an LLM.
 
-## Planned LM Studio OpenAI-compatible path
+## LM Studio native API path
 
-The next approved provider increment is expected to connect to an already
-running LM Studio OpenAI-compatible endpoint. The benchmark will not manage the
-LM Studio process or local model lifecycle.
+The implemented local-provider path connects to an already running LM Studio
+native endpoint. The benchmark does not manage the LM Studio process, model
+download, model loading, or local model lifecycle.
 
 Conceptually:
 
@@ -94,20 +95,21 @@ Conceptually:
 sequenceDiagram
     participant R as Benchmark runner
     participant F as Provider factory
-    participant A as LM Studio adapter
+    participant A as LM Studio native provider
     participant L as LM Studio endpoint
     R->>F: resolve provider profile
-    F-->>R: LMStudioOpenAICompatibleProvider
+    F-->>R: LMStudioProvider
     R->>A: generate(prompt, example)
-    A->>L: OpenAI-compatible chat request
+    A->>L: POST /api/v1/chat, store=false
     L-->>A: response or provider error
     A-->>R: normalized ProviderResponse
     R->>R: parse, evaluate, persist, aggregate
 ```
 
-Before implementation, the endpoint alias, model IDs, credential policy,
-timeouts, request parameters, retry behavior, and cost boundaries must be
-approved. No private endpoint or API key belongs in repository configuration.
+The provider submits an explicit reasoning mode and scores only native output
+items whose type is `message`. Reasoning items are recorded as token telemetry
+when available but are not parsed as final answers. A generic OpenAI-compatible
+adapter remains a separate future provider.
 
 ## Phased roadmap
 
@@ -119,11 +121,10 @@ approved. No private endpoint or API key belongs in repository configuration.
 - JSONL/JSON artifacts and reproducibility metadata
 - Offline unit and integration tests
 
-### Phase 2 — Controlled real-provider POC
+### Phase 2 — Controlled local-provider POC
 
-- Provider factory/registry
-- One mentor-approved LM Studio OpenAI-compatible adapter
-- Two configured model profiles
+- Provider factory and isolated LM Studio native adapter
+- One validated localhost model profile, followed by two approved profiles
 - Normalized provider usage, returned-model, and error metadata
 - Fixture or pinned smoke workload only
 

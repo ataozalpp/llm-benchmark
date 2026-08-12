@@ -33,14 +33,30 @@ class DatasetConfig(StrictModel):
 
 
 class ModelConfig(StrictModel):
-    provider: Literal["mock"] = "mock"
+    provider: Literal["mock", "lm_studio"] = "mock"
     endpoint_alias: str = "mock-local"
     model_id: str
+    base_url: str | None = None
+    reasoning: Literal["off", "on", "auto"] | None = None
+    temperature: float = Field(default=0, ge=0)
+    max_output_tokens: int = Field(default=64, gt=0)
+    timeout_seconds: float = Field(default=120, gt=0)
     scenario_cycle: list[Literal["correct", "incorrect", "unparseable", "request_failed", "missing_usage"]] = Field(
         default_factory=lambda: ["correct"]
     )
     scenario_overrides: dict[str, Literal["correct", "incorrect", "unparseable", "request_failed", "missing_usage"]] = Field(default_factory=dict)
     mock_latency_ms: float = Field(default=12.5, ge=0)
+
+    @model_validator(mode="after")
+    def validate_provider(self) -> "ModelConfig":
+        if self.provider == "lm_studio":
+            if not self.base_url:
+                raise ValueError("lm_studio provider requires base_url")
+            if self.reasoning is None:
+                raise ValueError("lm_studio provider requires an explicit reasoning mode")
+            if not self.base_url.startswith(("http://", "https://")):
+                raise ValueError("lm_studio base_url must use http or https")
+        return self
 
 
 class EvaluationConfig(StrictModel):

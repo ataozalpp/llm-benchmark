@@ -157,6 +157,78 @@ tokens, approximately `30.59` tokens per second, `691.47 ms` time to first
 token, and `995.72 ms` logical latency. LM Studio did not provide a stop reason,
 so `stop_reason` remained null. No further request was made.
 
+## Pinned MMLU-Pro LM Studio smoke result
+
+A real-model smoke run was completed through the LM Studio native provider with
+the cached official dataset and no external API calls.
+
+| Field | Value |
+| --- | --- |
+| Dataset | `TIGER-Lab/MMLU-Pro` |
+| Revision | `475d58ba0cc18a15fd5d4221f41919199e692331` |
+| Split | `test` |
+| Seed | `42` |
+| Profile | `smoke` |
+| Requests | `14`, sequential |
+| Model | `qwen3.5-0.8b` |
+| Reasoning | `off` |
+| Temperature | `0` |
+| Maximum output tokens | `128` |
+
+Aggregate results:
+
+| Metric | Value |
+| --- | ---: |
+| Total | 14 |
+| Correct | 2 |
+| Incorrect | 12 |
+| Unparseable | 0 |
+| Failed | 0 |
+| Accuracy | 14.29% |
+| Answered accuracy | 14.29% |
+| Request success rate | 100% |
+| Parse success rate | 100% |
+| Format failure rate | 0% |
+| Input tokens | 4,298 |
+| Output tokens | 28 |
+| Reasoning output tokens | 0 |
+| Total tokens | 4,326 |
+| Latency P50 | 1,496.08 ms |
+| Latency P95 | 2,363.42 ms |
+| Sum of logical-request durations | 22,121.40 ms |
+| Run wall time | 22,136.70 ms |
+
+Per-category outcomes:
+
+| Category | Sample ID | Correct | Parsed | Result |
+| --- | --- | --- | --- | --- |
+| Biology | 3463 | C | A | Incorrect |
+| Business | 215 | A | A | Correct |
+| Chemistry | 3577 | F | C | Incorrect |
+| Computer science | 10743 | H | A | Incorrect |
+| Economics | 7111 | F | B | Incorrect |
+| Engineering | 11537 | D | A | Incorrect |
+| Health | 6232 | C | C | Correct |
+| History | 4740 | C | A | Incorrect |
+| Law | 1213 | E | A | Incorrect |
+| Math | 8808 | C | A | Incorrect |
+| Other | 5149 | B | C | Incorrect |
+| Philosophy | 11083 | E | A | Incorrect |
+| Physics | 9560 | I | A | Incorrect |
+| Psychology | 2019 | I | B | Incorrect |
+
+Selected sample IDs:
+
+```text
+10743, 11083, 11537, 1213, 2019, 215, 3463,
+3577, 4740, 5149, 6232, 7111, 8808, 9560
+```
+
+Artifacts were generated under the ignored run directory
+`outputs/20260812T130136Z-ff5ca994/`. This 14-question result validates the real
+local execution path and strict output-format compliance; it is not a
+statistically sufficient MMLU-Pro score.
+
 ## Interpretation boundary
 
 The validation proves that the current pipeline can load and sample data,

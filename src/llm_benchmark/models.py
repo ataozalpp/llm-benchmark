@@ -27,6 +27,12 @@ class ProviderResponse:
     latency_ms: float
     error_type: str | None = None
     returned_model: str | None = None
+    input_tokens: int | None = None
+    total_output_tokens: int | None = None
+    reasoning_output_tokens: int | None = None
+    tokens_per_second: float | None = None
+    time_to_first_token_ms: float | None = None
+    stop_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -66,6 +72,13 @@ class BenchmarkResult:
     completed_at: str
     parser_version: str
     evaluator_version: str
+    reasoning_mode: str | None = None
+    input_tokens: int | None = None
+    total_output_tokens: int | None = None
+    reasoning_output_tokens: int | None = None
+    tokens_per_second: float | None = None
+    time_to_first_token_ms: float | None = None
+    stop_reason: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

@@ -73,9 +73,16 @@ def _evaluate(
         input_tokens=response.input_tokens,
         total_output_tokens=response.total_output_tokens,
         reasoning_output_tokens=response.reasoning_output_tokens,
+        final_output_tokens=response.final_output_tokens,
+        reasoning_observed=response.reasoning_observed,
         tokens_per_second=response.tokens_per_second,
         time_to_first_token_ms=response.time_to_first_token_ms,
         stop_reason=response.stop_reason,
+        timeout_seconds=model_config.timeout_seconds,
+        http_status_code=response.http_status_code,
+        provider_error_type=response.provider_error_type,
+        provider_error_code=response.provider_error_code,
+        provider_error_message=response.provider_error_message,
     )
 
 

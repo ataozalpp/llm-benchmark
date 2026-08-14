@@ -1,0 +1,30 @@
+schema_version: 1
+experiment_name: mmlu_pro_lm_studio_reasoning_on_context_bounded_calibration
+seed: 42
+output_dir: outputs
+dataset:
+  source: huggingface
+  name: TIGER-Lab/MMLU-Pro
+  revision: 475d58ba0cc18a15fd5d4221f41919199e692331
+  split: test
+  profile: smoke
+  sample_size: 1
+  sample_ids:
+    - "2019"
+models:
+  - provider: lm_studio
+    endpoint_alias: lm-studio-localhost
+    base_url: http://127.0.0.1:1234
+    model_id: qwen3.5-0.8b
+    reasoning: "on"
+    temperature: 1.0
+    top_p: 0.95
+    top_k: 20
+    min_p: 0.0
+    repeat_penalty: 1.0
+    timeout_seconds: 660
+evaluation:
+  prompt_version: mmlu_pro_cot_v1
+  parser_version: mcq_parser_v1
+  evaluator_version: mcq_evaluator_v1
+  scoring_mode: generated_answer

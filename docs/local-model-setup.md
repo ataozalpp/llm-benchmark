@@ -131,3 +131,24 @@ output budget was exhausted, but did not prove a literal infinite loop.
 
 Raw reasoning text is not stored in tracked files. Reasoning remains separate
 from the final `message` channel and is never passed to the parser or scorer.
+
+## Optional output budget
+
+`max_output_tokens` may be a positive integer, omitted, or null. Positive values
+are sent to LM Studio and recorded as `output_budget_provenance=fixed`. Omitted
+or null values are excluded from the native payload and recorded as
+`output_budget_provenance=provider_default`. Provider-default behavior is still
+context-bounded and must not be described as unlimited generation.
+
+The validated model metadata reported a 262,144-token maximum context, while
+the loaded instance used an 8,192-token context. The latter is the active
+runtime configuration, but the exact output allowance remains unknown because
+input and runtime overhead consume part of that context.
+
+In the single-sample provider-default calibration (`2019`), the request used
+154 input tokens, 3,591 reasoning tokens, 4 derived final-output tokens, and
+3,595 total-output tokens. It reached the format-compliant label `B` after
+209,883.45 ms, with 215.925 ms TTFT and 17.1926 tokens/s. The reference label
+was `I`, so the result was incorrect. This one sample demonstrates operational
+termination under the tested configuration; it does not prove general
+termination or improved accuracy.

@@ -151,6 +151,37 @@ def test_lm_studio_omits_unset_sampling_fields(example: DatasetExample) -> None:
     assert not {"top_p", "top_k", "min_p", "repeat_penalty", "presence_penalty"} & payload.keys()
 
 
+def test_lm_studio_omits_max_output_tokens_when_not_configured(example: DatasetExample) -> None:
+    config = ModelConfig(
+        provider="lm_studio",
+        base_url="http://127.0.0.1:1234",
+        model_id="qwen3.5-0.8b",
+        reasoning="on",
+    )
+    transport = FakeTransport({"output": [{"type": "message", "content": "B"}]})
+    LMStudioProvider(config, transport=transport).generate("prompt", example)
+    assert "max_output_tokens" not in transport.calls[0][1]
+
+
+def test_lm_studio_omits_explicit_null_max_output_tokens(example: DatasetExample) -> None:
+    config = ModelConfig(
+        provider="lm_studio",
+        base_url="http://127.0.0.1:1234",
+        model_id="qwen3.5-0.8b",
+        reasoning="on",
+        max_output_tokens=None,
+    )
+    transport = FakeTransport({"output": [{"type": "message", "content": "B"}]})
+    LMStudioProvider(config, transport=transport).generate("prompt", example)
+    assert "max_output_tokens" not in transport.calls[0][1]
+
+
+def test_mock_provider_is_unaffected_by_optional_output_budget(example: DatasetExample) -> None:
+    without_limit = MockProvider(ModelConfig(model_id="mock", scenario_cycle=["correct"]))
+    with_limit = MockProvider(ModelConfig(model_id="mock", scenario_cycle=["correct"], max_output_tokens=64))
+    assert without_limit.generate("prompt", example) == with_limit.generate("prompt", example)
+
+
 def test_lm_studio_includes_supported_sampling_fields_when_set(example: DatasetExample) -> None:
     config = lm_studio_config().model_copy(update={
         "temperature": 1.0,

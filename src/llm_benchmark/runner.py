@@ -79,6 +79,7 @@ def _evaluate(
         time_to_first_token_ms=response.time_to_first_token_ms,
         stop_reason=response.stop_reason,
         timeout_seconds=model_config.timeout_seconds,
+        output_budget_provenance=(model_config.output_budget_provenance if model_config.provider == "lm_studio" else None),
         http_status_code=response.http_status_code,
         provider_error_type=response.provider_error_type,
         provider_error_code=response.provider_error_code,

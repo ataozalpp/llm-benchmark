@@ -30,10 +30,14 @@ Completed and validated:
 - Quality, token, latency, reliability, and category-level metrics.
 - Redacted resolved configuration, dataset manifest, environment snapshot,
   hashes, and a combined run fingerprint.
-- Offline unit and integration suite with 34 passing tests.
+- Offline unit and integration suite with 57 passing tests.
 - A completed pinned 14-sample MMLU-Pro smoke validation using MockProvider.
 - An isolated LM Studio native `POST /api/v1/chat` provider with explicit
   reasoning mode and mocked offline tests.
+- Fixed sample-ID calibration profiles, reasoning/final-output telemetry,
+  sanitized provider-error details, and optional native sampling controls.
+- Completed local reasoning-off, reasoning-on, and single-sample calibration
+  runs documented in the validation record.
 
 ## Current non-goals
 
@@ -43,7 +47,8 @@ The current increment intentionally does not include:
 - API keys or credential management. The local LM Studio slice uses no
   authentication and remains bound to localhost.
 - Retry execution, concurrency, rate limiting, or resumable work queues.
-- Streaming or time-to-first-token measurements.
+- Streaming. Native time-to-first-token telemetry is recorded when LM Studio
+  reports it, but the provider currently uses non-streaming requests.
 - Pricing tables or cost calculation.
 - RAG, tool-calling, embeddings, free-text, or code-generation evaluation.
 - LLM-as-a-judge or human evaluation.
@@ -187,6 +192,27 @@ The validated run completed all 14 requests with 100% request and parse success,
 2 correct answers, and 12 incorrect answers. Its 14.29% accuracy is a tiny
 stratified smoke result, not a statistically sufficient MMLU-Pro benchmark.
 
+## Reasoning-on calibration status
+
+Reasoning-on was evaluated separately without changing the reasoning-off
+baseline. In the pinned 14-sample run, all HTTP requests succeeded, but each
+response consumed the configured 1,024-token output budget entirely as
+reasoning and produced no native final message. All 14 results were therefore
+correctly classified as unparseable.
+
+For sample `2019`, increasing the bounded output budget to 2,048 tokens did not
+produce a final message: all 2,048 output tokens were again reasoning tokens.
+A partial native-supported sampling profile (`temperature`, `top_p`, `top_k`,
+`min_p`, and `repeat_penalty`) produced the same outcome. Native
+`presence_penalty` support was not verified and the field was omitted.
+
+Sanitized inspection through local LM Studio Developer Logs showed strong
+repetitive, non-convergent deliberation until output-budget exhaustion. This
+does not prove a literal infinite reasoning loop. Raw reasoning text is not
+stored in tracked files or repository documentation, and reasoning content is
+never parsed as the final answer. See the [validation record](docs/validation.md)
+for verified run IDs and metrics.
+
 ## Output artifacts
 
 Every run creates an ignored directory under `outputs/<run_id>/` containing:
@@ -212,12 +238,15 @@ The current summary includes:
 - Format-failure and request-failure counts.
 - Prompt, completion, and total token usage.
 - Native input, total-output, and reasoning-output token totals when reported.
+- Safely derived final-output tokens and a count of responses where reasoning
+  was observed.
 - Tokens per second and time to first token when reported by LM Studio.
 - Missing-token-usage count and token efficiency metrics.
 - Mean, P50, P95, minimum, and maximum logical-request latency for successful
   requests.
 - Separate failed-request latency and error-type distribution.
 - Run wall time.
+- Sum of logical-request durations.
 - Model-level and category-level breakdowns.
 
 Mock token counts use simple deterministic word counts, and mock latency is a
@@ -253,8 +282,8 @@ See [V1 assumptions](docs/assumptions.md) and
 
 ## Roadmap
 
-1. Validate the isolated LM Studio native provider on the one-question fixture
-   smoke, then compare two explicitly approved local model profiles.
+1. Compare a second explicitly approved reasoning-capable local model through
+   the same provider, prompt, dataset, and measurement protocol.
 2. Add attempt-level records, timeout handling, bounded retries, shared rate
    limiting, graceful shutdown, and safe resume.
 3. Add versioned pricing, cost metrics, comparison exports, and a durable
@@ -263,6 +292,8 @@ See [V1 assumptions](docs/assumptions.md) and
 5. Add tool-calling, embeddings/retrieval, RAG, and later open-ended evaluation.
 6. Add optional human and calibrated LLM-judge workflows only where
    deterministic evaluation is insufficient.
+7. Consider opt-in reasoning diagnostics, repetition analysis, calibration
+   suites, and provider/model capability metadata in later dedicated phases.
 
 No additional provider integration should proceed until endpoint access, model
 IDs, credentials policy, and budget limits have been explicitly approved.

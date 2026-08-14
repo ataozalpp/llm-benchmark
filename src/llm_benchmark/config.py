@@ -22,6 +22,7 @@ class DatasetConfig(StrictModel):
     sample_size: int | None = Field(default=None, gt=0)
     samples_per_category: int = Field(default=10, gt=0)
     category_filter: list[str] = Field(default_factory=list)
+    sample_ids: list[str] = Field(default_factory=list, exclude_if=lambda value: not value)
 
     @model_validator(mode="after")
     def validate_source(self) -> "DatasetConfig":
@@ -29,6 +30,10 @@ class DatasetConfig(StrictModel):
             raise ValueError("local dataset source requires path")
         if self.source == "huggingface" and not self.revision:
             raise ValueError("huggingface dataset source requires a pinned revision")
+        if len(self.sample_ids) != len(set(self.sample_ids)):
+            raise ValueError("dataset sample_ids must be unique")
+        if self.sample_ids and self.sample_size is not None and self.sample_size != len(self.sample_ids):
+            raise ValueError("dataset sample_size must equal the number of explicit sample_ids")
         return self
 
 
@@ -39,6 +44,10 @@ class ModelConfig(StrictModel):
     base_url: str | None = None
     reasoning: Literal["off", "on", "auto"] | None = None
     temperature: float = Field(default=0, ge=0)
+    top_p: float | None = Field(default=None, ge=0, le=1, exclude_if=lambda value: value is None)
+    top_k: int | None = Field(default=None, ge=0, exclude_if=lambda value: value is None)
+    min_p: float | None = Field(default=None, ge=0, le=1, exclude_if=lambda value: value is None)
+    repeat_penalty: float | None = Field(default=None, gt=0, exclude_if=lambda value: value is None)
     max_output_tokens: int = Field(default=64, gt=0)
     timeout_seconds: float = Field(default=120, gt=0)
     scenario_cycle: list[Literal["correct", "incorrect", "unparseable", "request_failed", "missing_usage"]] = Field(

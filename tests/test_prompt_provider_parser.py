@@ -1,3 +1,7 @@
+import io
+import json
+import urllib.error
+
 import pytest
 
 from llm_benchmark.config import ModelConfig
@@ -132,10 +136,70 @@ def test_lm_studio_native_response_uses_messages_and_ignores_reasoning(example: 
     assert response.input_tokens == 21
     assert response.total_output_tokens == 9
     assert response.reasoning_output_tokens == 5
+    assert response.final_output_tokens == 4
+    assert response.reasoning_observed is True
     assert response.total_tokens == 30
     assert response.tokens_per_second == 12.5
     assert response.time_to_first_token_ms == 250
     assert response.stop_reason == "completed"
+
+
+def test_lm_studio_omits_unset_sampling_fields(example: DatasetExample) -> None:
+    transport = FakeTransport({"output": [{"type": "message", "content": "B"}]})
+    LMStudioProvider(lm_studio_config(), transport=transport).generate("prompt", example)
+    payload = transport.calls[0][1]
+    assert not {"top_p", "top_k", "min_p", "repeat_penalty", "presence_penalty"} & payload.keys()
+
+
+def test_lm_studio_includes_supported_sampling_fields_when_set(example: DatasetExample) -> None:
+    config = lm_studio_config().model_copy(update={
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 20,
+        "min_p": 0.0,
+        "repeat_penalty": 1.0,
+    })
+    transport = FakeTransport({"output": [{"type": "message", "content": "B"}]})
+    LMStudioProvider(config, transport=transport).generate("prompt", example)
+    payload = transport.calls[0][1]
+    assert payload["temperature"] == 1.0
+    assert payload["top_p"] == 0.95
+    assert payload["top_k"] == 20
+    assert payload["min_p"] == 0.0
+    assert payload["repeat_penalty"] == 1.0
+    assert "presence_penalty" not in payload
+
+
+def test_lm_studio_reasoning_on_is_sent_and_only_message_is_scored(example: DatasetExample) -> None:
+    config = lm_studio_config().model_copy(update={"reasoning": "on", "max_output_tokens": 1024})
+    transport = FakeTransport({
+        "output": [
+            {"type": "reasoning", "content": [{"type": "reasoning_text", "text": "Option A is wrong."}]},
+            {"type": "message", "content": "B"},
+        ],
+        "usage": {"input_tokens": 20, "total_output_tokens": 33, "reasoning_output_tokens": 32},
+        "stats": {"tokens_per_second": 10.0, "time_to_first_token_ms": 100},
+        "stop_reason": "completed",
+    })
+    response = LMStudioProvider(config, transport=transport).generate("prompt", example)
+    _, payload, timeout = transport.calls[0]
+    assert payload["reasoning"] == "on"
+    assert payload["store"] is False
+    assert payload["max_output_tokens"] == 1024
+    assert timeout == 120
+    assert response.raw_response == "B"
+    assert response.reasoning_observed is True
+    assert response.final_output_tokens == 1
+
+
+def test_final_output_tokens_are_null_when_not_safely_derivable(example: DatasetExample) -> None:
+    transport = FakeTransport({
+        "output": [{"type": "message", "content": "B"}],
+        "usage": {"total_output_tokens": 3},
+    })
+    response = LMStudioProvider(lm_studio_config(), transport=transport).generate("prompt", example)
+    assert response.final_output_tokens is None
+    assert response.reasoning_observed is False
 
 
 def test_lm_studio_ignores_reasoning_when_message_is_missing(example: DatasetExample) -> None:
@@ -152,6 +216,94 @@ def test_lm_studio_network_failure_is_normalized(example: DatasetExample) -> Non
     assert response.request_status == "failed"
     assert response.error_type == "network_error"
     assert response.raw_response is None
+
+
+def http_error(status: int, body: bytes, headers: dict[str, str] | None = None) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError(
+        "http://127.0.0.1:1234/api/v1/chat", status, "provider failure", headers or {}, io.BytesIO(body)
+    )
+
+
+def test_lm_studio_structured_internal_error_is_recorded_safely(example: DatasetExample) -> None:
+    body = b'{"error":{"message":"Engine protocol predict request failed: fetch failed","type":"internal_error","code":"unknown","param":null}}'
+    response = LMStudioProvider(
+        lm_studio_config(), transport=FakeTransport(error=http_error(500, body, {"Authorization": "Bearer secret"}))
+    ).generate("sensitive prompt", example)
+    assert response.error_type == "server_error"
+    assert response.http_status_code == 500
+    assert response.provider_error_type == "internal_error"
+    assert response.provider_error_code == "unknown"
+    assert response.provider_error_message == "Engine protocol predict request failed: fetch failed"
+    assert "secret" not in repr(response)
+    assert "sensitive prompt" not in repr(response)
+
+
+def test_lm_studio_non_json_and_empty_http_errors(example: DatasetExample) -> None:
+    plain = LMStudioProvider(
+        lm_studio_config(), transport=FakeTransport(error=http_error(500, b"temporary engine failure"))
+    ).generate("prompt", example)
+    assert plain.http_status_code == 500
+    assert plain.provider_error_message == "temporary engine failure"
+
+    empty = LMStudioProvider(
+        lm_studio_config(), transport=FakeTransport(error=http_error(503, b""))
+    ).generate("prompt", example)
+    assert empty.error_type == "server_error"
+    assert empty.http_status_code == 503
+    assert empty.provider_error_message is None
+
+
+def test_lm_studio_error_message_is_sanitized_limited_and_omits_html(example: DatasetExample) -> None:
+    unsafe = "Bearer top-secret api_key=abc123 " + ("x" * 700)
+    body = json.dumps({"error": {"message": unsafe}}).encode()
+    response = LMStudioProvider(
+        lm_studio_config(), transport=FakeTransport(error=http_error(500, body))
+    ).generate("prompt", example)
+    assert response.provider_error_message is not None
+    assert "top-secret" not in response.provider_error_message
+    assert "abc123" not in response.provider_error_message
+    assert "[REDACTED]" in response.provider_error_message
+    assert len(response.provider_error_message) <= 512
+    assert response.provider_error_message.endswith("...")
+    assert response.provider_error_message.startswith("Bearer [REDACTED]")
+
+    html = LMStudioProvider(
+        lm_studio_config(), transport=FakeTransport(error=http_error(502, b"<html><body>stack trace secret</body></html>"))
+    ).generate("prompt", example)
+    assert html.provider_error_message == "HTML provider error response omitted"
+
+
+@pytest.mark.parametrize(
+    "unsafe_value",
+    [
+        "api_key=abc123",
+        "api_key = abc123",
+        "password: example-value",
+        "password : example-value",
+        "authorization = sensitive-value",
+        "token: sensitive-value",
+    ],
+)
+def test_lm_studio_error_message_redacts_secret_separator_variants(
+    example: DatasetExample, unsafe_value: str
+) -> None:
+    body = json.dumps({"error": {"message": f"provider failed: {unsafe_value}"}}).encode()
+    response = LMStudioProvider(
+        lm_studio_config(), transport=FakeTransport(error=http_error(500, body))
+    ).generate("prompt", example)
+    assert response.provider_error_message is not None
+    assert response.provider_error_message.endswith("=[REDACTED]")
+    assert not any(
+        value in response.provider_error_message
+        for value in ("abc123", "example-value", "sensitive-value")
+    )
+
+
+def test_lm_studio_malformed_json_error_is_generic(example: DatasetExample) -> None:
+    response = LMStudioProvider(
+        lm_studio_config(), transport=FakeTransport(error=http_error(500, b'{"error":'))
+    ).generate("prompt", example)
+    assert response.provider_error_message == "Malformed provider error response"
 
 
 def test_provider_factory_preserves_mock_and_isolates_lm_studio() -> None:

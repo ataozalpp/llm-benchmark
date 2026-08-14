@@ -1,0 +1,25 @@
+schema_version: 1
+experiment_name: lm_studio_fixture_reasoning_on
+seed: 42
+output_dir: outputs
+dataset:
+  source: local
+  name: synthetic-mcq-fixture
+  path: data/fixtures/mcq_fixture.jsonl
+  split: test
+  profile: smoke
+  sample_size: 1
+models:
+  - provider: lm_studio
+    endpoint_alias: lm-studio-localhost
+    base_url: http://127.0.0.1:1234
+    model_id: qwen3.5-0.8b
+    reasoning: "on"
+    temperature: 0
+    max_output_tokens: 1024
+    timeout_seconds: 300
+evaluation:
+  prompt_version: mmlu_pro_cot_v1
+  parser_version: mcq_parser_v1
+  evaluator_version: mcq_evaluator_v1
+  scoring_mode: generated_answer

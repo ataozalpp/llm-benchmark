@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import socket
 import time
 import urllib.error
@@ -9,6 +10,10 @@ from typing import Any, Protocol
 
 from .config import ModelConfig
 from .models import DatasetExample, ProviderResponse
+
+
+_MAX_ERROR_BODY_BYTES = 16_384
+_MAX_ERROR_MESSAGE_CHARS = 512
 
 
 class Provider(Protocol):
@@ -99,6 +104,10 @@ class LMStudioProvider:
             "max_output_tokens": self.config.max_output_tokens,
             "store": False,
         }
+        for field in ("top_p", "top_k", "min_p", "repeat_penalty"):
+            value = getattr(self.config, field)
+            if value is not None:
+                payload[field] = value
         started = time.perf_counter()
         try:
             body = self.transport.post_json(url, payload, self.config.timeout_seconds)
@@ -109,6 +118,7 @@ class LMStudioProvider:
             input_tokens = _integer(usage, stats, "input_tokens", "prompt_tokens")
             output_tokens = _integer(usage, stats, "total_output_tokens", "output_tokens", "completion_tokens")
             reasoning_tokens = _integer(usage, stats, "reasoning_output_tokens", "reasoning_tokens")
+            final_output_tokens = _final_output_tokens(output_tokens, reasoning_tokens)
             total_tokens = _integer(usage, stats, "total_tokens")
             if total_tokens is None and input_tokens is not None and output_tokens is not None:
                 total_tokens = input_tokens + output_tokens
@@ -123,12 +133,15 @@ class LMStudioProvider:
                 input_tokens=input_tokens,
                 total_output_tokens=output_tokens,
                 reasoning_output_tokens=reasoning_tokens,
+                final_output_tokens=final_output_tokens,
+                reasoning_observed=_reasoning_observed(body.get("output"), reasoning_tokens),
                 tokens_per_second=_number(stats, usage, "tokens_per_second", "output_tokens_per_second"),
                 time_to_first_token_ms=_duration_ms(stats, usage),
                 stop_reason=_stop_reason(body),
             )
         except Exception as exc:
             latency_ms = (time.perf_counter() - started) * 1000
+            error_details = _provider_error_details(exc)
             return ProviderResponse(
                 request_status="failed",
                 raw_response=None,
@@ -138,6 +151,7 @@ class LMStudioProvider:
                 latency_ms=latency_ms,
                 error_type=_error_type(exc),
                 returned_model=self.config.model_id,
+                **error_details,
             )
 
 
@@ -163,6 +177,33 @@ def _message_text(output: Any) -> str:
             text_parts = [part.get("text", "") for part in content if isinstance(part, dict) and part.get("type") in {"text", "output_text"}]
             messages.append("".join(text_parts))
     return "\n".join(text for text in messages if text)
+
+
+def _reasoning_observed(output: Any, reasoning_tokens: int | None) -> bool:
+    if reasoning_tokens is not None and reasoning_tokens > 0:
+        return True
+    if not isinstance(output, list):
+        return False
+    for item in output:
+        if not isinstance(item, dict) or item.get("type") != "reasoning":
+            continue
+        content = item.get("content")
+        if isinstance(content, str) and content.strip():
+            return True
+        if isinstance(content, list) and any(
+            isinstance(part, dict) and isinstance(part.get("text"), str) and part["text"].strip()
+            for part in content
+        ):
+            return True
+    return False
+
+
+def _final_output_tokens(total_output_tokens: int | None, reasoning_output_tokens: int | None) -> int | None:
+    if total_output_tokens is None or reasoning_output_tokens is None:
+        return None
+    if reasoning_output_tokens < 0 or reasoning_output_tokens > total_output_tokens:
+        return None
+    return total_output_tokens - reasoning_output_tokens
 
 
 def _integer(*sources_and_keys: Any) -> int | None:
@@ -236,3 +277,71 @@ def _error_type(exc: Exception) -> str:
     if isinstance(exc, (json.JSONDecodeError, KeyError, TypeError, ValueError)):
         return "provider_error"
     return "unknown_error"
+
+
+def _provider_error_details(exc: Exception) -> dict[str, Any]:
+    if not isinstance(exc, urllib.error.HTTPError):
+        return {}
+    details: dict[str, Any] = {"http_status_code": exc.code}
+    try:
+        raw_body = exc.read(_MAX_ERROR_BODY_BYTES + 1)
+    except Exception:
+        return details
+    if not raw_body:
+        return details
+    source_truncated = len(raw_body) > _MAX_ERROR_BODY_BYTES
+    text = raw_body[:_MAX_ERROR_BODY_BYTES].decode("utf-8", errors="replace").strip()
+    if not text:
+        return details
+
+    try:
+        body = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        if text.lstrip().startswith(("{", "[")):
+            message = "Malformed provider error response"
+        elif _looks_like_html(text):
+            message = "HTML provider error response omitted"
+        else:
+            message = text
+    else:
+        if not isinstance(body, dict):
+            message = "Unsupported provider error response"
+        else:
+            error = body.get("error") if isinstance(body.get("error"), dict) else body
+            provider_type = _safe_scalar(error.get("type"))
+            provider_code = _safe_scalar(error.get("code"))
+            if provider_type is not None:
+                details["provider_error_type"] = provider_type
+            if provider_code is not None:
+                details["provider_error_code"] = provider_code
+            message = error.get("message") if isinstance(error.get("message"), str) else None
+
+    if message:
+        details["provider_error_message"] = _sanitize_error_message(message, source_truncated)
+    return details
+
+
+def _safe_scalar(value: Any) -> str | None:
+    if isinstance(value, (str, int)) and not isinstance(value, bool):
+        return _sanitize_error_message(str(value), False, max_chars=128)
+    return None
+
+
+def _looks_like_html(text: str) -> bool:
+    lowered = text.lstrip().lower()
+    return lowered.startswith(("<!doctype html", "<html", "<head", "<body")) or bool(
+        re.search(r"<\s*(?:script|style|pre|div|span|p)(?:\s|>)", lowered)
+    )
+
+
+def _sanitize_error_message(message: str, source_truncated: bool, max_chars: int = _MAX_ERROR_MESSAGE_CHARS) -> str:
+    sanitized = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", " ", message)
+    sanitized = re.sub(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+", "Bearer [REDACTED]", sanitized)
+    sanitized = re.sub(
+        r"(?i)\b(api[-_ ]?key|authorization|token|secret|password)\b\s*[:=]\s*[^\s,;]+",
+        lambda match: f"{match.group(1)}=[REDACTED]",
+        sanitized,
+    )
+    sanitized = " ".join(sanitized.split())
+    suffix = "..." if source_truncated or len(sanitized) > max_chars else ""
+    return sanitized[: max(0, max_chars - len(suffix))] + suffix

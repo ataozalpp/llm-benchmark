@@ -107,13 +107,18 @@ sequenceDiagram
 ```
 
 The provider submits an explicit reasoning mode and scores only native output
-items whose type is `message`. Reasoning items are recorded as token telemetry
-when available but are not parsed as final answers. A generic OpenAI-compatible
-adapter remains a separate future provider.
+items whose type is `message`. Reasoning items contribute only telemetry and
+are never parsed as final answers. The normalized response can include input,
+total-output, reasoning-output, safely derived final-output, TTFT, throughput,
+stop-reason, and sanitized HTTP/provider-error fields. Optional supported
+sampling values are omitted from the native payload unless explicitly set.
+A generic OpenAI-compatible adapter remains a separate future provider.
 
-The native provider path has been validated with both the one-question local
-fixture and the pinned 14-question MMLU-Pro smoke profile. Both paths remain
-sequential and use the same strict standalone-label parser contract.
+The native provider path has been validated with the one-question local
+fixture, the pinned 14-question reasoning-off MMLU-Pro smoke profile, a
+reasoning-on 14-question profile, and bounded single-sample calibrations. All
+paths remain sequential and use the same strict standalone-label parser
+contract.
 
 ## Phased roadmap
 
@@ -128,8 +133,10 @@ sequential and use the same strict standalone-label parser contract.
 ### Phase 2 — Controlled local-provider POC
 
 - Provider factory and isolated LM Studio native adapter
-- One validated localhost model profile, followed by two approved profiles
-- Normalized provider usage, returned-model, and error metadata
+- One validated localhost model profile with configurable reasoning and
+  partial native-supported sampling controls
+- Normalized provider usage, returned-model, reasoning/final-output telemetry,
+  and sanitized error metadata
 - Fixture or pinned smoke workload only
 
 ### Phase 3 — Reliable execution
@@ -156,3 +163,7 @@ sequential and use the same strict standalone-label parser contract.
 - Open-ended and code-generation evaluation with appropriate safety controls
 - Calibrated LLM-judge and human evaluation only when deterministic methods are
   insufficient
+
+Later dedicated phases may evaluate opt-in reasoning diagnostics, repetition
+analysis, difficulty calibration suites, and provider/model capability
+metadata. They are intentionally not implemented in the current branch.

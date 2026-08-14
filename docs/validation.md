@@ -1,12 +1,13 @@
 # Validation record
 
-This document summarizes completed software validation. It does not report real
-language-model capability.
+This document summarizes completed software and local operational validation.
+The real-model results are small diagnostic smoke runs, not statistically
+sufficient model benchmarks.
 
 > [!WARNING]
-> All accuracy, token, and latency values described here are deterministic
-> `MockProvider` validation metrics. They are synthetic and must not be cited as
-> real LLM or MMLU-Pro model performance.
+> `MockProvider` values are synthetic pipeline metrics. LM Studio values are
+> real local-run telemetry for the stated model/runtime/configuration only and
+> must not be generalized into a full MMLU-Pro capability claim.
 
 ## Offline fixture validation
 
@@ -68,7 +69,7 @@ The POC and full profiles were not run as part of this validation.
 The offline test suite completed with:
 
 ```text
-34 passed
+57 passed
 0 failed
 ```
 
@@ -229,6 +230,71 @@ Artifacts were generated under the ignored run directory
 local execution path and strict output-format compliance; it is not a
 statistically sufficient MMLU-Pro score.
 
+## Reasoning-on Gate 2 result
+
+Run ID: `20260813T081214Z-0410f308`
+
+The same 14 pinned sample IDs, categories, dataset revision, split, seed,
+model, strict prompt/parser contract, and sequential policy were used with
+`reasoning="on"` and a bounded 1,024-token output budget.
+
+| Metric | Value |
+| --- | ---: |
+| Requests | 14 |
+| HTTP request success | 14/14 |
+| Correct / incorrect | 0 / 0 |
+| Unparseable / failed | 14 / 0 |
+| Parse success / format failure | 0% / 100% |
+| Input tokens | 4,270 |
+| Total output tokens | 14,336 |
+| Reasoning output tokens | 14,336 |
+| Derived final-output tokens | 0 |
+| Latency P50 / P95 | 64,536.63 / 67,980.39 ms |
+| Mean TTFT | 493.04 ms |
+| Mean throughput | 16.09 tokens/s |
+| Logical-duration sum | 906,158.60 ms |
+| Run wall time | 906,178.97 ms |
+
+Every response used exactly 1,024 output tokens as reasoning tokens and
+produced an empty native final message. Reasoning was never scored as an
+answer, so all results were correctly classified as unparseable.
+
+## Single-sample 2,048-token calibration
+
+Successful run ID: `20260813T125426Z-951e53ca`
+Sample: `2019` (`psychology`, correct label `I`)
+
+The request succeeded without retry or timeout. It reported 154 input tokens,
+2,048 total-output tokens, 2,048 reasoning tokens, zero derived final-output
+tokens, 2,202 total tokens, 122,546.88 ms latency, 795.47 ms TTFT, and 16.85
+tokens/s. The final message was empty and the strict parser returned
+`unparseable`.
+
+An earlier attempt (`20260813T105947Z-2005f467`) ended at the runtime/provider
+boundary with `server_error`. Local LM Studio Developer Logs later reported a
+sanitized `internal_error` with code `unknown`; it did not establish that
+2,048 tokens had been generated. The successful calibration supersedes that
+attempt for output-budget analysis, while both artifacts remain separate.
+
+## Partial native-supported sampling calibration
+
+Run ID: `20260813T132112Z-9f0ac78f`
+Sample: `2019`
+
+The profile used `temperature=1.0`, `top_p=0.95`, `top_k=20`, `min_p=0.0`,
+and `repeat_penalty=1.0`. Native `presence_penalty` support was unverified and
+the field was omitted. The result again reported 154 input tokens, 2,048
+total-output tokens, 2,048 reasoning tokens, zero final-output tokens, and an
+empty final message. Latency was 119,960.24 ms, TTFT was 176.64 ms, and
+throughput was 17.15 tokens/s.
+
+Sanitized inspection through local LM Studio Developer Logs showed strong
+repetitive, non-convergent deliberation until output-budget exhaustion. This
+supports the conclusion of probable non-terminating or excessively long
+reasoning under the tested model/runtime/prompt/sampling configuration. It
+does not prove a literal infinite loop. Raw reasoning text is not stored in
+the repository, documentation, or tracked artifacts.
+
 ## Interpretation boundary
 
 The validation proves that the current pipeline can load and sample data,
@@ -237,9 +303,8 @@ calculate metrics, and persist reproducibility artifacts.
 
 It does not establish:
 
-- MMLU-Pro performance for any real model
-- Provider latency or reliability
-- Real tokenizer usage
+- Full MMLU-Pro performance for any real model
+- General provider latency or reliability beyond the recorded local runs
 - Monetary cost
 - Real endpoint compatibility
 - Statistical validity of a 14-sample score
@@ -250,6 +315,5 @@ measurement protocol metadata.
 
 ## Licensing note
 
-The project does not yet include a project license. Repository licensing and
-all third-party dataset obligations must be confirmed before making the
-repository public.
+No project license has been selected yet. MMLU-Pro attribution and its dataset
+license metadata remain recorded separately from the project license.

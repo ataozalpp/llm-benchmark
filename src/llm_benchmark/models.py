@@ -30,9 +30,15 @@ class ProviderResponse:
     input_tokens: int | None = None
     total_output_tokens: int | None = None
     reasoning_output_tokens: int | None = None
+    final_output_tokens: int | None = None
+    reasoning_observed: bool | None = None
     tokens_per_second: float | None = None
     time_to_first_token_ms: float | None = None
     stop_reason: str | None = None
+    http_status_code: int | None = None
+    provider_error_type: str | None = None
+    provider_error_code: str | None = None
+    provider_error_message: str | None = None
 
 
 @dataclass(frozen=True)
@@ -76,9 +82,16 @@ class BenchmarkResult:
     input_tokens: int | None = None
     total_output_tokens: int | None = None
     reasoning_output_tokens: int | None = None
+    final_output_tokens: int | None = None
+    reasoning_observed: bool | None = None
     tokens_per_second: float | None = None
     time_to_first_token_ms: float | None = None
     stop_reason: str | None = None
+    timeout_seconds: float | None = None
+    http_status_code: int | None = None
+    provider_error_type: str | None = None
+    provider_error_code: str | None = None
+    provider_error_message: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

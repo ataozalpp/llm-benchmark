@@ -60,6 +60,12 @@ def normalize_mmlu_rows(rows: Iterable[dict[str, Any]]) -> list[DatasetExample]:
 
 def sample_examples(examples: list[DatasetExample], config: DatasetConfig, seed: int) -> list[DatasetExample]:
     filtered = [e for e in examples if not config.category_filter or e.category in config.category_filter]
+    if config.sample_ids:
+        by_id = {example.sample_id: example for example in filtered}
+        missing = [sample_id for sample_id in config.sample_ids if sample_id not in by_id]
+        if missing:
+            raise ValueError(f"configured sample IDs were not found after filtering: {', '.join(missing)}")
+        return [by_id[sample_id] for sample_id in config.sample_ids]
     if config.profile == "full":
         return filtered
     grouped: dict[str, list[DatasetExample]] = defaultdict(list)
@@ -97,6 +103,7 @@ def load_and_sample(config: DatasetConfig, seed: int) -> tuple[list[DatasetExamp
         "dataset_revision": config.revision,
         "profile": config.profile,
         "category_filter": config.category_filter,
+        "configured_sample_ids": config.sample_ids,
         "seed": seed,
         "loaded_row_count": len(loaded),
         "final_sample_count": len(selected),

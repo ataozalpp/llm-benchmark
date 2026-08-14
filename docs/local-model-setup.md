@@ -94,8 +94,10 @@ only from items with `type="message"`. Items such as `type="reasoning"` are not
 sent to the multiple-choice parser and cannot become the scored answer.
 
 When reported, the result stores input tokens, total output tokens, reasoning
-output tokens, tokens per second, and time to first token. Missing telemetry is
-stored as null rather than zero.
+output tokens, safely derived final-output tokens, reasoning-observed status,
+tokens per second, time to first token, timeout, and stop reason. HTTP failures
+can also record optional sanitized status/code/type/message fields. Missing
+telemetry is stored as null rather than zero.
 
 The canonical multiple-choice response is one uppercase option label as the
 entire output, with the valid range derived from the question's actual options.
@@ -103,3 +105,29 @@ The strict parser keeps exact `FINAL ANSWER: <label>` support for backward
 compatibility, but it does not accept approximate markers or infer an option
 letter from answer text such as a city, planet, or person name. Native stop
 reason is recorded only when LM Studio includes one; otherwise it remains null.
+
+## Reasoning and sampling validation
+
+Separate tracked configs preserve the reasoning-off baseline and define
+bounded, opt-in reasoning-on calibrations. The pinned 14-sample reasoning-on
+run consumed all 1,024 output tokens as reasoning for every sample and produced
+no final messages. Sample `2019` repeated the same outcome with a 2,048-token
+budget.
+
+A partial native-supported sampling calibration used:
+
+```yaml
+temperature: 1.0
+top_p: 0.95
+top_k: 20
+min_p: 0.0
+repeat_penalty: 1.0
+```
+
+Native `presence_penalty` support was not verified and the field is omitted.
+Unset optional sampling fields are not sent in the native request. Local LM
+Studio logs showed strong repetitive, non-convergent deliberation until the
+output budget was exhausted, but did not prove a literal infinite loop.
+
+Raw reasoning text is not stored in tracked files. Reasoning remains separate
+from the final `message` channel and is never passed to the parser or scorer.

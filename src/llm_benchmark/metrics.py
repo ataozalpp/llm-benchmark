@@ -35,6 +35,7 @@ def summarize(results: list[BenchmarkResult], run_wall_time_ms: float) -> dict[s
     known_input = [r.input_tokens for r in results if r.input_tokens is not None]
     known_output = [r.total_output_tokens for r in results if r.total_output_tokens is not None]
     known_reasoning = [r.reasoning_output_tokens for r in results if r.reasoning_output_tokens is not None]
+    known_final_output = [r.final_output_tokens for r in results if r.final_output_tokens is not None]
     throughput = [r.tokens_per_second for r in results if r.tokens_per_second is not None]
     ttft = [r.time_to_first_token_ms for r in results if r.time_to_first_token_ms is not None]
     success_latencies = [r.logical_request_latency_ms for r in results if r.request_status == "succeeded"]
@@ -65,6 +66,9 @@ def summarize(results: list[BenchmarkResult], run_wall_time_ms: float) -> dict[s
         "total_output_tokens": sum(known_output),
         "total_reasoning_output_tokens": sum(known_reasoning),
         "reasoning_token_usage_missing_count": total - len(known_reasoning),
+        "total_final_output_tokens": sum(known_final_output),
+        "final_output_token_usage_missing_count": total - len(known_final_output),
+        "reasoning_observed_count": sum(r.reasoning_observed is True for r in results),
         "tokens_per_second_mean": mean(throughput) if throughput else None,
         "time_to_first_token_mean_ms": mean(ttft) if ttft else None,
         "time_to_first_token_p50_ms": percentile(ttft, 0.50),
@@ -77,6 +81,7 @@ def summarize(results: list[BenchmarkResult], run_wall_time_ms: float) -> dict[s
         "latency_max_ms": max(success_latencies) if success_latencies else None,
         "failure_latency_count": len(failure_latencies),
         "failure_latency_mean_ms": mean(failure_latencies) if failure_latencies else None,
+        "logical_duration_sum_ms": sum(r.logical_request_latency_ms for r in results),
         "run_wall_time_ms": run_wall_time_ms,
         "error_type_distribution": dict(Counter(r.error_type for r in results if r.error_type)),
     }

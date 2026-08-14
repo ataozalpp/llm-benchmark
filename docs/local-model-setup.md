@@ -152,3 +152,15 @@ In the single-sample provider-default calibration (`2019`), the request used
 was `I`, so the result was incorrect. This one sample demonstrates operational
 termination under the tested configuration; it does not prove general
 termination or improved accuracy.
+
+The follow-up three-sample operational calibration used fixed IDs `215`,
+`6232`, and `2019` in that order. All three requests and parses succeeded and
+all three reached final messages; one answer was correct. Total usage was
+14,902 tokens, including 14,123 reasoning tokens, and total logical duration
+was 904,660.36 ms. No explicit output-limit exhaustion was observed, but LM
+Studio did not provide stop reasons.
+
+This mini-calibration is intended for final-message reliability and cost
+analysis. It is not an MMLU-Pro score. Its reasoning-off comparison also
+changes output-budget and sampling policies, so observed differences cannot be
+attributed solely to reasoning.

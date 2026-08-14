@@ -241,6 +241,19 @@ not a benchmark score or evidence that reasoning improves accuracy.
 The provider-default request did not consume the full loaded context, and the
 result does not establish that provider-default generation always terminates.
 
+A follow-up three-sample operational calibration reached final messages and
+produced parseable responses for all three requests. One response was correct
+and two were incorrect. Across the three samples it consumed 14,902 total
+tokens, including 14,123 reasoning tokens, with a 904.66-second logical-duration
+sum. These values describe final-message reliability and cost for this specific
+configuration; three samples are not an MMLU-Pro score.
+
+The paired reasoning-off subset was faster and used fewer tokens, but it also
+used a fixed output budget, temperature zero, and different sampling controls.
+Consequently, differences cannot be attributed solely to reasoning. No explicit
+output-limit exhaustion was observed in the provider-default mini-calibration,
+although LM Studio did not provide stop reasons.
+
 ## Output artifacts
 
 Every run creates an ignored directory under `outputs/<run_id>/` containing:

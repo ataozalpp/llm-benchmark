@@ -1,10 +1,11 @@
 import io
 import json
 import urllib.error
+from pathlib import Path
 
 import pytest
 
-from llm_benchmark.config import ModelConfig
+from llm_benchmark.config import ModelConfig, load_config
 from llm_benchmark.models import DatasetExample
 from llm_benchmark.parser import parse_multiple_choice
 from llm_benchmark.prompting import build_prompt
@@ -180,6 +181,23 @@ def test_mock_provider_is_unaffected_by_optional_output_budget(example: DatasetE
     without_limit = MockProvider(ModelConfig(model_id="mock", scenario_cycle=["correct"]))
     with_limit = MockProvider(ModelConfig(model_id="mock", scenario_cycle=["correct"], max_output_tokens=64))
     assert without_limit.generate("prompt", example) == with_limit.generate("prompt", example)
+
+
+def test_context_bounded_mini_omits_output_limit_for_all_three_payloads() -> None:
+    config = load_config(Path("configs/mmlu_pro_lm_studio_reasoning_on_context_bounded_mini.yaml"))
+    model = config.models[0]
+    transport = FakeTransport({"output": [{"type": "message", "content": "A"}]})
+    provider = LMStudioProvider(model, transport=transport)
+    for sample_id in config.dataset.sample_ids:
+        provider.generate("prompt", DatasetExample(sample_id, "Question?", ["one", "two"], "A", "test"))
+
+    assert len(transport.calls) == 3
+    for _, payload, timeout in transport.calls:
+        assert "max_output_tokens" not in payload
+        assert "presence_penalty" not in payload
+        assert payload["reasoning"] == "on"
+        assert payload["store"] is False
+        assert timeout == 660
 
 
 def test_lm_studio_includes_supported_sampling_fields_when_set(example: DatasetExample) -> None:

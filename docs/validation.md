@@ -333,6 +333,64 @@ single sample neither proves that provider-default generation always
 terminates nor that reasoning improves accuracy; it is an operational
 calibration rather than a benchmark score.
 
+## Three-sample provider-default operational calibration
+
+Run ID: `20260814T104711Z-3e7b92e5`
+
+Fixed samples `215`, `6232`, and `2019` were executed sequentially with one
+attempt each, a 660-second timeout, and provider-default output budgeting.
+`max_output_tokens` and `presence_penalty` were absent. All three requests
+succeeded, parsed successfully, and reached a native final message. One answer
+was correct and two were incorrect.
+
+| Sample | Category | Expected / parsed | Result | Input | Reasoning | Final output | Total output | Total tokens | Latency | TTFT | Throughput |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `215` | business | `A` / `A` | correct | 285 | 6,804 | 4 | 6,808 | 7,093 | 439,171.65 ms | 2,284.082 ms | 15.6165 tok/s |
+| `6232` | health | `C` / `J` | incorrect | 328 | 5,116 | 4 | 5,120 | 5,448 | 329,634.88 ms | 2,100.948 ms | 15.6703 tok/s |
+| `2019` | psychology | `I` / `B` | incorrect | 154 | 2,203 | 4 | 2,207 | 2,361 | 135,853.82 ms | 1,003.439 ms | 16.4733 tok/s |
+
+Aggregate operational measurements:
+
+- Final messages reached: 3/3 (100%)
+- Request success: 3/3 (100%)
+- Parse success: 3/3 (100%)
+- Calibration-only correct: 1/3 (33.33%)
+- Total tokens: 14,902
+- Total reasoning tokens: 14,123
+- Logical-duration sum: 904,660.36 ms
+- Run wall time: 904,667.38 ms
+- Latency P50/P95: 329,634.88 / 428,217.97 ms
+
+No request timed out or showed explicit output-limit exhaustion, and all final
+messages were format-compliant. Native stop reasons were not provided. These
+three selected samples characterize operational final-message reliability and
+cost only; they are not an MMLU-Pro accuracy estimate.
+
+### Paired reasoning-off comparison
+
+The same three samples were extracted from reasoning-off run
+`20260812T130136Z-ff5ca994` for a paired descriptive comparison.
+
+| Aggregate for the same samples | Reasoning off | Context bounded |
+| --- | ---: | ---: |
+| Correct / incorrect | 2 / 1 | 1 / 2 |
+| Unparseable / failed | 0 / 0 | 0 / 0 |
+| Final-message rate | 100% | 100% |
+| Request / parse success | 100% / 100% | 100% / 100% |
+| Total tokens | 779 | 14,902 |
+| Reasoning tokens | 0 | 14,123 |
+| Logical-duration sum | 4,053.07 ms | 904,660.36 ms |
+| Latency P50/P95 | 1,403.38 / 1,516.33 ms | 329,634.88 / 428,217.97 ms |
+
+This comparison does not isolate reasoning. The reasoning-off run used
+`reasoning=off`, `temperature=0`, and a fixed 128-token output budget. The
+context-bounded run used `reasoning=on`, `temperature=1.0`, `top_p=0.95`,
+`top_k=20`, `min_p=0.0`, `repeat_penalty=1.0`, and provider-default output
+budgeting. The runs also used different workload sizes, Git revisions, dates,
+and runtime states. Therefore token, latency, and quality differences cannot be
+causally attributed solely to reasoning, and no statistical significance can
+be inferred from three samples.
+
 ## Interpretation boundary
 
 The validation proves that the current pipeline can load and sample data,

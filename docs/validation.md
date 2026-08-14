@@ -295,6 +295,44 @@ reasoning under the tested model/runtime/prompt/sampling configuration. It
 does not prove a literal infinite loop. Raw reasoning text is not stored in
 the repository, documentation, or tracked artifacts.
 
+## Provider-default context-bounded calibration
+
+Run ID: `20260814T082432Z-39883af2`
+
+This single-sample calibration reused sample `2019`, the pinned dataset
+revision, reasoning-on mode, and the partial native-supported sampling profile.
+`max_output_tokens` and `presence_penalty` were absent from the native payload.
+The result recorded `output_budget_provenance=provider_default` and used a
+660-second transport safety timeout without retry.
+
+LM Studio reported an 8,192-token context for the loaded instance and a
+262,144-token maximum in model metadata. The loaded-instance value is the
+relevant runtime configuration, but neither value establishes the exact output
+allowance because input, template, special tokens, and runtime overhead share
+the context.
+
+| Metric | Bounded 1,024 | Bounded 2,048 | Provider default |
+| --- | ---: | ---: | ---: |
+| Input tokens | 154 | 154 | 154 |
+| Reasoning tokens | 1,024 | 2,048 | 3,591 |
+| Derived final-output tokens | 0 | 0 | 4 |
+| Total-output tokens | 1,024 | 2,048 | 3,595 |
+| Total tokens | 1,178 | 2,202 | 3,749 |
+| Final message | Empty | Empty | `B` |
+| Parsed/evaluation status | Unparseable | Unparseable | `B` / incorrect |
+| Latency | 62,444.60 ms | 122,546.88 ms | 209,883.45 ms |
+| TTFT | 808.346 ms | 795.465 ms | 215.925 ms |
+| Throughput | 16.7643 tokens/s | 16.8524 tokens/s | 17.1926 tokens/s |
+
+The provider-default request succeeded, did not time out, and reached a final
+message after exceeding both earlier bounded budgets. The final label was
+format-compliant but differed from correct label `I`. No explicit configured
+output limit ended the request, but the null stop reason prevents a stronger
+termination claim. The request did not consume the full loaded context. This
+single sample neither proves that provider-default generation always
+terminates nor that reasoning improves accuracy; it is an operational
+calibration rather than a benchmark score.
+
 ## Interpretation boundary
 
 The validation proves that the current pipeline can load and sample data,

@@ -114,6 +114,20 @@ stop-reason, and sanitized HTTP/provider-error fields. Optional supported
 sampling values are omitted from the native payload unless explicitly set.
 A generic OpenAI-compatible adapter remains a separate future provider.
 
+`max_output_tokens` follows the same omission rule. A positive configured value
+is sent and yields `output_budget_provenance=fixed`; an omitted or null value is
+not sent and yields `output_budget_provenance=provider_default`. Provenance is a
+derived result field rather than an additional resolved-config policy object,
+so existing explicitly bounded config hashes remain stable. Provider-default
+means that runtime/model context policy governs generation, not that generation
+is unlimited.
+
+Model metadata maximum context and loaded-instance context are interpreted
+separately when known. In the validated local setup these were 262,144 and
+8,192 tokens respectively. Neither value by itself reveals the exact output
+allowance because prompt, template, special-token, and runtime overhead share
+the loaded context.
+
 The native provider path has been validated with the one-question local
 fixture, the pinned 14-question reasoning-off MMLU-Pro smoke profile, a
 reasoning-on 14-question profile, and bounded single-sample calibrations. All

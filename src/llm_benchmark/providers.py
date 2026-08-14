@@ -101,9 +101,10 @@ class LMStudioProvider:
             "input": prompt,
             "reasoning": self.config.reasoning,
             "temperature": self.config.temperature,
-            "max_output_tokens": self.config.max_output_tokens,
             "store": False,
         }
+        if self.config.max_output_tokens is not None:
+            payload["max_output_tokens"] = self.config.max_output_tokens
         for field in ("top_p", "top_k", "min_p", "repeat_penalty"):
             value = getattr(self.config, field)
             if value is not None:

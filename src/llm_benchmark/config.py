@@ -48,13 +48,17 @@ class ModelConfig(StrictModel):
     top_k: int | None = Field(default=None, ge=0, exclude_if=lambda value: value is None)
     min_p: float | None = Field(default=None, ge=0, le=1, exclude_if=lambda value: value is None)
     repeat_penalty: float | None = Field(default=None, gt=0, exclude_if=lambda value: value is None)
-    max_output_tokens: int = Field(default=64, gt=0)
+    max_output_tokens: int | None = Field(default=None, gt=0)
     timeout_seconds: float = Field(default=120, gt=0)
     scenario_cycle: list[Literal["correct", "incorrect", "unparseable", "request_failed", "missing_usage"]] = Field(
         default_factory=lambda: ["correct"]
     )
     scenario_overrides: dict[str, Literal["correct", "incorrect", "unparseable", "request_failed", "missing_usage"]] = Field(default_factory=dict)
     mock_latency_ms: float = Field(default=12.5, ge=0)
+
+    @property
+    def output_budget_provenance(self) -> Literal["fixed", "provider_default"]:
+        return "fixed" if self.max_output_tokens is not None else "provider_default"
 
     @model_validator(mode="after")
     def validate_provider(self) -> "ModelConfig":

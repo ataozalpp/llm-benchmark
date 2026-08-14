@@ -213,6 +213,34 @@ stored in tracked files or repository documentation, and reasoning content is
 never parsed as the final answer. See the [validation record](docs/validation.md)
 for verified run IDs and metrics.
 
+`max_output_tokens` is optional for LM Studio native profiles. A positive value
+is sent unchanged and recorded with `output_budget_provenance=fixed`. When the
+field is omitted or null, the provider does not send it and records
+`output_budget_provenance=provider_default`. Omission is not an unlimited-output
+claim: generation remains governed by the provider, model, and loaded context.
+
+For the loaded `qwen3.5-0.8b` instance, LM Studio reported an 8,192-token loaded
+context while the model metadata advertised a 262,144-token maximum. These are
+different measurements; the effective loaded context is the relevant runtime
+bound, and the exact generation allowance is smaller and was not exposed.
+
+The provider-default calibration for sample `2019` reached a final message
+after 3,591 reasoning tokens. The final label `B` was format-compliant but
+incorrect against reference label `I`. This is one operational calibration,
+not a benchmark score or evidence that reasoning improves accuracy.
+
+| Sample `2019` | Bounded 1,024 | Bounded 2,048 | Provider default |
+| --- | ---: | ---: | ---: |
+| Reasoning tokens | 1,024 | 2,048 | 3,591 |
+| Final-output tokens | 0 | 0 | 4 |
+| Total-output tokens | 1,024 | 2,048 | 3,595 |
+| Final message reached | No | No | Yes (`B`) |
+| Evaluation | Unparseable | Unparseable | Incorrect |
+| Latency | 62.44 s | 122.55 s | 209.88 s |
+
+The provider-default request did not consume the full loaded context, and the
+result does not establish that provider-default generation always terminates.
+
 ## Output artifacts
 
 Every run creates an ignored directory under `outputs/<run_id>/` containing:
@@ -257,6 +285,8 @@ configured synthetic value; neither is provider telemetry.
 Each run records:
 
 - A strict `schema_version: 1` resolved configuration and canonical hash.
+- Output-budget provenance distinguishing fixed limits from provider-default
+  behavior without treating omission as unlimited generation.
 - Dataset source, pinned revision, split, seed, selected sample IDs,
   categories, sample count, license, and manifest hash.
 - Prompt-template hash, parser version, and evaluator version.

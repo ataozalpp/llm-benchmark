@@ -88,6 +88,7 @@ class BenchmarkResult:
     time_to_first_token_ms: float | None = None
     stop_reason: str | None = None
     timeout_seconds: float | None = None
+    output_budget_provenance: str | None = None
     http_status_code: int | None = None
     provider_error_type: str | None = None
     provider_error_code: str | None = None

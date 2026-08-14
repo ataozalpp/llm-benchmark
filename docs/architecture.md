@@ -134,6 +134,13 @@ reasoning-on 14-question profile, and bounded single-sample calibrations. All
 paths remain sequential and use the same strict standalone-label parser
 contract.
 
+The provider-default path has also been exercised as a fixed-order,
+three-sample operational calibration. It retained one attempt per sample and
+reached a final `message` for all three requests. Provider-default is a payload
+and provenance policy, not an unlimited-generation guarantee; runtime context,
+transport timeout, and provider behavior still bound execution. Missing native
+stop reasons remain null rather than being inferred.
+
 ## Phased roadmap
 
 ### Phase 1 — Completed validation core

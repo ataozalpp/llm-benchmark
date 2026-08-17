@@ -47,6 +47,12 @@ Thumbs.db
 outputs/*
 !outputs/.gitkeep
 
+# Runtime databases
+runtime/
+*.db
+*.sqlite
+*.sqlite3
+
 # Local dataset caches
 .cache/
 .huggingface/

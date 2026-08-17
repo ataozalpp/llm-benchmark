@@ -8,6 +8,20 @@ from .engine import (
     create_session_factory,
     get_database_url,
 )
+from .errors import (
+    InactiveDependencyError,
+    InvalidStateTransitionError,
+    RecordNotFoundError,
+    RepositoryError,
+    UniquenessConflictError,
+)
+from .repositories import (
+    BenchmarkRunRepository,
+    DatasetRepository,
+    ModelRepository,
+    ProviderEndpointRepository,
+    SampleResultRepository,
+)
 
 __all__ = [
     "Base",
@@ -16,4 +30,14 @@ __all__ = [
     "create_db_engine",
     "create_session_factory",
     "get_database_url",
+    "BenchmarkRunRepository",
+    "DatasetRepository",
+    "InactiveDependencyError",
+    "InvalidStateTransitionError",
+    "ModelRepository",
+    "ProviderEndpointRepository",
+    "RecordNotFoundError",
+    "RepositoryError",
+    "SampleResultRepository",
+    "UniquenessConflictError",
 ]

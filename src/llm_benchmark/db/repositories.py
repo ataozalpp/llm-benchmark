@@ -372,6 +372,7 @@ class BenchmarkRunRepository(_Repository):
         *,
         summary: dict[str, Any] | None = None,
         artifact_directory: str | None = None,
+        sample_count: int | None = None,
         error_type: str | None = None,
         error_message: str | None = None,
     ) -> BenchmarkRunRecord:
@@ -391,6 +392,8 @@ class BenchmarkRunRepository(_Repository):
                 run.summary_json = summary
             if artifact_directory is not None:
                 run.artifact_directory = artifact_directory
+            if sample_count is not None:
+                run.sample_count = sample_count
             if target is RunStatus.FAILED:
                 run.error_type = error_type
                 run.error_message = _sanitize_error_message(error_message)

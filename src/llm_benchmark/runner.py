@@ -4,6 +4,7 @@ import hashlib
 import time
 import uuid
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,13 @@ from .prompting import build_prompt, prompt_hash
 from .providers import Provider, create_provider
 from .reproducibility import canonical_hash, environment_snapshot
 from .storage import append_result, write_json
+
+
+@dataclass(frozen=True)
+class PipelineExecution:
+    run_dir: Path
+    summary: dict[str, Any]
+    results: tuple[BenchmarkResult, ...]
 
 
 def utc_now() -> str:
@@ -87,7 +95,7 @@ def _evaluate(
     )
 
 
-def run_benchmark(config: RunConfig) -> tuple[Path, dict[str, Any]]:
+def execute_benchmark(config: RunConfig) -> PipelineExecution:
     run_id = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
     run_dir = config.output_dir / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
@@ -144,4 +152,11 @@ def run_benchmark(config: RunConfig) -> tuple[Path, dict[str, Any]]:
         "by_model_category": {name: summarize(items, wall_time_ms) for name, items in sorted(by_category.items())},
     }
     write_json(run_dir / "summary.json", summary)
-    return run_dir, summary
+    return PipelineExecution(run_dir=run_dir, summary=summary, results=tuple(results))
+
+
+def run_benchmark(config: RunConfig) -> tuple[Path, dict[str, Any]]:
+    """Preserve the original CLI-facing runner contract."""
+
+    execution = execute_benchmark(config)
+    return execution.run_dir, execution.summary

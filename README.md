@@ -6,8 +6,8 @@ to compare response quality, token usage, latency, reliability, and eventually
 cost under consistent datasets, prompts, parameters, and measurement rules.
 
 The current release is a small proof of concept. It preserves deterministic
-offline validation with `MockProvider` and adds an opt-in LM Studio native API
-path for a manually started local model.
+offline validation with `MockProvider` and adds opt-in LM Studio native and
+OpenAI-compatible paths for a manually started local model.
 
 > [!WARNING]
 > `MockProvider` accuracy, token, and latency values are synthetic pipeline
@@ -30,10 +30,13 @@ Completed and validated:
 - Quality, token, latency, reliability, and category-level metrics.
 - Redacted resolved configuration, dataset manifest, environment snapshot,
   hashes, and a combined run fingerprint.
-- Offline unit and integration suite with 57 passing tests.
+- Offline unit and integration test suite covering the benchmark, persistence,
+  registry API, and provider adapters.
 - A completed pinned 14-sample MMLU-Pro smoke validation using MockProvider.
 - An isolated LM Studio native `POST /api/v1/chat` provider with explicit
   reasoning mode and mocked offline tests.
+- An isolated OpenAI-compatible `POST {base_url}/chat/completions` provider,
+  validated against one synthetic localhost fixture request.
 - Fixed sample-ID calibration profiles, reasoning/final-output telemetry,
   sanitized provider-error details, and optional native sampling controls.
 - Completed local reasoning-off, reasoning-on, and single-sample calibration
@@ -43,7 +46,7 @@ Completed and validated:
 
 The current increment intentionally does not include:
 
-- OpenAI-compatible, OpenAI, Gemini, vLLM, or other provider adapters.
+- Provider-specific OpenAI, Gemini, vLLM, or other additional adapters.
 - API keys or credential management. The local LM Studio slice uses no
   authentication and remains bound to localhost.
 - Retry execution, concurrency, rate limiting, or resumable work queues.
@@ -69,8 +72,10 @@ flowchart LR
     E --> F[Provider factory]
     F --> N[MockProvider]
     F --> O[LM Studio native provider]
+    F --> P[OpenAI-compatible provider]
     N --> G[Response parser]
     O --> G
+    P --> G
     G --> H[Evaluation result]
     H --> I[results.jsonl]
     H --> J[Metrics aggregation]
@@ -175,6 +180,29 @@ other text. The allowed label range is derived from each question, including
 A–J when present. The strict parser retains exact `FINAL ANSWER: <label>`
 support for backward compatibility but rejects approximate markers and
 semantic prose. Stop reason is recorded when supplied; otherwise it is null.
+
+## Run the opt-in OpenAI-compatible fixture validation
+
+With the same local model exposed through an OpenAI-compatible API, the
+separate config schedules exactly one synthetic fixture question:
+
+```powershell
+python -m llm_benchmark run --config configs/openai_compatible_fixture_smoke.yaml
+```
+
+The verified LM Studio URL was `http://127.0.0.1:1234/v1`, producing a request
+to `POST /v1/chat/completions` for model `qwen3.5-0.8b`. No credential or
+`Authorization` header was used. The request omitted `max_tokens`, recorded
+`output_budget_provenance=provider_default`, and did not transmit a reasoning
+mode. Accordingly, `reasoning_mode` remained null: endpoint reasoning behavior
+is provider-managed or unverified, not claimed as on or off.
+
+The one-request validation returned the standard final message `B`, parsed it
+correctly, and completed with `stop_reason=stop`. It reported 90 input tokens,
+326 total-output tokens, 322 reasoning tokens, 4 derived final-output tokens,
+416 total tokens, and approximately 21.46 seconds latency. Non-streaming TTFT
+and throughput remained null and were not estimated. This is an interoperability
+fixture validation, not a model-quality result or MMLU-Pro score.
 
 ## Run the pinned MMLU-Pro LM Studio smoke
 
@@ -312,8 +340,8 @@ See [V1 assumptions](docs/assumptions.md) and
 
 ## Limitations
 
-- The provider factory currently supports MockProvider and the LM Studio native
-  API only; generic OpenAI compatibility remains separate and unimplemented.
+- The provider factory supports MockProvider, the LM Studio native API, and a
+  separate generic OpenAI-compatible Chat Completions adapter.
 - Retry fields exist in the result schema, but V1 executes one attempt only.
 - Runs are sequential and cannot yet resume after interruption.
 - JSONL has no database transaction or duplicate-work protection.

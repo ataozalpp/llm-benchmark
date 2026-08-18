@@ -41,7 +41,8 @@ Manual checks established that:
   `FINAL ANSWER: B`.
 
 For this reason, `LMStudioProvider` is isolated from any future generic
-OpenAI-compatible provider.
+OpenAI-compatible provider. The generic adapter is now implemented separately;
+the native adapter remains necessary for explicitly controlled native reasoning.
 
 ## Request configuration
 
@@ -71,6 +72,33 @@ python -m llm_benchmark run --config configs/lm_studio_fixture_smoke.yaml
 This config selects one project-owned fixture question and therefore makes one
 real localhost request. It does not run MMLU-Pro, the POC profile, or the full
 dataset.
+
+## OpenAI-compatible fixture command
+
+LM Studio may alternatively expose the same loaded model through its
+OpenAI-compatible surface. The tracked one-question config uses:
+
+```yaml
+provider: openai_compatible
+base_url: http://127.0.0.1:1234/v1
+model_id: qwen3.5-0.8b
+temperature: 0
+timeout_seconds: 300
+```
+
+Run it only as an explicitly approved localhost validation:
+
+```powershell
+python -m llm_benchmark run --config configs/openai_compatible_fixture_smoke.yaml
+```
+
+The config sends one `POST /v1/chat/completions` request for synthetic fixture
+sample `q01`. It omits `max_tokens`, provider-specific reasoning and sampling
+fields, and `Authorization`. Reasoning behavior is provider-managed or
+unverified (`reasoning_mode=null`), while any explicit reasoning-token usage
+reported by the endpoint remains telemetry only. Native and OpenAI-compatible
+providers are separate adapters and must not be treated as identical transport
+contracts.
 
 ## Pinned MMLU-Pro smoke command
 

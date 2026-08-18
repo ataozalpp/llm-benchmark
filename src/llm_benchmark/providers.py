@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import socket
 import time
@@ -23,15 +24,29 @@ class Provider(Protocol):
 
 
 class JsonTransport(Protocol):
-    def post_json(self, url: str, payload: dict[str, Any], timeout_seconds: float) -> dict[str, Any]: ...
+    def post_json(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        timeout_seconds: float,
+        headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]: ...
 
 
 class UrllibJsonTransport:
-    def post_json(self, url: str, payload: dict[str, Any], timeout_seconds: float) -> dict[str, Any]:
+    def post_json(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        timeout_seconds: float,
+        headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        request_headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        request_headers.update(headers or {})
         request = urllib.request.Request(
             url,
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            headers=request_headers,
             method="POST",
         )
         with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
@@ -156,11 +171,100 @@ class LMStudioProvider:
             )
 
 
+class OpenAICompatibleProvider:
+    """Provider for the standard OpenAI-compatible Chat Completions surface."""
+
+    name = "openai_compatible"
+
+    def __init__(self, config: ModelConfig, transport: JsonTransport | None = None) -> None:
+        self.config = config
+        self.transport = transport or UrllibJsonTransport()
+
+    def generate(self, prompt: str, example: DatasetExample) -> ProviderResponse:
+        del example
+        assert self.config.base_url is not None
+        credential = _resolve_credential(self.config.credential_env_var)
+        if isinstance(credential, ProviderResponse):
+            return credential
+
+        url = f"{self.config.base_url.rstrip('/')}/chat/completions"
+        payload: dict[str, Any] = {
+            "model": self.config.model_id,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": self.config.temperature,
+        }
+        if self.config.max_output_tokens is not None:
+            payload["max_tokens"] = self.config.max_output_tokens
+        if self.config.top_p is not None:
+            payload["top_p"] = self.config.top_p
+        headers = {"Authorization": f"Bearer {credential}"} if credential is not None else None
+
+        started = time.perf_counter()
+        try:
+            body = self.transport.post_json(url, payload, self.config.timeout_seconds, headers=headers)
+            latency_ms = (time.perf_counter() - started) * 1000
+            raw, finish_reason = _openai_message(body)
+            usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}
+            input_tokens = _integer(usage, "prompt_tokens", "input_tokens")
+            output_tokens = _integer(usage, "completion_tokens", "output_tokens")
+            total_tokens = _integer(usage, "total_tokens")
+            details = usage.get("completion_tokens_details")
+            reasoning_tokens = _integer(details, "reasoning_tokens") if isinstance(details, dict) else None
+            if reasoning_tokens is None:
+                reasoning_tokens = _integer(usage, "reasoning_tokens")
+            final_output_tokens = _final_output_tokens(output_tokens, reasoning_tokens)
+            if total_tokens is None and input_tokens is not None and output_tokens is not None:
+                total_tokens = input_tokens + output_tokens
+            return ProviderResponse(
+                request_status="succeeded",
+                raw_response=raw,
+                prompt_tokens=input_tokens,
+                completion_tokens=output_tokens,
+                total_tokens=total_tokens,
+                latency_ms=latency_ms,
+                returned_model=_string(body, "model") or self.config.model_id,
+                input_tokens=input_tokens,
+                total_output_tokens=output_tokens,
+                reasoning_output_tokens=reasoning_tokens,
+                final_output_tokens=final_output_tokens,
+                reasoning_observed=reasoning_tokens is not None and reasoning_tokens > 0,
+                tokens_per_second=None,
+                time_to_first_token_ms=None,
+                stop_reason=finish_reason,
+            )
+        except Exception as exc:
+            latency_ms = (time.perf_counter() - started) * 1000
+            error_details = _provider_error_details(exc)
+            if isinstance(exc, ProviderProtocolError):
+                error_details.update(
+                    provider_error_type=exc.provider_error_type,
+                    provider_error_message=_sanitize_error_message(exc.safe_message, False),
+                )
+            elif isinstance(exc, json.JSONDecodeError):
+                error_details.update(
+                    provider_error_type="malformed_json",
+                    provider_error_message="Provider returned malformed JSON",
+                )
+            return ProviderResponse(
+                request_status="failed",
+                raw_response=None,
+                prompt_tokens=None,
+                completion_tokens=None,
+                total_tokens=None,
+                latency_ms=latency_ms,
+                error_type=_error_type(exc),
+                returned_model=self.config.model_id,
+                **error_details,
+            )
+
+
 def create_provider(config: ModelConfig, transport: JsonTransport | None = None) -> Provider:
     if config.provider == "mock":
         return MockProvider(config)
     if config.provider == "lm_studio":
         return LMStudioProvider(config, transport=transport)
+    if config.provider == "openai_compatible":
+        return OpenAICompatibleProvider(config, transport=transport)
     raise ValueError(f"unsupported provider: {config.provider}")
 
 
@@ -178,6 +282,46 @@ def _message_text(output: Any) -> str:
             text_parts = [part.get("text", "") for part in content if isinstance(part, dict) and part.get("type") in {"text", "output_text"}]
             messages.append("".join(text_parts))
     return "\n".join(text for text in messages if text)
+
+
+class ProviderProtocolError(ValueError):
+    def __init__(self, provider_error_type: str, safe_message: str) -> None:
+        super().__init__(safe_message)
+        self.provider_error_type = provider_error_type
+        self.safe_message = safe_message
+
+
+def _resolve_credential(environment_variable: str | None) -> str | None | ProviderResponse:
+    if environment_variable is None:
+        return None
+    value = os.environ.get(environment_variable)
+    if value:
+        return value
+    return ProviderResponse(
+        request_status="failed",
+        raw_response=None,
+        prompt_tokens=None,
+        completion_tokens=None,
+        total_tokens=None,
+        latency_ms=0.0,
+        error_type="authentication_error",
+        provider_error_type="missing_credential_environment_variable",
+        provider_error_message="Configured credential environment variable is missing or empty",
+    )
+
+
+def _openai_message(body: dict[str, Any]) -> tuple[str, str | None]:
+    choices = body.get("choices")
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        raise ProviderProtocolError("missing_choices", "Provider response did not contain a valid choices array")
+    choice = choices[0]
+    message = choice.get("message")
+    if not isinstance(message, dict):
+        raise ProviderProtocolError("missing_choices", "Provider response choice did not contain a message")
+    content = message.get("content")
+    if not isinstance(content, str) or not content.strip():
+        raise ProviderProtocolError("empty_message_content", "Provider response message content was empty")
+    return content, _string(choice, "finish_reason")
 
 
 def _reasoning_observed(output: Any, reasoning_tokens: int | None) -> bool:
@@ -269,6 +413,10 @@ def _error_type(exc: Exception) -> str:
     if isinstance(exc, urllib.error.HTTPError):
         if exc.code == 429:
             return "rate_limit"
+        if exc.code == 401:
+            return "authentication_error"
+        if exc.code == 403:
+            return "permission_error"
         if 400 <= exc.code < 500:
             return "invalid_request"
         if exc.code >= 500:

@@ -38,10 +38,11 @@ class DatasetConfig(StrictModel):
 
 
 class ModelConfig(StrictModel):
-    provider: Literal["mock", "lm_studio"] = "mock"
+    provider: Literal["mock", "lm_studio", "openai_compatible"] = "mock"
     endpoint_alias: str = "mock-local"
     model_id: str
     base_url: str | None = None
+    credential_env_var: str | None = Field(default=None, exclude_if=lambda value: value is None)
     reasoning: Literal["off", "on", "auto"] | None = None
     temperature: float = Field(default=0, ge=0)
     top_p: float | None = Field(default=None, ge=0, le=1, exclude_if=lambda value: value is None)
@@ -69,6 +70,13 @@ class ModelConfig(StrictModel):
                 raise ValueError("lm_studio provider requires an explicit reasoning mode")
             if not self.base_url.startswith(("http://", "https://")):
                 raise ValueError("lm_studio base_url must use http or https")
+        if self.provider == "openai_compatible":
+            if not self.base_url:
+                raise ValueError("openai_compatible provider requires base_url")
+            if not self.base_url.startswith(("http://", "https://")):
+                raise ValueError("openai_compatible base_url must use http or https")
+        if self.credential_env_var is not None and not self.credential_env_var.isidentifier():
+            raise ValueError("credential_env_var must be an environment-variable name")
         return self
 
 

@@ -132,6 +132,55 @@ def test_unset_sampling_fields_do_not_change_existing_resolved_config() -> None:
     assert not {"top_p", "top_k", "min_p", "repeat_penalty"} & resolved_model.keys()
 
 
+def test_openai_compatible_config_requires_url_and_omits_unset_credential() -> None:
+    with pytest.raises(ValueError, match="requires base_url"):
+        ModelConfig(provider="openai_compatible", model_id="model")
+
+    model = ModelConfig(
+        provider="openai_compatible",
+        model_id="model",
+        base_url="http://127.0.0.1:1234/v1",
+    )
+    assert "credential_env_var" not in model.model_dump(mode="json")
+
+
+def test_openai_compatible_config_stores_only_credential_reference() -> None:
+    model = ModelConfig(
+        provider="openai_compatible",
+        model_id="model",
+        base_url="https://provider.example/v1",
+        credential_env_var="BENCHMARK_API_KEY",
+    )
+    assert model.model_dump(mode="json")["credential_env_var"] == "BENCHMARK_API_KEY"
+    with pytest.raises(ValueError, match="environment-variable name"):
+        ModelConfig(
+            provider="openai_compatible",
+            model_id="model",
+            base_url="https://provider.example/v1",
+            credential_env_var="not a variable",
+        )
+
+
+def test_openai_compatible_fixture_smoke_is_one_provider_managed_request() -> None:
+    config = load_config(Path("configs/openai_compatible_fixture_smoke.yaml"))
+    assert config.dataset.sample_ids == ["q01"]
+    assert config.dataset.sample_size == 1
+    model = config.models[0]
+    assert model.provider == "openai_compatible"
+    assert model.base_url == "http://127.0.0.1:1234/v1"
+    assert model.model_id == "qwen3.5-0.8b"
+    assert model.reasoning is None
+    assert model.max_output_tokens is None
+    assert model.output_budget_provenance == "provider_default"
+    assert model.top_p is None
+    assert model.top_k is None
+    assert model.min_p is None
+    assert model.repeat_penalty is None
+    assert model.credential_env_var is None
+    assert model.timeout_seconds == 300
+    assert "retry" not in type(config).model_fields
+
+
 @pytest.mark.parametrize(("config_path", "expected_hash"), [
     ("configs/mmlu_pro_lm_studio_smoke.yaml", "d007c0d070d70648d4affa994f981116ba4955dc5a69392ffb71f493c0b52ac0"),
     ("configs/mmlu_pro_lm_studio_reasoning_on_smoke.yaml", "9cb104a7c63df2df50b17f7c7c82da3f4f7582c1e086f17c1a37c28ce4419b7e"),

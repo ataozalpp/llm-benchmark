@@ -17,7 +17,7 @@ extension points for real providers and additional task types.
 | Data models | `src/llm_benchmark/models.py` | Define normalized examples, provider responses, parser results, and benchmark records |
 | Dataset layer | `src/llm_benchmark/datasets.py` | Load local JSONL or pinned MMLU-Pro data, normalize rows, sample deterministically, and build manifests |
 | Prompt layer | `src/llm_benchmark/prompting.py` | Build versioned multiple-choice prompts and hash the template |
-| Provider layer | `src/llm_benchmark/providers.py` | Define the provider protocol, factory, deterministic MockProvider, and isolated LM Studio native provider |
+| Provider layer | `src/llm_benchmark/providers.py` | Define the provider protocol, factory, deterministic MockProvider, isolated LM Studio native provider, and generic OpenAI-compatible provider |
 | Parser | `src/llm_benchmark/parser.py` | Convert generated text to a deterministic allowed answer label or an explicit parse failure |
 | Runner/evaluation | `src/llm_benchmark/runner.py` | Orchestrate the run, classify each result, persist records, and assemble summaries |
 | Metrics | `src/llm_benchmark/metrics.py` | Aggregate quality, reliability, token, latency, and error metrics |
@@ -56,10 +56,10 @@ prompting, parsing, evaluation, metrics, and storage to remain provider-neutral.
 
 ```mermaid
 flowchart LR
-    A[ModelConfig] --> B[Planned provider factory]
+    A[ModelConfig] --> B[Provider factory]
     B --> C[MockProvider]
     B --> D[LM Studio native API provider]
-    B -. future .-> E[Generic OpenAI-compatible provider]
+    B --> E[Generic OpenAI-compatible provider]
     C --> F[ProviderResponse]
     D --> F
     E --> F
@@ -67,8 +67,8 @@ flowchart LR
 ```
 
 The runner resolves one provider instance per model profile through
-`create_provider()`. LM Studio native handling is deliberately separate from a
-future generic OpenAI-compatible provider.
+`create_provider()`. LM Studio native and generic OpenAI-compatible handling
+remain separate adapters behind the same normalized `Provider` boundary.
 
 ## Current MockProvider path
 
@@ -112,7 +112,29 @@ are never parsed as final answers. The normalized response can include input,
 total-output, reasoning-output, safely derived final-output, TTFT, throughput,
 stop-reason, and sanitized HTTP/provider-error fields. Optional supported
 sampling values are omitted from the native payload unless explicitly set.
-A generic OpenAI-compatible adapter remains a separate future provider.
+
+## OpenAI-compatible path
+
+`OpenAICompatibleProvider` targets `POST {base_url}/chat/completions`. It sends
+standard chat messages, the model identifier, configured temperature, and only
+explicitly configured standard optional fields. It omits LM Studio-native
+reasoning, `top_k`, `min_p`, and `repeat_penalty` fields. When
+`credential_env_var` is unset, it sends no `Authorization` header; otherwise
+the credential value is resolved from the environment only at request time.
+
+The adapter scores only `choices[0].message.content`, normalizes
+`finish_reason` and standard usage fields, and records explicit reasoning-token
+usage when the endpoint reports it. Standard non-streaming responses do not
+provide reliable TTFT or throughput, so those values remain null rather than
+being estimated. The adapter does not transmit reasoning on/off controls;
+`reasoning_mode=null` therefore represents provider-managed or unverified
+behavior, not a reasoning-off claim.
+
+The localhost interoperability validation used base URL
+`http://127.0.0.1:1234/v1`, model `qwen3.5-0.8b`, and exactly one synthetic
+fixture question. It returned final message `B` with `stop_reason=stop` and
+validated the OpenAI-compatible normalization path. Native and compatible
+adapters remain separate because their request and response contracts differ.
 
 `max_output_tokens` follows the same omission rule. A positive configured value
 is sent and yields `output_budget_provenance=fixed`; an omitted or null value is

@@ -391,6 +391,42 @@ and runtime states. Therefore token, latency, and quality differences cannot be
 causally attributed solely to reasoning, and no statistical significance can
 be inferred from three samples.
 
+## OpenAI-compatible localhost interoperability validation
+
+Exactly one explicitly approved synthetic fixture request validated the generic
+`OpenAICompatibleProvider` against LM Studio. The base URL was
+`http://127.0.0.1:1234/v1`, the API model identifier was `qwen3.5-0.8b`, and
+the provider called `POST /v1/chat/completions`. No credential or
+`Authorization` header was used.
+
+The fixture selected only `q01` (`math`, correct label `B`). The standard final
+message was `B`, the strict parser returned `parsed_answer=B`, and the request
+completed successfully with `stop_reason=stop`.
+
+| Metric | Value |
+| --- | ---: |
+| Requests | 1 |
+| Input tokens | 90 |
+| Total-output tokens | 326 |
+| Reasoning tokens | 322 |
+| Derived final-output tokens | 4 |
+| Total tokens | 416 |
+| Latency | 21,464.63 ms |
+| TTFT | null, not estimated |
+| Throughput | null, not estimated |
+
+The request omitted `max_tokens`, so the result recorded
+`output_budget_provenance=provider_default`; this does not mean unlimited
+generation. No reasoning mode was transmitted. `reasoning_mode` remained null,
+while the endpoint independently reported reasoning-token usage. The behavior
+is therefore provider-managed or unverified and must not be labelled
+reasoning-on or reasoning-off.
+
+This successful result validates interoperability, standard response mapping,
+strict parsing, and telemetry preservation for one fixture request. It is not
+a model-quality result, an MMLU-Pro score, or evidence about general endpoint
+reliability. No raw reasoning content is stored in this documentation.
+
 ## Interpretation boundary
 
 The validation proves that the current pipeline can load and sample data,
@@ -402,7 +438,7 @@ It does not establish:
 - Full MMLU-Pro performance for any real model
 - General provider latency or reliability beyond the recorded local runs
 - Monetary cost
-- Real endpoint compatibility
+- Compatibility beyond the individually recorded endpoint validations
 - Statistical validity of a 14-sample score
 
 Real provider results must be recorded in separate runs with explicit provider,

@@ -5,7 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .engine import create_db_engine, create_session_factory
-from .repositories import DatasetRepository, ModelRepository, ProviderEndpointRepository
+from .repositories import (
+    BenchmarkRunRepository,
+    DatasetRepository,
+    ModelRepository,
+    ProviderEndpointRepository,
+    SampleResultRepository,
+)
 
 
 @dataclass(frozen=True)
@@ -13,6 +19,8 @@ class RegistryRepositories:
     endpoints: ProviderEndpointRepository
     models: ModelRepository
     datasets: DatasetRepository
+    runs: BenchmarkRunRepository
+    samples: SampleResultRepository
 
 
 def create_registry_repositories(database_url: str | None = None) -> RegistryRepositories:
@@ -24,4 +32,6 @@ def create_registry_repositories(database_url: str | None = None) -> RegistryRep
         endpoints=ProviderEndpointRepository(session_factory),
         models=ModelRepository(session_factory),
         datasets=DatasetRepository(session_factory),
+        runs=BenchmarkRunRepository(session_factory),
+        samples=SampleResultRepository(session_factory),
     )

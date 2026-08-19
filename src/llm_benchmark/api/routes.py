@@ -18,9 +18,12 @@ from .schemas import (
     ModelPatch,
     ModelResponse,
 )
+from .run_routes import router as run_router
 
 
 router = APIRouter(prefix="/api/v1")
+
+router.include_router(run_router)
 
 
 @router.post("/endpoints", response_model=EndpointResponse, status_code=status.HTTP_201_CREATED)

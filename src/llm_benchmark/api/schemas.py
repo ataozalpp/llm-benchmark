@@ -7,7 +7,13 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
-from llm_benchmark.db.records import DatasetRecord, ModelRecord, ProviderEndpointRecord
+from llm_benchmark.db.records import (
+    BenchmarkRunRecord,
+    DatasetRecord,
+    ModelRecord,
+    ProviderEndpointRecord,
+    SampleResultRecord,
+)
 from llm_benchmark.db.schemas import ModelCapabilities
 
 
@@ -216,6 +222,95 @@ class DatasetResponse(TimestampedResponse):
             created_at=record.created_at,
             updated_at=record.updated_at,
         )
+
+
+class RunCreate(StrictSchema):
+    experiment_name: str = Field(min_length=1, max_length=255)
+    model_id: int = Field(gt=0)
+    dataset_id: int = Field(gt=0)
+    seed: int = 42
+    profile: Literal["smoke", "poc", "full"] = "smoke"
+    sample_size: int | None = Field(default=None, gt=0)
+    sample_ids: list[str] = Field(default_factory=list)
+    category_filter: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_sampling(self) -> "RunCreate":
+        if len(self.sample_ids) != len(set(self.sample_ids)):
+            raise ValueError("sample_ids must be unique")
+        if self.sample_ids and self.sample_size is not None and len(self.sample_ids) != self.sample_size:
+            raise ValueError("sample_size must equal the number of sample_ids")
+        return self
+
+
+class RunResponse(StrictSchema):
+    id: int
+    experiment_name: str
+    model_id: int
+    dataset_id: int
+    status: Literal["queued", "running", "completed", "failed", "cancelled"]
+    config_hash: str
+    seed: int
+    sample_count: int
+    summary: dict[str, Any] | None
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    error_type: str | None
+
+    @field_validator("created_at", "started_at", "completed_at", mode="after")
+    @classmethod
+    def normalize_optional_utc(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+    @classmethod
+    def from_record(cls, record: BenchmarkRunRecord) -> "RunResponse":
+        return cls(
+            id=record.id,
+            experiment_name=record.experiment_name,
+            model_id=record.model_id,
+            dataset_id=record.dataset_id,
+            status=record.status.value,
+            config_hash=record.config_hash,
+            seed=record.seed,
+            sample_count=record.sample_count,
+            summary=record.summary_json,
+            created_at=record.created_at,
+            started_at=record.started_at,
+            completed_at=record.completed_at,
+            error_type=record.error_type,
+        )
+
+
+class SampleResultResponse(StrictSchema):
+    id: int
+    run_id: int
+    sample_id: str
+    category: str | None
+    correct_answer: str | None
+    parsed_answer: str | None
+    raw_response: str | None
+    request_status: str
+    parse_status: str
+    evaluation_status: str
+    is_correct: bool
+    input_tokens: int | None
+    output_tokens: int | None
+    reasoning_tokens: int | None
+    total_tokens: int | None
+    latency_ms: float | None
+    ttft_ms: float | None
+    throughput_tokens_per_second: float | None
+    error_type: str | None
+    provider_error_message: str | None
+
+    @classmethod
+    def from_record(cls, record: SampleResultRecord) -> "SampleResultResponse":
+        return cls.model_validate(record.model_dump(mode="python"))
 
 
 def _require_nonempty_patch(value: BaseModel) -> None:

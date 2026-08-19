@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from threading import Lock
 
 from fastapi import FastAPI, Request
@@ -16,17 +17,25 @@ from llm_benchmark.db.errors import (
     UniquenessConflictError,
 )
 from llm_benchmark.db.registry import RegistryRepositories, create_registry_repositories
+from llm_benchmark.config import RunConfig
+from llm_benchmark.runner import PipelineExecution, execute_benchmark
+from llm_benchmark.application import RegistrationMismatchError
+from llm_benchmark.run_resolution import RunConfigResolutionError
 
 
 def create_app(
     registry: RegistryRepositories | None = None,
     *,
     registry_factory: Callable[[], RegistryRepositories] = create_registry_repositories,
+    benchmark_executor: Callable[[RunConfig], PipelineExecution] = execute_benchmark,
+    run_output_root: Path = Path("outputs/api"),
 ) -> FastAPI:
     app = FastAPI(title="LLM Benchmark Registry API", version="1.0.0")
     app.state.registry = registry
     app.state.registry_factory = registry_factory
     app.state.registry_lock = Lock()
+    app.state.benchmark_executor = benchmark_executor
+    app.state.run_output_root = run_output_root
     _install_exception_handlers(app)
 
     from .routes import router
@@ -65,6 +74,14 @@ def _install_exception_handlers(app: FastAPI) -> None:
             status_code=409,
             content={"detail": f"{error.entity} is inactive", "record_id": error.record_id},
         )
+
+    @app.exception_handler(RunConfigResolutionError)
+    async def run_config_resolution(_: Request, __: RunConfigResolutionError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": "Registered run configuration is invalid"})
+
+    @app.exception_handler(RegistrationMismatchError)
+    async def registration_mismatch(_: Request, __: RegistrationMismatchError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": "Run configuration conflicts with registrations"})
 
     @app.exception_handler(RepositoryError)
     async def repository_failure(_: Request, __: RepositoryError) -> JSONResponse:

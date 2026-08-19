@@ -88,9 +88,15 @@ def sample_examples(examples: list[DatasetExample], config: DatasetConfig, seed:
     return selected
 
 
-def load_and_sample(config: DatasetConfig, seed: int) -> tuple[list[DatasetExample], dict[str, Any]]:
+def load_examples(config: DatasetConfig) -> list[DatasetExample]:
+    """Load normalized examples without applying selection rules."""
+
     source: DatasetSource = LocalJsonlDatasetSource() if config.source == "local" else HuggingFaceMMLUProSource()
-    loaded = source.load(config)
+    return source.load(config)
+
+
+def load_and_sample(config: DatasetConfig, seed: int) -> tuple[list[DatasetExample], dict[str, Any]]:
+    loaded = load_examples(config)
     selected = sample_examples(loaded, config, seed)
     source_hash = None
     if config.path and config.path.exists():

@@ -7,6 +7,7 @@ from fastapi import Request
 from llm_benchmark.db.registry import RegistryRepositories
 from llm_benchmark.application import BenchmarkApplicationService
 from llm_benchmark.run_resolution import RegisteredRunConfigResolver
+from llm_benchmark.run_preflight import RunPreflightService
 
 
 def get_registry(request: Request) -> RegistryRepositories:
@@ -41,3 +42,7 @@ def get_run_config_resolver(request: Request) -> RegisteredRunConfigResolver:
         datasets=registry.datasets,
         output_root=request.app.state.run_output_root,
     )
+
+
+def get_run_preflight_service(request: Request) -> RunPreflightService:
+    return RunPreflightService(policy=request.app.state.run_guardrail_policy)

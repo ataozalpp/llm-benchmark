@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sqlite3
 from typing import Any
 
 from alembic import command
@@ -10,15 +11,18 @@ from fastapi.testclient import TestClient
 import pytest
 
 from llm_benchmark.api import create_app
+from llm_benchmark.api.app_dependencies import get_run_preflight_service
 from llm_benchmark.config import RunConfig
 from llm_benchmark.db.registry import create_registry_repositories
 from llm_benchmark.reproducibility import canonical_hash
 from llm_benchmark.runner import PipelineExecution
+from llm_benchmark.run_preflight import RunApiGuardrailPolicy, RunPreflightService
 
 
 @pytest.fixture
 def run_api(tmp_path: Path) -> dict[str, Any]:
-    database_url = f"sqlite:///{(tmp_path / 'run-api.sqlite').as_posix()}"
+    database_path = tmp_path / "run-api.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
     alembic_config = Config("alembic.ini")
     alembic_config.set_main_option("sqlalchemy.url", database_url)
     command.upgrade(alembic_config, "head")
@@ -26,7 +30,20 @@ def run_api(tmp_path: Path) -> dict[str, Any]:
     output_root = tmp_path / "artifacts"
     app = create_app(registry, run_output_root=output_root)
     with TestClient(app) as client:
-        yield {"client": client, "registry": registry, "output_root": output_root, "tmp_path": tmp_path}
+        yield {
+            "client": client,
+            "registry": registry,
+            "output_root": output_root,
+            "tmp_path": tmp_path,
+            "database_path": database_path,
+        }
+
+
+def sample_row_count(context: dict[str, Any]) -> int:
+    with sqlite3.connect(context["database_path"]) as connection:
+        value = connection.execute("SELECT COUNT(*) FROM sample_results").fetchone()
+    assert value is not None
+    return int(value[0])
 
 
 def register_fixture(context: dict[str, Any], *, scenario: str = "correct") -> tuple[int, int, int]:
@@ -128,6 +145,150 @@ def test_successful_run_creation_listing_detail_and_results(run_api: dict[str, A
     assert artifact_directory.parent == run_api["output_root"]
     assert (artifact_directory / "results.jsonl").is_file()
     assert (artifact_directory / "summary.json").is_file()
+
+
+@pytest.mark.parametrize(
+    ("payload_update", "expected_code"),
+    [
+        ({"profile": "full"}, "run_guardrail_violation"),
+        ({"sample_size": 101, "sample_ids": []}, "run_guardrail_violation"),
+        (
+            {"sample_size": 101, "sample_ids": [f"private-{index}" for index in range(101)]},
+            "run_guardrail_violation",
+        ),
+        ({"sample_ids": ["private-missing-id"]}, "invalid_dataset_selection"),
+        ({"category_filter": ["private-missing-category"]}, "invalid_dataset_selection"),
+        ({"category_filter": ["math", "private-missing-category"]}, "invalid_dataset_selection"),
+    ],
+)
+def test_preflight_rejection_has_no_execution_records_or_artifacts(
+    run_api: dict[str, Any], payload_update: dict[str, Any], expected_code: str
+) -> None:
+    _, model_id, dataset_id = register_fixture(run_api)
+    executor_calls = 0
+
+    def forbidden_executor(_: RunConfig) -> PipelineExecution:
+        nonlocal executor_calls
+        executor_calls += 1
+        raise AssertionError("executor must not be invoked")
+
+    run_api["client"].app.state.benchmark_executor = forbidden_executor
+    payload = {**run_payload(model_id, dataset_id), **payload_update}
+    if "sample_ids" in payload_update and "sample_size" not in payload_update:
+        payload["sample_size"] = len(payload_update["sample_ids"])
+    response = run_api["client"].post("/api/v1/runs", json=payload)
+    assert response.status_code == 422
+    assert response.json()["code"] == expected_code
+    response_text = response.text
+    assert "private-" not in response_text
+    assert "data/fixtures" not in response_text
+    assert executor_calls == 0
+    assert run_api["registry"].runs.list_runs() == []
+    assert sample_row_count(run_api) == 0
+    assert not run_api["output_root"].exists()
+
+
+def test_injected_policy_limit_applies_to_exact_selected_count(run_api: dict[str, Any]) -> None:
+    _, model_id, dataset_id = register_fixture(run_api)
+    run_api["client"].app.state.run_guardrail_policy = RunApiGuardrailPolicy(
+        max_selected_samples=2
+    )
+    payload = run_payload(model_id, dataset_id)
+    payload.update({"sample_size": None, "sample_ids": []})
+    response = run_api["client"].post("/api/v1/runs", json=payload)
+    assert response.status_code == 422
+    assert response.json() == {
+        "detail": "Run request exceeds the synchronous API limits",
+        "code": "run_guardrail_violation",
+    }
+    assert run_api["registry"].runs.list_runs() == []
+    assert sample_row_count(run_api) == 0
+    assert not run_api["output_root"].exists()
+
+
+def test_duplicate_sample_ids_keep_request_validation_behavior(run_api: dict[str, Any]) -> None:
+    _, model_id, dataset_id = register_fixture(run_api)
+    payload = run_payload(model_id, dataset_id)
+    payload.update({"sample_size": 2, "sample_ids": ["private-id", "private-id"]})
+    response = run_api["client"].post("/api/v1/runs", json=payload)
+    assert response.status_code == 422
+    assert "private-id" not in response.text
+    assert run_api["registry"].runs.list_runs() == []
+    assert sample_row_count(run_api) == 0
+    assert not run_api["output_root"].exists()
+
+
+def test_expected_dataset_preflight_failure_maps_to_safe_409_without_side_effects(
+    run_api: dict[str, Any],
+) -> None:
+    _, model_id, dataset_id = register_fixture(run_api)
+    executor_calls = 0
+
+    def fail_loader(_: object) -> list[object]:
+        raise OSError(r"C:\Users\private\dataset.jsonl api_key=private-value")
+
+    def forbidden_executor(_: RunConfig) -> PipelineExecution:
+        nonlocal executor_calls
+        executor_calls += 1
+        raise AssertionError("executor must not be invoked")
+
+    run_api["client"].app.dependency_overrides[get_run_preflight_service] = lambda: RunPreflightService(
+        loader=fail_loader  # type: ignore[arg-type]
+    )
+    run_api["client"].app.state.benchmark_executor = forbidden_executor
+    response = run_api["client"].post(
+        "/api/v1/runs", json=run_payload(model_id, dataset_id)
+    )
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "Registered dataset is unavailable for preflight",
+        "code": "dataset_preflight_failed",
+    }
+    assert "private" not in response.text.lower()
+    assert executor_calls == 0
+    assert run_api["registry"].runs.list_runs() == []
+    assert sample_row_count(run_api) == 0
+    assert not run_api["output_root"].exists()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        TypeError("private prompt and api_key=private-key"),
+        AttributeError("private dataset path /home/private/data.jsonl"),
+        AssertionError("private traceback SELECT * FROM sample_results"),
+    ],
+)
+def test_unexpected_preflight_errors_map_to_sanitized_500_without_side_effects(
+    run_api: dict[str, Any], error: Exception
+) -> None:
+    _, model_id, dataset_id = register_fixture(run_api)
+    executor_calls = 0
+
+    def fail_loader(_: object) -> list[object]:
+        raise error
+
+    def forbidden_executor(_: RunConfig) -> PipelineExecution:
+        nonlocal executor_calls
+        executor_calls += 1
+        raise AssertionError("executor must not be invoked")
+
+    app = run_api["client"].app
+    app.dependency_overrides[get_run_preflight_service] = lambda: RunPreflightService(
+        loader=fail_loader  # type: ignore[arg-type]
+    )
+    app.state.benchmark_executor = forbidden_executor
+    with TestClient(app, raise_server_exceptions=False) as safe_client:
+        response = safe_client.post(
+            "/api/v1/runs", json=run_payload(model_id, dataset_id)
+        )
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Internal server error"}
+    assert "private" not in response.text.lower()
+    assert executor_calls == 0
+    assert run_api["registry"].runs.list_runs() == []
+    assert sample_row_count(run_api) == 0
+    assert not run_api["output_root"].exists()
 
 
 @pytest.mark.parametrize(

@@ -7,8 +7,14 @@ from fastapi import APIRouter, Depends, status
 from llm_benchmark.application import BenchmarkApplicationService
 from llm_benchmark.db.registry import RegistryRepositories
 from llm_benchmark.run_resolution import RegisteredRunConfigResolver, RunConfigRequest
+from llm_benchmark.run_preflight import RunPreflightService
 
-from .app_dependencies import get_benchmark_service, get_registry, get_run_config_resolver
+from .app_dependencies import (
+    get_benchmark_service,
+    get_registry,
+    get_run_config_resolver,
+    get_run_preflight_service,
+)
 from .schemas import RunCreate, RunResponse, SampleResultResponse
 
 
@@ -19,6 +25,7 @@ router = APIRouter(prefix="/runs", tags=["runs"])
 def create_run(
     payload: RunCreate,
     resolver: RegisteredRunConfigResolver = Depends(get_run_config_resolver),
+    preflight: RunPreflightService = Depends(get_run_preflight_service),
     service: BenchmarkApplicationService = Depends(get_benchmark_service),
 ) -> RunResponse:
     resolved = resolver.resolve(
@@ -33,6 +40,7 @@ def create_run(
             category_filter=tuple(payload.category_filter),
         )
     )
+    preflight.preflight(resolved.config)
     result = service.execute(
         endpoint_id=resolved.endpoint_id,
         model_id=resolved.model_id,

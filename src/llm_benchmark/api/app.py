@@ -21,6 +21,12 @@ from llm_benchmark.config import RunConfig
 from llm_benchmark.runner import PipelineExecution, execute_benchmark
 from llm_benchmark.application import RegistrationMismatchError
 from llm_benchmark.run_resolution import RunConfigResolutionError
+from llm_benchmark.run_preflight import (
+    DatasetPreflightError,
+    RunApiGuardrailPolicy,
+    RunGuardrailViolationError,
+    RunSelectionValidationError,
+)
 
 
 def create_app(
@@ -29,6 +35,7 @@ def create_app(
     registry_factory: Callable[[], RegistryRepositories] = create_registry_repositories,
     benchmark_executor: Callable[[RunConfig], PipelineExecution] = execute_benchmark,
     run_output_root: Path = Path("outputs/api"),
+    run_guardrail_policy: RunApiGuardrailPolicy | None = None,
 ) -> FastAPI:
     app = FastAPI(title="LLM Benchmark Registry API", version="1.0.0")
     app.state.registry = registry
@@ -36,6 +43,7 @@ def create_app(
     app.state.registry_lock = Lock()
     app.state.benchmark_executor = benchmark_executor
     app.state.run_output_root = run_output_root
+    app.state.run_guardrail_policy = run_guardrail_policy or RunApiGuardrailPolicy()
     _install_exception_handlers(app)
 
     from .routes import router
@@ -82,6 +90,36 @@ def _install_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(RegistrationMismatchError)
     async def registration_mismatch(_: Request, __: RegistrationMismatchError) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": "Run configuration conflicts with registrations"})
+
+    @app.exception_handler(RunGuardrailViolationError)
+    async def run_guardrail_violation(_: Request, __: RunGuardrailViolationError) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": "Run request exceeds the synchronous API limits",
+                "code": "run_guardrail_violation",
+            },
+        )
+
+    @app.exception_handler(RunSelectionValidationError)
+    async def run_selection_invalid(_: Request, __: RunSelectionValidationError) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": "Requested dataset selection is invalid",
+                "code": "invalid_dataset_selection",
+            },
+        )
+
+    @app.exception_handler(DatasetPreflightError)
+    async def dataset_preflight_failed(_: Request, __: DatasetPreflightError) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": "Registered dataset is unavailable for preflight",
+                "code": "dataset_preflight_failed",
+            },
+        )
 
     @app.exception_handler(RepositoryError)
     async def repository_failure(_: Request, __: RepositoryError) -> JSONResponse:

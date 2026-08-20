@@ -2,211 +2,236 @@
 
 ## Design goals
 
-The project aims to make model-service comparisons reproducible and auditable.
-Dataset selection, prompts, request configuration, parsing rules, evaluation,
-and measurement metadata are explicit inputs rather than hidden runtime state.
-The current implementation remains intentionally small while preserving clear
-extension points for real providers and additional task types.
+The project separates benchmark semantics from transport, persistence, and HTTP
+delivery. Dataset selection, prompt construction, parsing, scoring, request
+configuration, and measurement metadata remain explicit and reproducible.
+
+The implementation currently provides two execution paths:
+
+- The CLI directly executes a validated YAML configuration and writes
+  filesystem artifacts.
+- The synchronous Run API resolves registered resources, preflights the exact
+  workload, executes through an application service, and persists both
+  artifacts and database records.
 
 ## Component responsibilities
 
-| Component | File | Responsibility |
+| Component | Primary file | Responsibility |
 | --- | --- | --- |
-| CLI | `src/llm_benchmark/cli.py` | Parse commands and overrides, load config, start a run, and print a concise result |
-| Configuration | `src/llm_benchmark/config.py` | Safely load YAML and validate immutable, strict Pydantic models |
-| Data models | `src/llm_benchmark/models.py` | Define normalized examples, provider responses, parser results, and benchmark records |
-| Dataset layer | `src/llm_benchmark/datasets.py` | Load local JSONL or pinned MMLU-Pro data, normalize rows, sample deterministically, and build manifests |
-| Prompt layer | `src/llm_benchmark/prompting.py` | Build versioned multiple-choice prompts and hash the template |
-| Provider layer | `src/llm_benchmark/providers.py` | Define the provider protocol, factory, deterministic MockProvider, isolated LM Studio native provider, and generic OpenAI-compatible provider |
-| Parser | `src/llm_benchmark/parser.py` | Convert generated text to a deterministic allowed answer label or an explicit parse failure |
-| Runner/evaluation | `src/llm_benchmark/runner.py` | Orchestrate the run, classify each result, persist records, and assemble summaries |
-| Metrics | `src/llm_benchmark/metrics.py` | Aggregate quality, reliability, token, latency, and error metrics |
-| Storage | `src/llm_benchmark/storage.py` | Append JSONL results and atomically replace JSON artifacts |
-| Reproducibility | `src/llm_benchmark/reproducibility.py` | Build canonical hashes and capture runtime/Git metadata |
+| CLI | `src/llm_benchmark/cli.py` | Load YAML, apply explicit overrides, call the runner, print a concise result |
+| Configuration | `src/llm_benchmark/config.py` | Strict immutable Pydantic configuration and canonical serialization inputs |
+| Dataset layer | `src/llm_benchmark/datasets.py` | Local or pinned Hugging Face loading, normalization, filtering, deterministic sampling, manifest construction |
+| Prompt layer | `src/llm_benchmark/prompting.py` | Versioned multiple-choice prompt and template hash |
+| Provider layer | `src/llm_benchmark/providers.py` | Provider protocol, factory, Mock, LM Studio native, and OpenAI-compatible adapters |
+| Parser | `src/llm_benchmark/parser.py` | Strict deterministic parsing against actual allowed labels |
+| Runner | `src/llm_benchmark/runner.py` | Execute samples, classify results, write artifacts, aggregate metrics |
+| Metrics | `src/llm_benchmark/metrics.py` | Quality, reliability, token, latency, and category aggregation |
+| Artifact storage | `src/llm_benchmark/storage.py` | Append JSONL and atomically replace individual JSON files |
+| Reproducibility | `src/llm_benchmark/reproducibility.py` | Canonical hashes and runtime/Git environment metadata |
+| Database foundation | `src/llm_benchmark/db/engine.py`, `models.py` | SQLAlchemy engine/session, portable ORM schema, SQLite foreign keys |
+| Repositories | `src/llm_benchmark/db/repositories.py` | Transactional persistence rules and immutable records |
+| Registered config resolver | `src/llm_benchmark/run_resolution.py` | Build a safe RunConfig from active registry records |
+| Run preflight | `src/llm_benchmark/run_preflight.py` | Apply synchronous API limits and validate the exact dataset selection |
+| Application service | `src/llm_benchmark/application.py` | Run lifecycle, short transaction boundaries, runner invocation, result persistence |
+| FastAPI boundary | `src/llm_benchmark/api/` | Strict schemas, dependency wiring, thin CRUD and Run routes, safe HTTP errors |
 
-## End-to-end data flow
-
-```mermaid
-flowchart TD
-    A[CLI: run --config] --> B[load_config]
-    B --> C[RunConfig]
-    C --> D[load_and_sample]
-    D --> E[DatasetExample list]
-    D --> F[dataset_manifest.json]
-    E --> G[build_prompt]
-    G --> H[Provider.generate]
-    H --> I[ProviderResponse]
-    I --> J[parse_multiple_choice]
-    J --> K[ParseResult]
-    K --> L[Evaluation classification]
-    L --> M[BenchmarkResult]
-    M --> N[results.jsonl]
-    M --> O[summarize]
-    O --> P[summary.json]
-    C --> Q[resolved_config.json]
-    C --> R[Hashes and run fingerprint]
-    R --> P
-```
-
-## Provider architecture
-
-The provider boundary is represented by the `Provider` protocol. Providers
-normalize their native response or failure into `ProviderResponse`, allowing
-prompting, parsing, evaluation, metrics, and storage to remain provider-neutral.
+## Overall architecture
 
 ```mermaid
 flowchart LR
-    A[ModelConfig] --> B[Provider factory]
-    B --> C[MockProvider]
-    B --> D[LM Studio native API provider]
-    B --> E[Generic OpenAI-compatible provider]
-    C --> F[ProviderResponse]
-    D --> F
-    E --> F
-    F --> G[Parser and evaluator]
+    subgraph EntryPoints[Entry points]
+        CLI[CLI]
+        RegistryAPI[Registry CRUD API]
+        RunAPI[Synchronous Run API]
+    end
+
+    CLI --> Config[RunConfig]
+    Config --> Runner[Benchmark runner]
+
+    RegistryAPI --> Repositories[Repositories]
+    RunAPI --> Resolver[RegisteredRunConfigResolver]
+    Resolver --> Preflight[RunPreflightService]
+    Preflight --> AppService[BenchmarkApplicationService]
+    AppService --> Runner
+    AppService --> Repositories
+
+    Runner --> Dataset[Dataset loading and sampling]
+    Runner --> Providers[Provider adapters]
+    Runner --> Artifacts[JSONL and JSON artifacts]
+    Repositories --> DB[(SQLite development database)]
 ```
 
-The runner resolves one provider instance per model profile through
-`create_provider()`. LM Studio native and generic OpenAI-compatible handling
-remain separate adapters behind the same normalized `Provider` boundary.
+## CLI execution
 
-## Current MockProvider path
+```text
+YAML + --set overrides
+-> load_config
+-> immutable RunConfig
+-> run_benchmark / execute_benchmark
+-> dataset loading and sampling
+-> prompt / provider / parser / evaluation
+-> results.jsonl and JSON artifacts
+```
 
-1. `ModelConfig` supplies a model ID, deterministic scenario cycle, optional
-   sample-specific overrides, and synthetic latency.
-2. `MockProvider._scenario()` derives a repeatable scenario from `sample_id`.
-3. `MockProvider.generate()` returns a correct, incorrect, ambiguous, failed,
-   or missing-usage response without network access or sleeping.
-4. Token counts are deterministic whitespace-based counts.
-5. `runner._evaluate()` parses and classifies the response.
-6. The runner appends a `BenchmarkResult` and later derives summaries.
+The CLI does not use repositories, the application service, or Run API
+guardrails. Its configured `full` profile remains available.
 
-This path validates the benchmark software, not an LLM.
+## Registry API
 
-## LM Studio native API path
+The registry API exposes CRUD operations for endpoint, model, and dataset
+registrations. Lists return active records; individual GET requests may return
+soft-deleted records for historical administration. Routes use strict Pydantic
+schemas and repositories rather than ORM objects.
 
-The implemented local-provider path connects to an already running LM Studio
-native endpoint. The benchmark does not manage the LM Studio process, model
-download, model loading, or local model lifecycle.
+Only a credential environment-variable name may be stored. Secret values are
+rejected and resolved only by a provider at request time when configured.
 
-Conceptually:
+## Registered Run API sequence
 
 ```mermaid
 sequenceDiagram
-    participant R as Benchmark runner
-    participant F as Provider factory
-    participant A as LM Studio native provider
-    participant L as LM Studio endpoint
-    R->>F: resolve provider profile
-    F-->>R: LMStudioProvider
-    R->>A: generate(prompt, example)
-    A->>L: POST /api/v1/chat, store=false
-    L-->>A: response or provider error
-    A-->>R: normalized ProviderResponse
-    R->>R: parse, evaluate, persist, aggregate
+    participant Client
+    participant API as Run API
+    participant Resolver
+    participant Preflight
+    participant Service as BenchmarkApplicationService
+    participant DB
+    participant Runner
+    participant Provider
+
+    Client->>API: POST /api/v1/runs
+    API->>Resolver: registered IDs and safe request fields
+    Resolver-->>API: validated RunConfig
+    API->>Preflight: exact dataset selection
+    Preflight-->>API: immutable selection result
+    API->>Service: execute registered run
+    Service->>DB: create queued
+    Service->>DB: transition running
+    Service->>Runner: execute with no open DB transaction
+    Runner->>Provider: one request per selected sample
+    Provider-->>Runner: normalized ProviderResponse
+    Runner-->>Service: results, summary, artifact directory
+    Service->>DB: atomic sample add_many
+    Service->>DB: transition completed
+    Service-->>API: immutable application result
+    API-->>Client: public RunResponse
 ```
 
-The provider submits an explicit reasoning mode and scores only native output
-items whose type is `message`. Reasoning items contribute only telemetry and
-are never parsed as final answers. The normalized response can include input,
-total-output, reasoning-output, safely derived final-output, TTFT, throughput,
-stop-reason, and sanitized HTTP/provider-error fields. Optional supported
-sampling values are omitted from the native payload unless explicitly set.
+If runner execution or required persistence fails after run creation, the
+application service attempts to transition the run to `failed`. Unparseable and
+request-failed samples remain benchmark outcomes when the pipeline itself
+completes.
 
-## OpenAI-compatible path
+## Run API preflight
 
-`OpenAICompatibleProvider` targets `POST {base_url}/chat/completions`. It sends
-standard chat messages, the model identifier, configured temperature, and only
-explicitly configured standard optional fields. It omits LM Studio-native
-reasoning, `top_k`, `min_p`, and `repeat_penalty` fields. When
-`credential_env_var` is unset, it sends no `Authorization` header; otherwise
-the credential value is resolved from the environment only at request time.
+The default immutable `RunApiGuardrailPolicy` allows `smoke` and `poc`, rejects
+`full`, limits exact selected samples to 100, and limits explicit sample IDs to
+100. It performs cheap limits before dataset loading and exact count validation
+after reusing the existing `sample_examples()` implementation.
 
-The adapter scores only `choices[0].message.content`, normalizes
-`finish_reason` and standard usage fields, and records explicit reasoning-token
-usage when the endpoint reports it. Standard non-streaming responses do not
-provide reliable TTFT or throughput, so those values remain null rather than
-being estimated. The adapter does not transmit reasoning on/off controls;
-`reasoning_mode=null` therefore represents provider-managed or unverified
-behavior, not a reasoning-off claim.
+Unknown IDs, unknown categories, mixed valid/invalid categories, and empty
+selections are rejected before `BenchmarkApplicationService` is called. A
+rejected preflight creates no provider request, database row, or artifact
+directory.
 
-The localhost interoperability validation used base URL
-`http://127.0.0.1:1234/v1`, model `qwen3.5-0.8b`, and exactly one synthetic
-fixture question. It returned final message `B` with `stop_reason=stop` and
-validated the OpenAI-compatible normalization path. Native and compatible
-adapters remain separate because their request and response contracts differ.
+Preflight and execution currently load the dataset independently. This avoids
+changing runner and CLI contracts but leaves duplicate I/O and a theoretical
+time-of-check/time-of-use boundary.
 
-`max_output_tokens` follows the same omission rule. A positive configured value
-is sent and yields `output_budget_provenance=fixed`; an omitted or null value is
-not sent and yields `output_budget_provenance=provider_default`. Provenance is a
-derived result field rather than an additional resolved-config policy object,
-so existing explicitly bounded config hashes remain stable. Provider-default
-means that runtime/model context policy governs generation, not that generation
-is unlimited.
+## Persistence relationships
 
-Model metadata maximum context and loaded-instance context are interpreted
-separately when known. In the validated local setup these were 262,144 and
-8,192 tokens respectively. Neither value by itself reveals the exact output
-allowance because prompt, template, special-token, and runtime overhead share
-the loaded context.
+```mermaid
+erDiagram
+    PROVIDER_ENDPOINTS ||--o{ MODELS : serves
+    MODELS ||--o{ BENCHMARK_RUNS : executes
+    DATASETS ||--o{ BENCHMARK_RUNS : evaluates
+    BENCHMARK_RUNS ||--o{ SAMPLE_RESULTS : contains
+```
 
-The native provider path has been validated with the one-question local
-fixture, the pinned 14-question reasoning-off MMLU-Pro smoke profile, a
-reasoning-on 14-question profile, and bounded single-sample calibrations. All
-paths remain sequential and use the same strict standalone-label parser
-contract.
+SQLAlchemy 2.x uses SQLite by default for local/development persistence. The
+schema uses generic JSON and portable enum/check-constraint storage for a
+future PostgreSQL migration, but PostgreSQL runtime behavior has not been
+validated. Alembic currently provides the initial schema migration.
 
-The provider-default path has also been exercised as a fixed-order,
-three-sample operational calibration. It retained one attempt per sample and
-reached a final `message` for all three requests. Provider-default is a payload
-and provenance policy, not an unlimited-generation guarantee; runtime context,
-transport timeout, and provider behavior still bound execution. Missing native
-stop reasons remain null rather than being inferred.
+Endpoints, models, and datasets use soft deletion. Foreign keys protect
+historical runs; there is no destructive cascade from registry records to run
+history. Sample bulk insertion is atomic.
 
-## Phased roadmap
+## Run lifecycle
 
-### Phase 1 — Completed validation core
+```mermaid
+stateDiagram-v2
+    [*] --> queued
+    queued --> running
+    queued --> failed
+    queued --> cancelled
+    running --> completed
+    running --> failed
+    running --> cancelled
+    completed --> [*]
+    failed --> [*]
+    cancelled --> [*]
+```
 
-- Strict YAML/Pydantic configuration
-- Local fixture and pinned MMLU-Pro dataset sources
-- Deterministic prompt, parser, MockProvider, evaluation, and metrics
-- JSONL/JSON artifacts and reproducibility metadata
-- Offline unit and integration tests
+Completed, failed, and cancelled are terminal states. Each repository write
+uses a short explicit transaction. No database transaction remains open during
+provider execution.
 
-### Phase 2 — Controlled local-provider POC
+## Provider architecture
 
-- Provider factory and isolated LM Studio native adapter
-- One validated localhost model profile with configurable reasoning and
-  partial native-supported sampling controls
-- Normalized provider usage, returned-model, reasoning/final-output telemetry,
-  and sanitized error metadata
-- Fixture or pinned smoke workload only
+`create_provider()` selects one adapter per model profile:
 
-### Phase 3 — Reliable execution
+```mermaid
+flowchart LR
+    ModelConfig --> Factory[Provider factory]
+    Factory --> Mock[MockProvider]
+    Factory --> Native[LM Studio native]
+    Factory --> Compatible[OpenAI-compatible]
+    Mock --> Response[ProviderResponse]
+    Native --> Response
+    Compatible --> Response
+    Response --> Parser[Parser and evaluator]
+```
 
-- Attempt-level persistence
-- Connect/read/logical timeouts
-- Bounded retries and backoff
-- Concurrency and quota-bucket rate limiting
-- Graceful shutdown and configuration-safe resume
+The LM Studio adapter calls native `POST /api/v1/chat`, sends `store=false`,
+and parses only `type=message` output as the final answer. The generic adapter
+calls `POST {base_url}/chat/completions` and scores only standard message
+content. Native reasoning output is telemetry and is never scored directly.
 
-### Phase 4 — Durable comparison and reporting
+## Artifacts and database boundaries
 
-- Versioned pricing and cost calculation
-- SQLite/PostgreSQL storage
-- CSV exports and Pareto comparisons
-- Backend API and a later web interface
+Runner artifacts are:
 
-### Phase 5 — Additional evaluation families
+- `results.jsonl`
+- `summary.json`
+- `resolved_config.json`
+- `dataset_manifest.json`
+- `environment.json`
 
-- Structured output and instruction following
-- Tool calling with deterministic mock tools
-- Embedding and retrieval
-- RAG
-- Open-ended and code-generation evaluation with appropriate safety controls
-- Calibrated LLM-judge and human evaluation only when deterministic methods are
-  insufficient
+CLI runs write under `outputs/<run_id>/`. Registered Run API executions use
+`outputs/api/<run_id>/` by default and additionally persist run/sample records.
+Filesystem artifacts and database records are deliberately both retained, but
+they do not form a single cross-storage transaction.
 
-Later dedicated phases may evaluate opt-in reasoning diagnostics, repetition
-analysis, difficulty calibration suites, and provider/model capability
-metadata. They are intentionally not implemented in the current branch.
+## Current security and operational boundaries
+
+- The API has no authentication or authorization.
+- Execution is synchronous and in-process.
+- There is no worker, queue, retry, concurrency control, pagination, or resume.
+- There is no endpoint SSRF allowlist or dataset-root allowlist.
+- There is no explicit Hugging Face network/cache policy at the API boundary.
+- Raw model responses are exposed by the sample-result API.
+- Public run responses do not expose persisted internal error messages.
+- Actual credentials are never persisted; only environment-variable names may
+  be registered.
+- The API is not production-ready.
+
+## Next architectural increments
+
+- Controlled run comparison and reporting
+- Authentication and endpoint/path policies
+- Async worker execution, cancellation, retry, and resume
+- PostgreSQL runtime validation
+- Pricing and cost calculation
+- Additional deterministic task families
+- Frontend only after stable API and operational boundaries

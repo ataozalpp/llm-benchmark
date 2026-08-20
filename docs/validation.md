@@ -64,12 +64,12 @@ count, license, homepage, citation, and manifest hash.
 
 The POC and full profiles were not run as part of this validation.
 
-## Offline automated tests
+## Current forced-offline automated validation
 
-The offline test suite completed with:
+The complete forced-offline suite most recently completed with:
 
 ```text
-57 passed
+213 passed
 0 failed
 ```
 
@@ -86,6 +86,18 @@ Coverage includes:
 - Accuracy, answered accuracy, reliability, token, and percentile metrics
 - JSONL persistence and summary generation
 - Complete fixture-to-artifacts integration flow
+- SQLAlchemy engine/session behavior and SQLite foreign-key enforcement
+- Alembic upgrade, downgrade, and re-upgrade behavior
+- Repository CRUD, uniqueness, soft deletion, transactions, and run lifecycle
+- Framework-independent application-service execution and failure handling
+- FastAPI registry CRUD routes and strict public schemas
+- OpenAI-compatible request/response normalization with mocked transports
+- Synchronous registered Run API execution
+- Exact Run API preflight selection, limits, and safe public errors
+
+An earlier `57 passed, 0 failed` result was a historical development checkpoint
+before the database, repository, application-service, API, and preflight
+increments. It is not the current total.
 
 ## Manual LM Studio endpoint validation
 
@@ -95,7 +107,6 @@ The local runtime was manually validated before implementing the provider:
 | --- | --- |
 | Runtime | LM Studio |
 | Model repository | `unsloth/Qwen3.5-0.8B-GGUF` |
-| Model file | `Qwen3.5-0.8B-Q8_0.gguf` |
 | Quantization | `Q8_0` |
 | Model ID | `qwen3.5-0.8b` |
 | Server | `http://127.0.0.1:1234` |
@@ -136,8 +147,9 @@ margin is 128 output tokens. The parser remains strict: semantic option text
 without `FINAL ANSWER: <letter>` is still unparseable. Stop reason is optional
 because the native response may not provide it.
 
-After 30 offline tests passed, one approved localhost request was made with the
-corrected prompt and 128-token limit. The request succeeded and returned five
+At a historical development checkpoint with 30 passing offline tests, one
+approved localhost request was made with the corrected prompt and 128-token
+limit. The request succeeded and returned five
 output tokens, but its exact text was `FINAL ANSW: B`. Because the required
 marker is exactly `FINAL ANSWER: B`, the parser correctly retained
 `parse_status=no_answer_found`. LM Studio did not provide a stop reason, so the
@@ -150,8 +162,9 @@ the question's actual allowed labels. Exact `FINAL ANSWER: <label>` remains
 accepted only for backward compatibility. Approximate markers, fuzzy matching,
 semantic answer-text mapping, and arbitrary letters in prose remain rejected.
 
-After 34 offline tests passed, one final approved localhost request was made
-with the standalone-label contract. The exact native message was `B`; it was
+At a later historical development checkpoint with 34 passing offline tests,
+one final approved localhost request was made with the standalone-label
+contract. The exact native message was `B`; it was
 parsed with `parse_status=normalized_label` and matched `correct_answer=B`.
 The request used 89 input tokens and 2 output tokens, reported zero reasoning
 tokens, approximately `30.59` tokens per second, `691.47 ms` time to first
@@ -225,10 +238,11 @@ Selected sample IDs:
 3577, 4740, 5149, 6232, 7111, 8808, 9560
 ```
 
-Artifacts were generated under the ignored run directory
-`outputs/20260812T130136Z-ff5ca994/`. This 14-question result validates the real
-local execution path and strict output-format compliance; it is not a
-statistically sufficient MMLU-Pro score.
+The historical run identifier was `20260812T130136Z-ff5ca994`. Generated
+artifacts were ignored by Git and are not asserted to remain present in a
+current checkout. This 14-question result validates the recorded local
+execution path and strict output-format compliance; it is not a statistically
+sufficient MMLU-Pro score.
 
 ## Reasoning-on Gate 2 result
 

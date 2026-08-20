@@ -31,7 +31,9 @@ parameters.
 - A provider-neutral FastAPI registry API and synchronous registered Run API.
 - A framework-independent `BenchmarkApplicationService`, safe registered
   `RunConfig` resolution, and pre-execution Run API guardrails.
-- A forced-offline test snapshot of `213 passed, 0 failed`.
+- A framework-independent, read-only `BenchmarkComparisonService` for strict
+  comparison of two completed runs.
+- A forced-offline test snapshot of `234 passed, 0 failed`.
 
 ## Architecture
 
@@ -56,6 +58,14 @@ flowchart LR
 
 See [Architecture](docs/architecture.md) for component, transaction, and
 lifecycle details.
+
+Strict comparison requires identical sample-ID populations and aligns samples
+deterministically by `sample_id`. It reports quality, format compliance,
+reliability, token usage, and latency separately at aggregate, category, and
+sample levels. Model differences are expected; provider and generation-policy
+differences are retained as interpretation context. No composite score is
+generated. The service has no FastAPI comparison route yet; see
+[Architecture](docs/architecture.md) and [Validation](docs/validation.md).
 
 ## Installation
 
@@ -91,7 +101,7 @@ $env:TRANSFORMERS_OFFLINE = "1"
 python -m pytest
 ```
 
-The latest verified development snapshot is `213 passed, 0 failed`. Older
+The latest verified development snapshot is `234 passed, 0 failed`. Older
 counts in the validation history are labelled as historical checkpoints.
 
 ## CLI execution
@@ -327,7 +337,8 @@ Historical local-model and reasoning calibration results are recorded in
 and do not establish statistical model quality, general provider reliability,
 or production readiness.
 
-Next product-oriented increments include controlled comparison/reporting,
+The strict framework-independent comparison service is complete. The next
+product-oriented increment is a safe Comparison API. Later increments include
 operational authentication and URL/path policies, async execution, retry and
 resume, PostgreSQL runtime validation, pricing, and additional deterministic
 task families.

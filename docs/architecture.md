@@ -33,6 +33,7 @@ The implementation currently provides two execution paths:
 | Registered config resolver | `src/llm_benchmark/run_resolution.py` | Build a safe RunConfig from active registry records |
 | Run preflight | `src/llm_benchmark/run_preflight.py` | Apply synchronous API limits and validate the exact dataset selection |
 | Application service | `src/llm_benchmark/application.py` | Run lifecycle, short transaction boundaries, runner invocation, result persistence |
+| Comparison service | `src/llm_benchmark/comparison.py` | Read two completed runs through reader protocols, validate strict comparability, and return immutable comparisons |
 | FastAPI boundary | `src/llm_benchmark/api/` | Strict schemas, dependency wiring, thin CRUD and Run routes, safe HTTP errors |
 
 ## Overall architecture
@@ -226,9 +227,71 @@ they do not form a single cross-storage transaction.
   be registered.
 - The API is not production-ready.
 
+## Phase 5A strict run comparison
+
+`BenchmarkComparisonService` is a framework-independent, read-only application
+service. It depends on reader protocols for benchmark runs, sample results,
+models, datasets, and endpoints. It does not import ORM models, write database
+rows, read or write artifacts, or expose an HTTP route.
+
+```mermaid
+flowchart LR
+    Runs[(benchmark_runs)]
+    Samples[(sample_results)]
+    Readers[Reader protocols]
+    Comparison[BenchmarkComparisonService]
+    Compatibility[Comparability assessment]
+    Result[Immutable comparison result]
+
+    Runs --> Readers
+    Samples --> Readers
+    Readers --> Comparison
+    Comparison --> Compatibility
+    Comparison --> Result
+```
+
+Both run IDs must be distinct, both runs must be `completed`, and each must
+contain sample rows. Strict mode requires identical sample-ID populations.
+Rows are indexed and sorted by `sample_id`, so alignment does not depend on
+database row order. Duplicate IDs, empty runs, asymmetric populations, and
+correct-answer or category mismatches raise typed comparison errors.
+
+Comparability differences have three roles:
+
+- Blocking: dataset identity/source, revision, split, task type, adapter,
+  prompt-template hash, parser version, evaluator version, or scoring mode.
+- Contextual: model identity is expected; endpoint and provider identity are
+  reported as serving context.
+- Conditional: reasoning policy/mode, temperature, sampling parameters,
+  timeout, seed, fixed/provider-default output budgeting, and other supported
+  generation settings limit causal attribution but do not discard the result.
+
+Supported metrics are recomputed from persisted sample rows rather than copied
+from summary aggregates. `summary_json` is used only for required provenance,
+run wall time, and consistency warnings. Quality, format compliance,
+reliability, token usage, and latency remain separate; there is no universal
+composite score. Results include aggregate, per-category, and per-sample
+comparisons and request/parse/evaluation transitions.
+
+Null optional metrics remain null. Each optional metric carries
+`available_count`, `missing_count`, and `complete`. Successful-request P50/P95
+values use available non-null latency observations, while coverage uses the
+total successful-request population. Incomplete coverage remains
+`complete=false`, and no delta is emitted when either side is incomplete.
+
+Comparison records use an explicit safe-field allowlist. They exclude raw
+responses, provider and internal run error messages, endpoint URLs, credential
+environment-variable names, dataset URIs and local paths, artifact directories,
+and unrestricted registry metadata.
+
+Phase 5A does not support partial-overlap comparison, attempt/retry/backoff
+analysis, stop-reason or HTTP/provider-code comparison, final-output-token
+comparison, cost comparison, or a FastAPI comparison endpoint. Some of those
+features require additional persisted data or a separate product contract.
+
 ## Next architectural increments
 
-- Controlled run comparison and reporting
+- Safe Comparison API over the completed strict comparison service
 - Authentication and endpoint/path policies
 - Async worker execution, cancellation, retry, and resume
 - PostgreSQL runtime validation

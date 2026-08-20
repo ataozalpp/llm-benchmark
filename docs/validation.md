@@ -69,7 +69,7 @@ The POC and full profiles were not run as part of this validation.
 The complete forced-offline suite most recently completed with:
 
 ```text
-213 passed
+234 passed
 0 failed
 ```
 
@@ -94,6 +94,45 @@ Coverage includes:
 - OpenAI-compatible request/response normalization with mocked transports
 - Synchronous registered Run API execution
 - Exact Run API preflight selection, limits, and safe public errors
+- Framework-independent strict comparison of completed runs
+- Deterministic sample alignment and typed incompatibility handling
+- Comparison metric null/coverage behavior, including partial P50/P95 coverage
+
+## Phase 5A comparison-service validation
+
+The framework-independent `BenchmarkComparisonService` was validated with
+in-memory immutable repository records and the complete forced-offline suite.
+It accepts two distinct completed runs, aligns identical sample populations by
+`sample_id` independently of row order, and rejects duplicate, empty,
+asymmetric, or reference-inconsistent samples with typed errors.
+
+Tests cover model differences as expected comparison context, provider and
+endpoint differences as serving context, blocking evaluation-protocol
+differences, and conditional reasoning, sampling, timeout, seed, and
+output-budget differences. Quality, format-compliance, reliability, token, and
+latency metrics are recomputed from persisted sample rows at aggregate,
+category, and sample levels.
+
+Null optional telemetry is preserved. Coverage records expose
+`available_count`, `missing_count`, and `complete`. P50/P95 values are computed
+from known successful-request latency values while coverage uses all successful
+requests; incomplete coverage suppresses the absolute delta. The validated
+snapshot was:
+
+```text
+Comparison tests: 21 passed
+Comparison, repository, and application tests: 50 passed
+Complete forced-offline suite: 234 passed, 0 failed, 0 warnings
+```
+
+The service performs no database or artifact writes and emits no raw response,
+provider/internal error message, endpoint URL, credential reference, dataset
+URI/path, artifact path, or unrestricted metadata. It does not produce a
+composite score and is not yet exposed by a FastAPI comparison route.
+
+Attempt/retry/backoff details, stop reasons, final-output tokens, HTTP/provider
+codes, costs, and partial-overlap comparisons are outside Phase 5A because the
+required persisted data or product contract is not currently available.
 
 An earlier `57 passed, 0 failed` result was a historical development checkpoint
 before the database, repository, application-service, API, and preflight

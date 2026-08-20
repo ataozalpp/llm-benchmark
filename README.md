@@ -1,370 +1,335 @@
 # LLM Benchmark
 
-LLM Benchmark is a Python 3.12 project for running reproducible,
-multiple-choice evaluations across language-model service profiles. Its goal is
-to compare response quality, token usage, latency, reliability, and eventually
-cost under consistent datasets, prompts, parameters, and measurement rules.
-
-The current release is a small proof of concept. It preserves deterministic
-offline validation with `MockProvider` and adds opt-in LM Studio native and
-OpenAI-compatible paths for a manually started local model.
+LLM Benchmark is a Python 3.12 proof of concept for reproducible
+multiple-choice evaluation of language-model service profiles. It keeps
+quality, token usage, latency, reliability, and format compliance as separate
+measurements under explicit datasets, prompts, parser versions, and request
+parameters.
 
 > [!WARNING]
-> `MockProvider` accuracy, token, and latency values are synthetic pipeline
-> validation results. They do not measure or represent real LLM performance.
+> `MockProvider` scores and telemetry are synthetic software-validation
+> results. They are not measurements of real LLM performance. The recorded
+> single-sample, three-sample, and reasoning experiments are operational
+> calibrations, not benchmark scores.
 
-## Current status
+## Current implementation
 
-Completed and validated:
+- Strict, immutable Pydantic `schema_version: 1` YAML configuration with CLI
+  overrides.
+- Project-owned local JSONL fixture data and a pinned
+  `TIGER-Lab/MMLU-Pro` Hugging Face source.
+- Deterministic sampling, versioned prompts, a strict multiple-choice parser,
+  deterministic evaluation, metrics, and reproducibility hashes.
+- `MockProvider`, LM Studio native, and generic OpenAI-compatible provider
+  adapters behind one normalized provider boundary.
+- Append-friendly JSONL results and JSON summary, configuration, manifest, and
+  environment artifacts.
+- Synchronous SQLAlchemy 2.x persistence with SQLite for local/development use
+  and Alembic migrations.
+- Repositories and immutable application-facing records for registered
+  endpoints, models, datasets, benchmark runs, and sample results.
+- A provider-neutral FastAPI registry API and synchronous registered Run API.
+- A framework-independent `BenchmarkApplicationService`, safe registered
+  `RunConfig` resolution, and pre-execution Run API guardrails.
+- A forced-offline test snapshot of `213 passed, 0 failed`.
 
-- Python 3.12 package using a `src/` layout.
-- Strict, immutable Pydantic configuration loaded from YAML.
-- CLI overrides with `built-in defaults < YAML < CLI` precedence.
-- Project-owned offline fixture dataset.
-- Pinned `TIGER-Lab/MMLU-Pro` Hugging Face loader.
-- Deterministic smoke and category-balanced POC sampling profiles.
-- Versioned prompt construction and deterministic multiple-choice parsing.
-- Deterministic `MockProvider` success, incorrect, unparseable,
-  failed-request, and missing-token scenarios.
-- Append-friendly JSONL results and derived JSON summaries.
-- Quality, token, latency, reliability, and category-level metrics.
-- Redacted resolved configuration, dataset manifest, environment snapshot,
-  hashes, and a combined run fingerprint.
-- Offline unit and integration test suite covering the benchmark, persistence,
-  registry API, and provider adapters.
-- A completed pinned 14-sample MMLU-Pro smoke validation using MockProvider.
-- An isolated LM Studio native `POST /api/v1/chat` provider with explicit
-  reasoning mode and mocked offline tests.
-- An isolated OpenAI-compatible `POST {base_url}/chat/completions` provider,
-  validated against one synthetic localhost fixture request.
-- Fixed sample-ID calibration profiles, reasoning/final-output telemetry,
-  sanitized provider-error details, and optional native sampling controls.
-- Completed local reasoning-off, reasoning-on, and single-sample calibration
-  runs documented in the validation record.
+## Architecture
 
-## Current non-goals
-
-The current increment intentionally does not include:
-
-- Provider-specific OpenAI, Gemini, vLLM, or other additional adapters.
-- API keys or credential management. The local LM Studio slice uses no
-  authentication and remains bound to localhost.
-- Retry execution, concurrency, rate limiting, or resumable work queues.
-- Streaming. Native time-to-first-token telemetry is recorded when LM Studio
-  reports it, but the provider currently uses non-streaming requests.
-- Pricing tables or cost calculation.
-- RAG, tool-calling, embeddings, free-text, or code-generation evaluation.
-- LLM-as-a-judge or human evaluation.
-- A database, backend service, web interface, CI/CD, Docker, or deployment
-  infrastructure.
-
-## Architecture overview
-
-The benchmark core separates configuration, datasets, prompts, provider calls,
-parsing, evaluation, storage, metrics, and reproducibility metadata.
+The CLI and registered Run API share the benchmark runner but have different
+orchestration and persistence boundaries.
 
 ```mermaid
 flowchart LR
-    A[YAML config] --> B[Pydantic validation]
-    B --> C[Dataset source]
-    C --> D[Deterministic sampling]
-    D --> E[Prompt builder]
-    E --> F[Provider factory]
-    F --> N[MockProvider]
-    F --> O[LM Studio native provider]
-    F --> P[OpenAI-compatible provider]
-    N --> G[Response parser]
-    O --> G
-    P --> G
-    G --> H[Evaluation result]
-    H --> I[results.jsonl]
-    H --> J[Metrics aggregation]
-    J --> K[summary.json]
-    B --> L[Resolved config and hashes]
-    D --> M[Dataset manifest]
+    CLI[CLI and YAML] --> Core[Benchmark runner]
+    RunAPI[Synchronous Run API] --> Resolver[RegisteredRunConfigResolver]
+    Resolver --> Preflight[RunPreflightService]
+    Preflight --> Service[BenchmarkApplicationService]
+    Service --> Core
+
+    Core --> Providers[Provider adapters]
+    Core --> Artifacts[JSONL and JSON artifacts]
+
+    RegistryAPI[Registry CRUD API] --> Repositories[Repositories]
+    Service --> Repositories
+    Repositories --> DB[(SQLite via SQLAlchemy)]
 ```
 
-See [Architecture](docs/architecture.md) for component responsibilities,
-provider boundaries, and the phased design.
+See [Architecture](docs/architecture.md) for component, transaction, and
+lifecycle details.
 
-## Requirements and installation
+## Installation
+
+Requirements:
 
 - Python `>=3.12,<3.13`
 - Git
-- Network access only when installing packages or initially downloading
-  MMLU-Pro
+- Network access only for dependency installation or an explicitly approved
+  initial Hugging Face download
 
-Create and activate a virtual environment on Windows PowerShell:
+Windows PowerShell:
 
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -e ".[dev,huggingface]"
-```
-
-For fixture-only development, the Hugging Face dependency is optional:
-
-```powershell
 python -m pip install -e ".[dev]"
 ```
 
-No API key is required for the implemented workflows.
-
-## Run the offline tests
-
-The standard suite does not require network access:
+Add optional Hugging Face support when required:
 
 ```powershell
-python -m pytest -m "not network"
+python -m pip install -e ".[dev,huggingface]"
 ```
 
-To force Hugging Face libraries into offline mode in PowerShell:
+## Offline tests
+
+The complete suite can be forced offline:
 
 ```powershell
 $env:HF_HUB_OFFLINE = "1"
 $env:HF_DATASETS_OFFLINE = "1"
-python -m pytest -m "not network"
+$env:TRANSFORMERS_OFFLINE = "1"
+python -m pytest
 ```
 
-## Run the offline fixture benchmark
+The latest verified development snapshot is `213 passed, 0 failed`. Older
+counts in the validation history are labelled as historical checkpoints.
+
+## CLI execution
+
+Run the fully offline fixture pipeline:
 
 ```powershell
 python -m llm_benchmark run --config configs/mock_smoke.yaml
 ```
 
-This run uses eight project-owned synthetic questions and two deterministic
-mock model profiles. It requires no network access or credentials.
+The installed console entry point is equivalent:
 
-## Run the MMLU-Pro smoke validation
+```powershell
+llm-benchmark run --config configs/mock_smoke.yaml
+```
 
-Review [the smoke configuration](configs/mmlu_pro_smoke.yaml) before running:
+Explicit overrides are supported:
+
+```powershell
+llm-benchmark run --config configs/mock_smoke.yaml --set dataset.sample_size=4
+```
+
+CLI runs call the runner directly. They do not use the registry, database
+repositories, application service, or Run API guardrails. In particular, the
+CLI retains the configured `full` profile behavior.
+
+## Dataset commands
+
+Pinned MMLU-Pro MockProvider smoke:
 
 ```powershell
 python -m llm_benchmark run --config configs/mmlu_pro_smoke.yaml
 ```
 
-The configuration uses:
-
-- Dataset: `TIGER-Lab/MMLU-Pro`
-- Pinned revision: `475d58ba0cc18a15fd5d4221f41919199e692331`
-- Split: `test`
-- Seed: `42`
-- Profile: `smoke`
-- Sample count: `14`
-- Provider: `MockProvider` only
-
-The first run may download the official dataset into the Hugging Face cache.
-Subsequent runs can use the cache. The POC and full profiles are not required
-for smoke validation.
-
-## Run the opt-in LM Studio fixture smoke
-
-This command is intentionally not part of the offline test suite. Start the
-validated LM Studio model locally, review
-[the local model setup](docs/local-model-setup.md), and then run:
-
-```powershell
-python -m llm_benchmark run --config configs/lm_studio_fixture_smoke.yaml
-```
-
-The config schedules exactly one synthetic fixture question and sends one
-native request to `http://127.0.0.1:1234/api/v1/chat` with model
-`qwen3.5-0.8b`, reasoning `off`, temperature `0`, and 128 maximum output tokens.
-It also sends `store=false`, so the request does not create persistent native
-chat state. Only native output items with `type="message"` are scored;
-reasoning items are never treated as the final answer. No API key is used.
-
-The canonical prompt response is exactly one uppercase option label and no
-other text. The allowed label range is derived from each question, including
-A–J when present. The strict parser retains exact `FINAL ANSWER: <label>`
-support for backward compatibility but rejects approximate markers and
-semantic prose. Stop reason is recorded when supplied; otherwise it is null.
-
-## Run the opt-in OpenAI-compatible fixture validation
-
-With the same local model exposed through an OpenAI-compatible API, the
-separate config schedules exactly one synthetic fixture question:
-
-```powershell
-python -m llm_benchmark run --config configs/openai_compatible_fixture_smoke.yaml
-```
-
-The verified LM Studio URL was `http://127.0.0.1:1234/v1`, producing a request
-to `POST /v1/chat/completions` for model `qwen3.5-0.8b`. No credential or
-`Authorization` header was used. The request omitted `max_tokens`, recorded
-`output_budget_provenance=provider_default`, and did not transmit a reasoning
-mode. Accordingly, `reasoning_mode` remained null: endpoint reasoning behavior
-is provider-managed or unverified, not claimed as on or off.
-
-The one-request validation returned the standard final message `B`, parsed it
-correctly, and completed with `stop_reason=stop`. It reported 90 input tokens,
-326 total-output tokens, 322 reasoning tokens, 4 derived final-output tokens,
-416 total tokens, and approximately 21.46 seconds latency. Non-streaming TTFT
-and throughput remained null and were not estimated. This is an interoperability
-fixture validation, not a model-quality result or MMLU-Pro score.
-
-## Run the pinned MMLU-Pro LM Studio smoke
-
-With the validated model already running in LM Studio, the separate real-model
-smoke config makes exactly 14 sequential localhost requests using only the
-pinned cached dataset selection:
+Cached local-model MMLU-Pro smoke:
 
 ```powershell
 $env:HF_HUB_OFFLINE = "1"
 $env:HF_DATASETS_OFFLINE = "1"
+$env:TRANSFORMERS_OFFLINE = "1"
 python -m llm_benchmark run --config configs/mmlu_pro_lm_studio_smoke.yaml
 ```
 
-The validated run completed all 14 requests with 100% request and parse success,
-2 correct answers, and 12 incorrect answers. Its 14.29% accuracy is a tiny
-stratified smoke result, not a statistically sufficient MMLU-Pro benchmark.
+Local provider commands are opt-in and require an already running endpoint.
+The benchmark does not download, load, start, stop, or orchestrate local
+models. See [Local model setup](docs/local-model-setup.md).
 
-## Reasoning-on calibration status
+## Persistence and migrations
 
-Reasoning-on was evaluated separately without changing the reasoning-off
-baseline. In the pinned 14-sample run, all HTTP requests succeeded, but each
-response consumed the configured 1,024-token output budget entirely as
-reasoning and produced no native final message. All 14 results were therefore
-correctly classified as unparseable.
+The default development database URL is:
 
-For sample `2019`, increasing the bounded output budget to 2,048 tokens did not
-produce a final message: all 2,048 output tokens were again reasoning tokens.
-A partial native-supported sampling profile (`temperature`, `top_p`, `top_k`,
-`min_p`, and `repeat_penalty`) produced the same outcome. Native
-`presence_penalty` support was not verified and the field was omitted.
+```text
+sqlite:///runtime/llm_benchmark.db
+```
 
-Sanitized inspection through local LM Studio Developer Logs showed strong
-repetitive, non-convergent deliberation until output-budget exhaustion. This
-does not prove a literal infinite reasoning loop. Raw reasoning text is not
-stored in tracked files or repository documentation, and reasoning content is
-never parsed as the final answer. See the [validation record](docs/validation.md)
-for verified run IDs and metrics.
+It can be changed with `LLM_BENCHMARK_DATABASE_URL`. Actual credential values
+must never be included in database URLs committed to the repository.
 
-`max_output_tokens` is optional for LM Studio native profiles. A positive value
-is sent unchanged and recorded with `output_budget_provenance=fixed`. When the
-field is omitted or null, the provider does not send it and records
-`output_budget_provenance=provider_default`. Omission is not an unlimited-output
-claim: generation remains governed by the provider, model, and loaded context.
+Apply the current migration:
 
-For the loaded `qwen3.5-0.8b` instance, LM Studio reported an 8,192-token loaded
-context while the model metadata advertised a 262,144-token maximum. These are
-different measurements; the effective loaded context is the relevant runtime
-bound, and the exact generation allowance is smaller and was not exposed.
+```powershell
+alembic upgrade head
+```
 
-The provider-default calibration for sample `2019` reached a final message
-after 3,591 reasoning tokens. The final label `B` was format-compliant but
-incorrect against reference label `I`. This is one operational calibration,
-not a benchmark score or evidence that reasoning improves accuracy.
+This may create the ignored local runtime database. The schema contains:
 
-| Sample `2019` | Bounded 1,024 | Bounded 2,048 | Provider default |
-| --- | ---: | ---: | ---: |
-| Reasoning tokens | 1,024 | 2,048 | 3,591 |
-| Final-output tokens | 0 | 0 | 4 |
-| Total-output tokens | 1,024 | 2,048 | 3,595 |
-| Final message reached | No | No | Yes (`B`) |
-| Evaluation | Unparseable | Unparseable | Incorrect |
-| Latency | 62.44 s | 122.55 s | 209.88 s |
+- `provider_endpoints`
+- `models`
+- `datasets`
+- `benchmark_runs`
+- `sample_results`
 
-The provider-default request did not consume the full loaded context, and the
-result does not establish that provider-default generation always terminates.
+The schema uses portable SQLAlchemy types and generic JSON fields with future
+PostgreSQL migration in mind. PostgreSQL runtime behavior has not been
+validated.
 
-A follow-up three-sample operational calibration reached final messages and
-produced parseable responses for all three requests. One response was correct
-and two were incorrect. Across the three samples it consumed 14,902 total
-tokens, including 14,123 reasoning tokens, with a 904.66-second logical-duration
-sum. These values describe final-message reliability and cost for this specific
-configuration; three samples are not an MMLU-Pro score.
+## Registry CRUD API
 
-The paired reasoning-off subset was faster and used fewer tokens, but it also
-used a fixed output budget, temperature zero, and different sampling controls.
-Consequently, differences cannot be attributed solely to reasoning. No explicit
-output-limit exhaustion was observed in the provider-default mini-calibration,
-although LM Studio did not provide stop reasons.
+The FastAPI application factory is:
 
-## Output artifacts
+```python
+from llm_benchmark.api import create_app
 
-Every run creates an ignored directory under `outputs/<run_id>/` containing:
+app = create_app()
+```
 
-| File | Purpose |
-| --- | --- |
-| `results.jsonl` | One append-friendly record per model and sample |
-| `summary.json` | Overall, per-model, and per-model-category metrics |
-| `resolved_config.json` | Fully validated, secret-free run configuration |
-| `dataset_manifest.json` | Dataset provenance and selected sample metadata |
-| `environment.json` | Python, package, OS, and Git environment metadata |
+Registered endpoints, models, and datasets expose create, active-only list,
+individual get, partial update, and soft-delete routes under `/api/v1`:
 
-Generated runs are intentionally excluded from Git; only
-`outputs/.gitkeep` is tracked.
+```text
+POST   /api/v1/endpoints
+GET    /api/v1/endpoints
+GET    /api/v1/endpoints/{id}
+PATCH  /api/v1/endpoints/{id}
+DELETE /api/v1/endpoints/{id}
 
-## Metrics
+POST   /api/v1/models
+GET    /api/v1/models
+GET    /api/v1/models/{id}
+PATCH  /api/v1/models/{id}
+DELETE /api/v1/models/{id}
 
-The current summary includes:
+POST   /api/v1/datasets
+GET    /api/v1/datasets
+GET    /api/v1/datasets/{id}
+PATCH  /api/v1/datasets/{id}
+DELETE /api/v1/datasets/{id}
+```
 
-- `accuracy` across all scheduled results.
-- `answered_accuracy` across parseable answers.
-- Request and parse success rates.
-- Format-failure and request-failure counts.
-- Prompt, completion, and total token usage.
-- Native input, total-output, and reasoning-output token totals when reported.
-- Safely derived final-output tokens and a count of responses where reasoning
-  was observed.
-- Tokens per second and time to first token when reported by LM Studio.
-- Missing-token-usage count and token efficiency metrics.
-- Mean, P50, P95, minimum, and maximum logical-request latency for successful
-  requests.
-- Separate failed-request latency and error-type distribution.
-- Run wall time.
-- Sum of logical-request durations.
-- Model-level and category-level breakdowns.
+Only credential environment-variable names may be registered. API keys,
+passwords, bearer tokens, and other secret values are rejected and are not
+stored. The project does not currently include a production ASGI server
+dependency or deployment command; the API is not production-ready.
 
-Mock token counts use simple deterministic word counts, and mock latency is a
-configured synthetic value; neither is provider telemetry.
+## Synchronous registered Run API
 
-## Reproducibility
+```text
+POST /api/v1/runs
+GET  /api/v1/runs
+GET  /api/v1/runs/{run_id}
+GET  /api/v1/runs/{run_id}/results
+```
 
-Each run records:
+Clients select registered model and dataset IDs. They cannot directly override
+the provider, endpoint URL, credential, model identifier, dataset path,
+artifact path, or output root. `RegisteredRunConfigResolver` constructs a
+validated configuration from active registrations.
 
-- A strict `schema_version: 1` resolved configuration and canonical hash.
-- Output-budget provenance distinguishing fixed limits from provider-default
-  behavior without treating omission as unlimited generation.
-- Dataset source, pinned revision, split, seed, selected sample IDs,
-  categories, sample count, license, and manifest hash.
-- Prompt-template hash, parser version, and evaluator version.
-- Python, OS, package, Git commit, and dirty-worktree metadata when available.
-- A combined `run_fingerprint` derived from configuration, data, prompt,
-  evaluator, parser, and Git revision inputs.
+Before any run record is created, `RunPreflightService` applies the default
+synchronous API policy:
 
-See [V1 assumptions](docs/assumptions.md) and
-[Validation record](docs/validation.md) for the exact current protocol.
+- `smoke` and `poc` are allowed.
+- `full` is rejected by the Run API only.
+- `max_selected_samples=100`.
+- `max_sample_ids=100`.
+- The dataset is loaded and existing sampling rules produce the exact
+  selection.
+- Unknown sample IDs, unknown categories, mixed valid/invalid categories, and
+  empty selections are rejected.
 
-## Limitations
+A rejected preflight performs no provider call and creates no benchmark-run
+row, sample-result row, or artifact directory. The API remains synchronous and
+in-process; the HTTP request stays open until execution completes.
 
-- The provider factory supports MockProvider, the LM Studio native API, and a
-  separate generic OpenAI-compatible Chat Completions adapter.
-- Retry fields exist in the result schema, but V1 executes one attempt only.
-- Runs are sequential and cannot yet resume after interruption.
-- JSONL has no database transaction or duplicate-work protection.
-- MMLU-Pro licensing and citation metadata are currently encoded for the known
-  dataset profile rather than fetched dynamically.
-- Small-sample percentile values are calculated but are not accompanied by
-  confidence intervals or minimum-sample warnings.
-- No project license has been selected yet.
+## Run lifecycle and durability
 
-## Roadmap
+For an accepted registered run, `BenchmarkApplicationService` preserves short
+transactions:
 
-1. Compare a second explicitly approved reasoning-capable local model through
-   the same provider, prompt, dataset, and measurement protocol.
-2. Add attempt-level records, timeout handling, bounded retries, shared rate
-   limiting, graceful shutdown, and safe resume.
-3. Add versioned pricing, cost metrics, comparison exports, and a durable
-   database backend.
-4. Add structured-output and instruction-following evaluations.
-5. Add tool-calling, embeddings/retrieval, RAG, and later open-ended evaluation.
-6. Add optional human and calibrated LLM-judge workflows only where
-   deterministic evaluation is insufficient.
-7. Consider opt-in reasoning diagnostics, repetition analysis, calibration
-   suites, and provider/model capability metadata in later dedicated phases.
+```text
+queued transaction
+-> running transaction
+-> provider execution with no open database transaction
+-> atomic sample_results transaction
+-> completed or failed transaction
+```
 
-No additional provider integration should proceed until endpoint access, model
-IDs, credentials policy, and budget limits have been explicitly approved.
+Unparseable and request-failed samples are benchmark outcomes when the pipeline
+completes; they are not orchestration failures.
+
+CLI artifacts and API database records have different guarantees:
+
+- CLI: artifacts under `outputs/<run_id>/`; JSONL append and JSON replacement
+  are not one database transaction.
+- Registered Run API: artifacts under `outputs/api/<run_id>/` plus durable run
+  and sample records. Sample rows are written atomically, but database and
+  filesystem artifacts do not form one cross-storage transaction.
+
+Generated outputs, runtime databases, downloaded datasets, model weights, and
+local caches are ignored by Git.
+
+## Providers
+
+- `MockProvider`: deterministic, offline, synthetic validation only.
+- `LMStudioProvider`: native `POST /api/v1/chat`, explicit native reasoning
+  mode, `store=false`, and message-only scoring.
+- `OpenAICompatibleProvider`: `POST {base_url}/chat/completions`, optional
+  request-time Bearer credential resolution, and no unverified native
+  reasoning fields.
+
+Reasoning content is never parsed as the final answer unless it is also
+present in the provider's standard final-message field. Missing telemetry is
+stored as null rather than invented.
+
+## Datasets and attribution
+
+The local fixture contains eight project-owned synthetic multiple-choice
+questions. Its output is software-validation data, not a model score.
+
+The real benchmark source is:
+
+- Dataset: `TIGER-Lab/MMLU-Pro`
+- Homepage: <https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro>
+- Pinned revision: `475d58ba0cc18a15fd5d4221f41919199e692331`
+- Evaluated split: `test`
+- Citation: MMLU-Pro, arXiv:2406.01574
+- Recorded dataset license metadata: `MIT`
+
+The dataset is not redistributed in this repository. Dataset licensing and
+project licensing are separate and must be reviewed independently.
+
+## Metrics and reproducibility
+
+Current outputs include quality counts and rates, token usage, provider-reported
+reasoning/final-output telemetry, successful and failed latency distributions,
+run wall time, logical-duration sum, error distributions, category breakdowns,
+resolved-config hash, dataset-manifest hash, prompt hash, parser/evaluator
+versions, environment metadata, and a combined run fingerprint. Pricing and
+cost calculation are not implemented.
+
+## Security boundaries and limitations
+
+- No authentication or authorization.
+- No worker, queue, retry, concurrency control, rate limiting, resume, or
+  pagination.
+- No endpoint SSRF allowlist or local dataset-root allowlist.
+- No explicit Hugging Face cache-only/download policy in the API.
+- Preflight and execution currently load the dataset independently.
+- No streaming transport.
+- No production deployment configuration.
+- Sample-result API responses include raw model responses and should not be
+  exposed to untrusted users.
+- Public run responses omit persisted internal failure messages and expose
+  only the high-level error type.
+- Actual secrets are never persisted; only credential environment-variable
+  names may be stored.
+- The evaluation task is currently multiple-choice only.
+
+## Validation and roadmap
+
+Historical local-model and reasoning calibration results are recorded in
+[Validation](docs/validation.md). They describe specific local configurations
+and do not establish statistical model quality, general provider reliability,
+or production readiness.
+
+Next product-oriented increments include controlled comparison/reporting,
+operational authentication and URL/path policies, async execution, retry and
+resume, PostgreSQL runtime validation, pricing, and additional deterministic
+task families.
+
+No project license has been selected yet.

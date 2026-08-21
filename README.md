@@ -193,7 +193,13 @@ Uvicorn on localhost:
 ```powershell
 $env:LLM_BENCHMARK_DATABASE_URL = "sqlite:///runtime/api_runtime_dev.db"
 .\.venv\Scripts\python.exe -m alembic upgrade head
-.\.venv\Scripts\python.exe -m uvicorn llm_benchmark.api:create_app --factory --host 127.0.0.1 --port 8000
+& ".\.venv\Scripts\python.exe" -m llm_benchmark.api
+```
+
+Equivalent explicit Uvicorn command:
+
+```powershell
+& ".\.venv\Scripts\python.exe" -m uvicorn llm_benchmark.api:create_app --factory --host 127.0.0.1 --port 8000
 ```
 
 Database migrations must be applied before using database-backed routes. While

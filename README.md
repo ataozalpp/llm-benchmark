@@ -101,6 +101,20 @@ $env:TRANSFORMERS_OFFLINE = "1"
 python -m pytest
 ```
 
+Ruff is installed through the existing `dev` optional dependency group. The
+recommended local validation order is to activate the project environment, run
+the lint gate, then run pytest after forcing the three offline modes shown
+above:
+
+```powershell
+& ".\.venv\Scripts\Activate.ps1"
+ruff check .
+pytest -q
+```
+
+The current Ruff gate performs linting only; `ruff format` is not enforced.
+Ruff complements and does not replace the offline pytest suite.
+
 The latest verified development snapshot is `234 passed, 0 failed`. Older
 counts in the validation history are labelled as historical checkpoints.
 

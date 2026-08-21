@@ -9,7 +9,6 @@ from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
-
 DATABASE_URL_ENV = "LLM_BENCHMARK_DATABASE_URL"
 DEFAULT_DATABASE_URL = "sqlite:///runtime/llm_benchmark.db"
 

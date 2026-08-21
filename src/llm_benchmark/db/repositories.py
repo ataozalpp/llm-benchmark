@@ -38,7 +38,6 @@ from .records import (
 )
 from .schemas import ModelCapabilities
 
-
 _T = TypeVar("_T")
 _UNSET = object()
 _ENV_VAR_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")

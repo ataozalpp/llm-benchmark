@@ -29,7 +29,6 @@ from llm_benchmark.db.records import (
     SampleResultRecord,
 )
 
-
 NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
 

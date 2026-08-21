@@ -12,7 +12,6 @@ from typing import Any, Protocol
 from .config import ModelConfig
 from .models import DatasetExample, ProviderResponse
 
-
 _MAX_ERROR_BODY_BYTES = 16_384
 _MAX_ERROR_MESSAGE_CHARS = 512
 

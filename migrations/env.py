@@ -5,10 +5,9 @@ from logging.config import fileConfig
 
 from alembic import context
 
+from llm_benchmark.db import models as registry_models  # noqa: F401
 from llm_benchmark.db.base import Base
 from llm_benchmark.db.engine import DATABASE_URL_ENV, create_db_engine
-from llm_benchmark.db import models as registry_models  # noqa: F401
-
 
 config = context.config
 if config.config_file_name is not None:

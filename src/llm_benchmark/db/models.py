@@ -8,7 +8,6 @@ from sqlalchemy import (
     JSON,
     Boolean,
     DateTime,
-    Enum as SqlEnum,
     Float,
     ForeignKey,
     Index,
@@ -18,6 +17,9 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
     true,
+)
+from sqlalchemy import (
+    Enum as SqlEnum,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 

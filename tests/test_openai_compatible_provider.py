@@ -11,7 +11,11 @@ import pytest
 
 from llm_benchmark.config import DatasetConfig, ModelConfig, RunConfig
 from llm_benchmark.models import DatasetExample
-from llm_benchmark.providers import MockProvider, OpenAICompatibleProvider, create_provider
+from llm_benchmark.providers import (
+    MockProvider,
+    OpenAICompatibleProvider,
+    create_provider,
+)
 from llm_benchmark.runner import _evaluate
 from llm_benchmark.storage import append_result
 

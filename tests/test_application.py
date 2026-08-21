@@ -6,7 +6,10 @@ from typing import Any
 
 import pytest
 
-from llm_benchmark.application import BenchmarkApplicationService, RegistrationMismatchError
+from llm_benchmark.application import (
+    BenchmarkApplicationService,
+    RegistrationMismatchError,
+)
 from llm_benchmark.config import RunConfig, load_config
 from llm_benchmark.db import Base, create_db_engine, create_session_factory
 from llm_benchmark.db.errors import InactiveDependencyError, RecordNotFoundError

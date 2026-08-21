@@ -6,8 +6,8 @@ from fastapi import APIRouter, Depends, status
 
 from llm_benchmark.application import BenchmarkApplicationService
 from llm_benchmark.db.registry import RegistryRepositories
-from llm_benchmark.run_resolution import RegisteredRunConfigResolver, RunConfigRequest
 from llm_benchmark.run_preflight import RunPreflightService
+from llm_benchmark.run_resolution import RegisteredRunConfigResolver, RunConfigRequest
 
 from .app_dependencies import (
     get_benchmark_service,
@@ -16,7 +16,6 @@ from .app_dependencies import (
     get_run_preflight_service,
 )
 from .schemas import RunCreate, RunResponse, SampleResultResponse
-
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 

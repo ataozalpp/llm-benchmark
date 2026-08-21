@@ -1,0 +1,91 @@
+# Version-control metadata
+.git
+.github
+.gitignore
+.gitattributes
+
+# Python virtual environments
+.venv
+.venv-*
+venv
+env
+
+# Python caches and compiled files
+__pycache__
+**/__pycache__
+*.py[cod]
+
+# Test, lint, type-checking, and coverage caches
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+.coverage.*
+htmlcov
+.tox
+.nox
+
+# Runtime data and generated artifacts
+runtime
+outputs
+*.db
+*.sqlite
+*.sqlite3
+
+# Python build artifacts
+build
+dist
+*.egg-info
+
+# Secrets, credentials, and local environment files
+.env
+.env.*
+*.secret
+*.secrets
+secrets.*
+credentials.*
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Local caches and downloaded dataset files
+.cache
+**/.cache
+.huggingface
+**/.huggingface
+huggingface_cache
+hf_cache
+data/cache
+data/downloads
+data/huggingface
+data/**/*.arrow
+data/**/*.parquet
+
+# Local model directories and model artifacts
+models
+local_models
+model_cache
+*.gguf
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# LM Studio local state
+.lmstudio
+.lmstudio-state
+lm-studio
+
+# Development-only files
+tests
+docs
+.vscode
+.idea
+
+# Operating-system and temporary files
+.DS_Store
+Thumbs.db
+*.log
+*.tmp

@@ -1,0 +1,46 @@
+services:
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: llm-benchmark-poc:local
+    command:
+      - python
+      - -m
+      - alembic
+      - upgrade
+      - head
+    environment:
+      LLM_BENCHMARK_DATABASE_URL: sqlite:////app/runtime/llm_benchmark.db
+    volumes:
+      - benchmark_runtime:/app/runtime
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: llm-benchmark-poc:local
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command:
+      - python
+      - -m
+      - uvicorn
+      - llm_benchmark.api:create_app
+      - --factory
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+    environment:
+      LLM_BENCHMARK_DATABASE_URL: sqlite:////app/runtime/llm_benchmark.db
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - benchmark_runtime:/app/runtime
+      - benchmark_outputs:/app/outputs
+
+volumes:
+  benchmark_runtime:
+  benchmark_outputs:

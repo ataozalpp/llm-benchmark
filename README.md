@@ -219,6 +219,37 @@ execution model is appropriate for the current POC; long-running production
 execution will require a worker/task-queue design. Runtime SQLite databases and
 generated benchmark artifacts must remain untracked.
 
+## Running the API with Docker
+
+The Docker POC uses Python 3.12 slim and runs the application as the non-root
+`benchmark` user. Build the reusable image, start the migration and API
+services, inspect their state, and stop them with:
+
+```powershell
+docker compose build
+docker compose up
+docker compose ps -a
+docker compose down
+```
+
+Compose runs `python -m alembic upgrade head` in the separate `migrate`
+service. The `api` service starts only after that migration completes
+successfully. Both services use the same SQLite database in the persistent
+`benchmark_runtime` named volume; generated benchmark outputs use the separate
+`benchmark_outputs` named volume. `docker compose down` preserves these named
+volumes unless they are explicitly removed with a volume-deletion option.
+
+The container listens on `0.0.0.0:8000`, while Compose publishes the API only
+on host address `127.0.0.1:8000`:
+
+- Swagger UI: <http://127.0.0.1:8000/docs>
+- OpenAPI schema: <http://127.0.0.1:8000/openapi.json>
+
+Manual validation confirmed that `GET /api/v1/endpoints` returned HTTP `200`.
+A registered Mock endpoint remained available after container teardown and
+recreation, confirming named-volume persistence. That registration operation
+did not invoke a model or make an external request.
+
 ## Registry CRUD API
 
 The FastAPI application factory is:

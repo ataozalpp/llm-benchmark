@@ -116,6 +116,29 @@ def test_initial_migration_creates_registry_schema(tmp_path: Path) -> None:
         revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
     assert revision == "20260817_0001"
 
+def test_alembic_honors_database_url_environment_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    database_path = tmp_path / "environment-selected.sqlite"
+    database_url = sqlite_url(database_path)
+
+    monkeypatch.setenv(DATABASE_URL_ENV, database_url)
+
+    config = Config("alembic.ini")
+    command.upgrade(config, "head")
+
+    assert database_path.exists()
+
+    engine = create_db_engine(database_url)
+    try:
+        inspector = inspect(engine)
+        assert EXPECTED_TABLES <= set(inspector.get_table_names())
+
+        with engine.connect() as connection:
+            revision = connection.scalar(
+                text("SELECT version_num FROM alembic_version")
+            )
+        assert revision == "20260817_0001"
+    finally:
+        engine.dispose()
 
 def test_initial_migration_supports_upgrade_downgrade_reupgrade(tmp_path: Path) -> None:
     database_url = sqlite_url(tmp_path / "migration-cycle.sqlite")

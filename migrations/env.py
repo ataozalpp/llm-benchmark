@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import os
 from logging.config import fileConfig
 
 from alembic import context
 
 from llm_benchmark.db.base import Base
-from llm_benchmark.db.engine import create_db_engine
+from llm_benchmark.db.engine import DATABASE_URL_ENV, create_db_engine
 from llm_benchmark.db import models as registry_models  # noqa: F401
 
 
@@ -15,9 +16,13 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
+def get_migration_database_url() -> str:
+    if DATABASE_URL_ENV in os.environ:
+        return os.environ[DATABASE_URL_ENV]
+    return config.get_main_option("sqlalchemy.url")
 
 def run_migrations_offline() -> None:
-    url = config.get_main_option("sqlalchemy.url")
+    url = get_migration_database_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -30,7 +35,7 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    connectable = create_db_engine(config.get_main_option("sqlalchemy.url"))
+    connectable = create_db_engine(get_migration_database_url())
     try:
         with connectable.connect() as connection:
             context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)

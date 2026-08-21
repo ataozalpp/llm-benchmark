@@ -178,6 +178,41 @@ The schema uses portable SQLAlchemy types and generic JSON fields with future
 PostgreSQL migration in mind. PostgreSQL runtime behavior has not been
 validated.
 
+## Running the API locally
+
+Install the project and development dependencies into the existing virtual
+environment:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+```
+
+Configure an ignored development database, apply the migrations, and start
+Uvicorn on localhost:
+
+```powershell
+$env:LLM_BENCHMARK_DATABASE_URL = "sqlite:///runtime/api_runtime_dev.db"
+.\.venv\Scripts\python.exe -m alembic upgrade head
+.\.venv\Scripts\python.exe -m uvicorn llm_benchmark.api:create_app --factory --host 127.0.0.1 --port 8000
+```
+
+Database migrations must be applied before using database-backed routes. While
+the server is running, the local documentation endpoints are:
+
+- Swagger UI: <http://127.0.0.1:8000/docs>
+- OpenAPI schema: <http://127.0.0.1:8000/openapi.json>
+- ReDoc: <http://127.0.0.1:8000/redoc>
+
+Press `Ctrl+C` to stop the server. A `404` response for `/` or `/favicon.ico`
+is currently expected because those routes are not implemented. The documented
+command binds Uvicorn only to `127.0.0.1`.
+
+The API provides registry CRUD routes for provider endpoints, models, and
+datasets, plus synchronous in-process benchmark run and result routes. This
+execution model is appropriate for the current POC; long-running production
+execution will require a worker/task-queue design. Runtime SQLite databases and
+generated benchmark artifacts must remain untracked.
+
 ## Registry CRUD API
 
 The FastAPI application factory is:

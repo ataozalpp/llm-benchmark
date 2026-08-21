@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Response, status
 from llm_benchmark.db.registry import RegistryRepositories
 
 from .app_dependencies import get_registry
+from .run_routes import router as run_router
 from .schemas import (
     DatasetCreate,
     DatasetPatch,
@@ -18,8 +19,6 @@ from .schemas import (
     ModelPatch,
     ModelResponse,
 )
-from .run_routes import router as run_router
-
 
 router = APIRouter(prefix="/api/v1")
 

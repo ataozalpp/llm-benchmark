@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
-import json
 
 from pydantic import ValidationError
 
 from .config import DatasetConfig, RunConfig
 from .datasets import load_examples, sample_examples
 from .models import DatasetExample
-
 
 _EXPECTED_DATASET_LOAD_ERRORS = (
     RuntimeError,

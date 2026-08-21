@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from fastapi import Request
 
-from llm_benchmark.db.registry import RegistryRepositories
 from llm_benchmark.application import BenchmarkApplicationService
-from llm_benchmark.run_resolution import RegisteredRunConfigResolver
+from llm_benchmark.db.registry import RegistryRepositories
 from llm_benchmark.run_preflight import RunPreflightService
+from llm_benchmark.run_resolution import RegisteredRunConfigResolver
 
 
 def get_registry(request: Request) -> RegistryRepositories:

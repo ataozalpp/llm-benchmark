@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 from alembic import command
@@ -14,16 +14,15 @@ from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 
 from llm_benchmark.db import (
-    Base,
     DATABASE_URL_ENV,
     DEFAULT_DATABASE_URL,
+    Base,
     create_db_engine,
     create_session_factory,
     get_database_url,
 )
 from llm_benchmark.db.models import ProviderEndpoint, RegisteredModel
 from llm_benchmark.db.schemas import ModelCapabilities
-
 
 EXPECTED_TABLES = {
     "provider_endpoints",

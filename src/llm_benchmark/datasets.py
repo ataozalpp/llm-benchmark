@@ -4,7 +4,6 @@ import hashlib
 import json
 import random
 from collections import defaultdict
-from pathlib import Path
 from typing import Any, Iterable, Protocol
 
 from .config import DatasetConfig

@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
-import pytest
 
 from llm_benchmark.api import create_app
 from llm_benchmark.db.errors import RepositoryError

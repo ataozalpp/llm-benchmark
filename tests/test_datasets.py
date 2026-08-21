@@ -3,7 +3,11 @@ from pathlib import Path
 import pytest
 
 from llm_benchmark.config import DatasetConfig
-from llm_benchmark.datasets import LocalJsonlDatasetSource, normalize_mmlu_rows, sample_examples
+from llm_benchmark.datasets import (
+    LocalJsonlDatasetSource,
+    normalize_mmlu_rows,
+    sample_examples,
+)
 
 
 def test_local_fixture_loads() -> None:

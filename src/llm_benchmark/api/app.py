@@ -10,6 +10,8 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from llm_benchmark.application import RegistrationMismatchError
+from llm_benchmark.config import RunConfig
 from llm_benchmark.db.errors import (
     InactiveDependencyError,
     RecordNotFoundError,
@@ -17,16 +19,14 @@ from llm_benchmark.db.errors import (
     UniquenessConflictError,
 )
 from llm_benchmark.db.registry import RegistryRepositories, create_registry_repositories
-from llm_benchmark.config import RunConfig
-from llm_benchmark.runner import PipelineExecution, execute_benchmark
-from llm_benchmark.application import RegistrationMismatchError
-from llm_benchmark.run_resolution import RunConfigResolutionError
 from llm_benchmark.run_preflight import (
     DatasetPreflightError,
     RunApiGuardrailPolicy,
     RunGuardrailViolationError,
     RunSelectionValidationError,
 )
+from llm_benchmark.run_resolution import RunConfigResolutionError
+from llm_benchmark.runner import PipelineExecution, execute_benchmark
 
 
 def create_app(

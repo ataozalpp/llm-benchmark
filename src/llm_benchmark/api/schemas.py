@@ -5,7 +5,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 from llm_benchmark.db.records import (
     BenchmarkRunRecord,
@@ -15,7 +22,6 @@ from llm_benchmark.db.records import (
     SampleResultRecord,
 )
 from llm_benchmark.db.schemas import ModelCapabilities
-
 
 _ENV_VAR_PATTERN = r"^[A-Za-z_][A-Za-z0-9_]*$"
 _SENSITIVE_KEYS = {

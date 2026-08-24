@@ -168,6 +168,15 @@ class LocalDatasetStorage:
             match.group("file_format"),
         )
 
+    def remove(self, storage_key: str) -> None:
+        path = self.resolve(storage_key)
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as error:
+            raise DatasetStorageWriteError(
+                "Dataset storage file could not be removed"
+            ) from error
+
     @staticmethod
     def _validate_format(file_format: str) -> DatasetStorageFormat:
         if file_format not in _SUPPORTED_FORMATS:

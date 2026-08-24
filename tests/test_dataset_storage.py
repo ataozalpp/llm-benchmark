@@ -313,3 +313,32 @@ def test_import_and_constructor_have_no_filesystem_side_effects(tmp_path: Path) 
 
     assert completed.returncode == 0, completed.stderr
     assert list(tmp_path.iterdir()) == []
+
+
+def test_remove_deletes_only_resolved_stored_file(
+        tmp_path: Path,
+) -> None:
+    storage = LocalDatasetStorage(tmp_path / "datasets")
+    stored = storage.store(
+        BytesIO(b"dataset content"),
+        "csv",
+    )
+
+    storage.remove(stored.storage_key)
+
+    assert not storage.resolve(stored.storage_key).exists()
+
+
+def test_remove_is_idempotent(
+        tmp_path: Path
+) -> None:
+    storage = LocalDatasetStorage(tmp_path / "datasets")
+    stored = storage.store(
+        BytesIO(b"dataset content"),
+        "jsonl",
+    )
+
+    storage.remove(stored.storage_key)
+    storage.remove(stored.storage_key)
+
+    assert not storage.resolve(stored.storage_key).exists()

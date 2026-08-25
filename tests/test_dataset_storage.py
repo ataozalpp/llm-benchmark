@@ -20,8 +20,10 @@ from llm_benchmark.dataset_storage import (
     DatasetStreamError,
     InvalidStorageKeyError,
     LocalDatasetStorage,
+    ParsedDatasetStorageKey,
     StoredDatasetFile,
     UnsupportedDatasetFormatError,
+    parse_storage_key,
 )
 
 
@@ -259,21 +261,83 @@ def test_unsupported_format_is_rejected_without_side_effects(
     assert not root.exists()
 
 
-@pytest.mark.parametrize("storage_key", [
-    "",
-    "upload://sha256/abc.csv",
-    f"upload://sha256/{'A' * 64}.csv",
-    f"upload://sha256/{'a' * 64}.txt",
-    f"upload://sha256/../{'a' * 64}.csv",
-    f"upload://sha256/{'a' * 64}.csv/../other",
-    f"file://sha256/{'a' * 64}.csv",
-    f"upload://sha256/{'a' * 64}.csv?path=../other",
-])
+@pytest.mark.parametrize(
+    ("storage_key", "expected"),
+    [
+        (
+            f"upload://sha256/{'a' * 64}.csv",
+            ParsedDatasetStorageKey(
+                digest="a" * 64,
+                file_format="csv",
+            ),
+        ),
+        (
+            f"upload://sha256/{'b' * 64}.jsonl",
+            ParsedDatasetStorageKey(
+                digest="b" * 64,
+                file_format="jsonl",
+            ),
+        ),
+    ],
+)
+def test_parse_storage_key_returns_validated_parts(
+    storage_key: str,
+    expected: ParsedDatasetStorageKey,
+) -> None:
+    assert parse_storage_key(storage_key) == expected
+
+
+@pytest.mark.parametrize(
+    "storage_key",
+    [
+        "",
+        "upload://sha256/abc.csv",
+        f"upload://sha256/{'A' * 64}.csv",
+        f"upload://sha256/{'a' * 64}.txt",
+        f"upload://sha256/../{'a' * 64}.csv",
+        f"upload://sha256/{'a' * 64}.csv/../other",
+        f"file://sha256/{'a' * 64}.csv",
+        f"upload://sha256/{'a' * 64}.csv?path=../other",
+    ],
+)
+def test_parse_storage_key_rejects_invalid_values(
+    storage_key: str,
+) -> None:
+    with pytest.raises(InvalidStorageKeyError):
+        parse_storage_key(storage_key)
+
+
+def test_parsed_storage_key_is_immutable() -> None:
+    parsed = parse_storage_key(
+        f"upload://sha256/{'a' * 64}.csv"
+    )
+
+    with pytest.raises(FrozenInstanceError):
+        parsed.digest = "b" * 64  # type: ignore[misc]
+
+
+@pytest.mark.parametrize(
+    "storage_key",
+    [
+        "",
+        "upload://sha256/abc.csv",
+        f"upload://sha256/{'A' * 64}.csv",
+        f"upload://sha256/{'a' * 64}.txt",
+        f"upload://sha256/../{'a' * 64}.csv",
+        f"upload://sha256/{'a' * 64}.csv/../other",
+        f"file://sha256/{'a' * 64}.csv",
+        f"upload://sha256/{'a' * 64}.csv?path=../other",
+    ],
+)
+
+
 def test_resolve_rejects_malformed_or_traversal_like_keys(
     tmp_path: Path,
     storage_key: str,
 ) -> None:
-    storage = LocalDatasetStorage(tmp_path / "datasets")
+    storage = LocalDatasetStorage(
+        tmp_path / "datasets"
+    )
 
     with pytest.raises(InvalidStorageKeyError):
         storage.resolve(storage_key)

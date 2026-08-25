@@ -8,7 +8,7 @@ import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO, Literal
+from typing import BinaryIO, Literal, cast
 
 DatasetStorageFormat = Literal["csv", "jsonl"]
 
@@ -48,6 +48,35 @@ class DatasetFinalizationError(DatasetStorageError):
 
 class InvalidStorageKeyError(DatasetStorageError, ValueError):
     """Raised when an opaque storage key is malformed or unsupported."""
+
+
+@dataclass(frozen=True)
+class ParsedDatasetStorageKey:
+    """Validated components of an uploaded dataset storage key."""
+    digest: str
+    file_format: DatasetStorageFormat
+
+
+def parse_storage_key(
+    storage_key: str,
+) -> ParsedDatasetStorageKey:
+    """Parse and validate an uploaded dataset storage key."""
+
+    match = _STORAGE_KEY_PATTERN.fullmatch(
+        storage_key
+    )
+    if match is None:
+        raise InvalidStorageKeyError(
+            "Dataset storage key is invalid"
+        )
+
+    return ParsedDatasetStorageKey(
+        digest=match.group("digest"),
+        file_format=cast(
+            DatasetStorageFormat,
+            match.group("file_format"),
+        ),
+    )
 
 
 @dataclass(frozen=True)
@@ -160,13 +189,12 @@ class LocalDatasetStorage:
                     pass
 
     def resolve(self, storage_key: str) -> Path:
-        match = _STORAGE_KEY_PATTERN.fullmatch(storage_key)
-        if match is None:
-            raise InvalidStorageKeyError("Dataset storage key is invalid")
+        parsed = parse_storage_key(storage_key)
+
         return self._path_from_parts(
-            match.group("digest"),
-            match.group("file_format"),
-        )
+        parsed.digest,
+        parsed.file_format,
+    )
 
     def remove(self, storage_key: str) -> None:
         path = self.resolve(storage_key)

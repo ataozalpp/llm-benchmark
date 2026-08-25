@@ -5,6 +5,12 @@ from __future__ import annotations
 from fastapi import Request
 
 from llm_benchmark.application import BenchmarkApplicationService
+from llm_benchmark.dataset_ingestion import (
+    DatasetIngestionService,
+)
+from llm_benchmark.dataset_storage import (
+    LocalDatasetStorage,
+)
 from llm_benchmark.db.registry import RegistryRepositories
 from llm_benchmark.run_preflight import RunPreflightService
 from llm_benchmark.run_resolution import RegisteredRunConfigResolver
@@ -20,6 +26,19 @@ def get_registry(request: Request) -> RegistryRepositories:
             registry = request.app.state.registry_factory()
             request.app.state.registry = registry
     return registry
+
+
+def get_dataset_ingestion_service(
+    request: Request,
+) -> DatasetIngestionService:
+    registry = get_registry(request)
+    storage = LocalDatasetStorage(
+        request.app.state.dataset_storage_root
+    )
+    return DatasetIngestionService(
+        storage=storage,
+        datasets=registry.datasets,
+    )
 
 
 def get_benchmark_service(request: Request) -> BenchmarkApplicationService:

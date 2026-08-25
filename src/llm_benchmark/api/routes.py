@@ -7,6 +7,9 @@ from fastapi import APIRouter, Depends, Response, status
 from llm_benchmark.db.registry import RegistryRepositories
 
 from .app_dependencies import get_registry
+from .dataset_upload_routes import (
+    router as dataset_upload_router,
+)
 from .run_routes import router as run_router
 from .schemas import (
     DatasetCreate,
@@ -22,6 +25,7 @@ from .schemas import (
 
 router = APIRouter(prefix="/api/v1")
 
+router.include_router(dataset_upload_router)
 router.include_router(run_router)
 
 

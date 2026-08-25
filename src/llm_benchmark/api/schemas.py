@@ -163,6 +163,32 @@ class ModelResponse(TimestampedResponse):
         )
 
 
+class DatasetUploadForm(StrictSchema):
+    name: str = Field(min_length=1, max_length=255)
+    file_format: Literal["csv", "jsonl"]
+    split: str = Field(
+        default="test",
+        min_length=1,
+        max_length=128,
+    )
+    revision: str | None = Field(
+        default=None,
+        max_length=255,
+    )
+    license: str | None = Field(
+        default=None,
+        max_length=255,
+    )
+
+    @field_validator("name", "split")
+    @classmethod
+    def reject_blank_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("value must not be blank")
+        return normalized
+
+
 class DatasetCreate(StrictSchema):
     name: str = Field(min_length=1, max_length=255)
     source_type: str = Field(min_length=1, max_length=64)

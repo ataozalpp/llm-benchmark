@@ -459,3 +459,20 @@ def test_jsonl_adapter_applies_common_answer_validation(
         match="available option",
     ):
         load_tabular_examples(dataset_path, "jsonl")
+
+
+def test_csv_adapter_rejects_dataset_without_rows(
+    tmp_path: Path,
+) -> None:
+    dataset_path = tmp_path / "empty.csv"
+    dataset_path.write_text(
+        "sample_id,question,option_A,option_B,"
+        "correct_answer,category\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        DatasetAdapterError,
+        match="at least one sample",
+    ):
+        load_tabular_examples(dataset_path, "csv")

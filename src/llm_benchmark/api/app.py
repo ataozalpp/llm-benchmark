@@ -12,6 +12,14 @@ from fastapi.responses import JSONResponse
 
 from llm_benchmark.application import RegistrationMismatchError
 from llm_benchmark.config import RunConfig
+from llm_benchmark.dataset_adapters import DatasetAdapterError
+from llm_benchmark.dataset_storage import (
+    DatasetFileTooLargeError,
+    DatasetFinalizationError,
+    DatasetStorageWriteError,
+    DatasetStreamError,
+    UnsupportedDatasetFormatError,
+)
 from llm_benchmark.db.errors import (
     InactiveDependencyError,
     RecordNotFoundError,
@@ -35,6 +43,7 @@ def create_app(
     registry_factory: Callable[[], RegistryRepositories] = create_registry_repositories,
     benchmark_executor: Callable[[RunConfig], PipelineExecution] = execute_benchmark,
     run_output_root: Path = Path("outputs/api"),
+    dataset_storage_root: Path = Path("runtime/datasets"),
     run_guardrail_policy: RunApiGuardrailPolicy | None = None,
 ) -> FastAPI:
     app = FastAPI(title="LLM Benchmark Registry API", version="1.0.0")
@@ -43,6 +52,7 @@ def create_app(
     app.state.registry_lock = Lock()
     app.state.benchmark_executor = benchmark_executor
     app.state.run_output_root = run_output_root
+    app.state.dataset_storage_root = dataset_storage_root
     app.state.run_guardrail_policy = run_guardrail_policy or RunApiGuardrailPolicy()
     _install_exception_handlers(app)
 
@@ -65,11 +75,92 @@ def _install_exception_handlers(app: FastAPI) -> None:
         ]
         return JSONResponse(status_code=422, content={"detail": safe_errors})
 
+    @app.exception_handler(DatasetFileTooLargeError)
+    async def dataset_file_too_large(
+        _: Request,
+        __: DatasetFileTooLargeError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=413,
+            content={
+                "detail": (
+                    "Dataset exceeds the upload size limit"
+                ),
+                "code": "dataset_file_too_large",
+            },
+        )
+
+    @app.exception_handler(UnsupportedDatasetFormatError)
+    async def unsupported_dataset_format(
+        _: Request,
+        __: UnsupportedDatasetFormatError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=415,
+            content={
+                "detail": "Dataset format is unsupported",
+                "code": "unsupported_dataset_format",
+            },
+        )
+
+    @app.exception_handler(DatasetAdapterError)
+    async def invalid_uploaded_dataset(
+        _: Request,
+        __: DatasetAdapterError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": "Uploaded dataset is invalid",
+                "code": "invalid_uploaded_dataset",
+            },
+        )
+
+    @app.exception_handler(DatasetStreamError)
+    async def dataset_stream_failed(
+        _: Request,
+        __: DatasetStreamError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": (
+                    "Dataset upload could not be read"
+                ),
+                "code": "dataset_stream_failed",
+            },
+        )
+
+    @app.exception_handler(DatasetStorageWriteError)
+    @app.exception_handler(DatasetFinalizationError)
+    async def dataset_storage_failed(
+        _: Request,
+        __: (
+            DatasetStorageWriteError
+            | DatasetFinalizationError
+        ),
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "Dataset storage failed",
+                "code": "dataset_storage_failed",
+            },
+        )
+
     @app.exception_handler(RecordNotFoundError)
-    async def record_not_found(_: Request, error: RecordNotFoundError) -> JSONResponse:
+    async def record_not_found(
+        _: Request,
+        error: RecordNotFoundError,
+    ) -> JSONResponse:
         return JSONResponse(
             status_code=404,
-            content={"detail": f"{error.entity} record was not found", "record_id": error.record_id},
+            content={
+                "detail": (
+                    f"{error.entity} record was not found"
+                ),
+                "record_id": error.record_id,
+            },
         )
 
     @app.exception_handler(UniquenessConflictError)

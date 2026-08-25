@@ -277,11 +277,17 @@ def load_tabular_examples(
         file_format: DatasetFileFormat,
 ) -> list[DatasetExample]:
     if file_format == "csv":
-        return _load_csv(path)
+        examples = _load_csv(path)
+    elif file_format == "jsonl":
+        examples = _load_jsonl(path)
+    else:
+        raise DatasetAdapterError(
+            "Unsupported dataset format"
+        )
 
-    if file_format == "jsonl":
-        return _load_jsonl(path)
+    if not examples:
+        raise DatasetAdapterError(
+            "Dataset must contain at least one sample"
+        )
 
-    raise DatasetAdapterError(
-        "Unsupported dataset format"
-    )
+    return examples

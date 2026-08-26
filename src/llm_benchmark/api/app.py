@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from threading import Lock
 
@@ -18,8 +19,10 @@ from llm_benchmark.dataset_storage import (
     DatasetFinalizationError,
     DatasetStorageWriteError,
     DatasetStreamError,
+    LocalDatasetStorage,
     UnsupportedDatasetFormatError,
 )
+from llm_benchmark.datasets import DatasetLoader
 from llm_benchmark.db.errors import (
     InactiveDependencyError,
     RecordNotFoundError,
@@ -50,9 +53,17 @@ def create_app(
     app.state.registry = registry
     app.state.registry_factory = registry_factory
     app.state.registry_lock = Lock()
-    app.state.benchmark_executor = benchmark_executor
     app.state.run_output_root = run_output_root
     app.state.dataset_storage_root = dataset_storage_root
+    dataset_loader = DatasetLoader(
+        LocalDatasetStorage(dataset_storage_root)
+    ).load
+    app.state.dataset_loader = dataset_loader
+    app.state.benchmark_executor = (
+        partial(execute_benchmark, dataset_loader=dataset_loader)
+        if benchmark_executor is execute_benchmark
+        else benchmark_executor
+    )
     app.state.run_guardrail_policy = run_guardrail_policy or RunApiGuardrailPolicy()
     _install_exception_handlers(app)
 

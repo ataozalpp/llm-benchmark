@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ from fastapi.testclient import TestClient
 from llm_benchmark.api import create_app
 from llm_benchmark.api.app_dependencies import get_run_preflight_service
 from llm_benchmark.config import RunConfig
+from llm_benchmark.dataset_storage import LocalDatasetStorage
 from llm_benchmark.db.registry import create_registry_repositories
 from llm_benchmark.reproducibility import canonical_hash
 from llm_benchmark.run_preflight import RunApiGuardrailPolicy, RunPreflightService
@@ -429,3 +431,146 @@ def test_api_package_has_no_sqlalchemy_or_orm_imports() -> None:
     )
     assert "sqlalchemy" not in source
     assert "db.models" not in source
+
+
+def test_uploaded_csv_runs_end_to_end_with_portable_provenance(tmp_path: Path) -> None:
+    database_path = tmp_path / "uploaded-run.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    alembic_config = Config("alembic.ini")
+    alembic_config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(alembic_config, "head")
+    registry = create_registry_repositories(database_url)
+    storage_root = tmp_path / "datasets"
+    output_root = tmp_path / "artifacts"
+    app = create_app(
+        registry,
+        dataset_storage_root=storage_root,
+        run_output_root=output_root,
+    )
+    endpoint = registry.endpoints.create(
+        name="uploaded-mock",
+        provider_type="mock",
+        base_url="mock://provider",
+    )
+    model = registry.models.create(
+        name="Uploaded Mock",
+        model_identifier="uploaded-mock-model",
+        endpoint_id=endpoint.id,
+        reasoning_policy="unsupported",
+        default_generation_config={"scenario_cycle": ["correct"]},
+    )
+    content = (
+        b"sample_id,question,option_A,option_B,correct_answer,category\n"
+        b"002,Second question,No,Yes,B,logic\n"
+        b"001,First question,Yes,No,A,science\n"
+    )
+
+    with TestClient(app) as client:
+        upload = client.post(
+            "/api/v1/datasets/upload",
+            data={"name": "uploaded-run-dataset", "file_format": "csv", "split": "test"},
+            files={"file": ("questions.csv", content, "text/csv")},
+        )
+        assert upload.status_code == 201
+        dataset = upload.json()
+        payload = run_payload(model.id, dataset["id"])
+        payload.update({"sample_size": 2, "sample_ids": ["001", "002"]})
+        response = client.post("/api/v1/runs", json=payload)
+
+        assert response.status_code == 201
+        run = response.json()
+        assert run["status"] == "completed"
+        results = client.get(f"/api/v1/runs/{run['id']}/results").json()
+
+    assert [result["sample_id"] for result in results] == ["001", "002"]
+    assert all(result["evaluation_status"] == "correct" for result in results)
+    assert all(result["ttft_ms"] is None for result in results)
+    assert all(result["throughput_tokens_per_second"] is None for result in results)
+    persisted = registry.runs.get_by_id(run["id"])
+    dataset_config = persisted.resolved_config_json["dataset"]
+    assert dataset_config["source"] == "uploaded"
+    assert dataset_config["storage_key"] == dataset["source_uri"]
+    assert dataset_config["checksum"] == dataset["checksum"]
+    assert dataset_config["adapter_type"] == "tabular_mcq_csv_v1"
+    assert dataset_config["path"] is None
+    assert str(storage_root) not in repr(dataset_config)
+    artifact_directory = Path(persisted.artifact_directory)
+    manifest = json.loads((artifact_directory / "dataset_manifest.json").read_text("utf-8"))
+    assert manifest["storage_key"] == dataset["source_uri"]
+    assert manifest["checksum"] == dataset["checksum"]
+    assert str(storage_root) not in repr(manifest)
+    assert (artifact_directory / "resolved_config.json").is_file()
+    assert (artifact_directory / "results.jsonl").is_file()
+    assert (artifact_directory / "summary.json").is_file()
+
+
+@pytest.mark.parametrize("failure", ["missing", "tampered", "invalid"])
+def test_uploaded_preflight_failures_are_safe_and_have_no_side_effects(
+    tmp_path: Path,
+    failure: str,
+) -> None:
+    database_path = tmp_path / f"uploaded-{failure}.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    alembic_config = Config("alembic.ini")
+    alembic_config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(alembic_config, "head")
+    registry = create_registry_repositories(database_url)
+    storage_root = tmp_path / "datasets"
+    output_root = tmp_path / "artifacts"
+    storage = LocalDatasetStorage(storage_root)
+    valid = (
+        b"sample_id,question,option_A,option_B,correct_answer,category\n"
+        b"001,Question,Yes,No,A,test\n"
+    )
+    content = b"invalid,uploaded,content\n" if failure == "invalid" else valid
+    stored = storage.store(BytesIO(content), "csv")
+    if failure == "missing":
+        storage.remove(stored.storage_key)
+    elif failure == "tampered":
+        storage.resolve(stored.storage_key).write_bytes(b"private tampered dataset row")
+    endpoint = registry.endpoints.create(
+        name=f"uploaded-{failure}", provider_type="mock", base_url="mock://provider"
+    )
+    model = registry.models.create(
+        name="Mock",
+        model_identifier="mock",
+        endpoint_id=endpoint.id,
+        reasoning_policy="unsupported",
+    )
+    dataset = registry.datasets.create(
+        name="uploaded-invalid",
+        source_type="uploaded",
+        source_uri=stored.storage_key,
+        revision=None,
+        split="test",
+        task_type="multiple_choice",
+        adapter_type="tabular_mcq_csv_v1",
+        checksum=f"sha256:{stored.checksum_sha256}",
+    )
+    executor_calls = 0
+
+    def forbidden_executor(_: RunConfig) -> PipelineExecution:
+        nonlocal executor_calls
+        executor_calls += 1
+        raise AssertionError("executor must not run")
+
+    app = create_app(
+        registry,
+        dataset_storage_root=storage_root,
+        run_output_root=output_root,
+        benchmark_executor=forbidden_executor,
+    )
+    with TestClient(app) as client:
+        response = client.post("/api/v1/runs", json=run_payload(model.id, dataset.id))
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "Registered dataset is unavailable for preflight",
+        "code": "dataset_preflight_failed",
+    }
+    assert str(tmp_path) not in response.text
+    assert "tampered" not in response.text
+    assert executor_calls == 0
+    assert registry.runs.list_runs() == []
+    assert sample_row_count({"database_path": database_path}) == 0
+    assert not output_root.exists()

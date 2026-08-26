@@ -14,10 +14,14 @@ import pytest
 from llm_benchmark.dataset_storage import (
     DatasetFileTooLargeError,
     DatasetFinalizationError,
+    DatasetStorageFileMissingError,
+    DatasetStorageIntegrityError,
     DatasetStoragePolicy,
     DatasetStoragePolicyError,
+    DatasetStorageReadError,
     DatasetStorageWriteError,
     DatasetStreamError,
+    InvalidDatasetChecksumError,
     InvalidStorageKeyError,
     LocalDatasetStorage,
     ParsedDatasetStorageKey,
@@ -406,3 +410,140 @@ def test_remove_is_idempotent(
     storage.remove(stored.storage_key)
 
     assert not storage.resolve(stored.storage_key).exists()
+
+
+@pytest.mark.parametrize("file_format", ["csv", "jsonl"])
+def test_verify_accepts_valid_stored_content(
+    tmp_path: Path,
+    file_format: str,
+) -> None:
+    storage = LocalDatasetStorage(
+        tmp_path / "datasets",
+        DatasetStoragePolicy(chunk_size_bytes=3),
+    )
+    content = b"content spanning several bounded chunks"
+    stored = storage.store(BytesIO(content), file_format)  # type: ignore[arg-type]
+
+    verified = storage.verify(
+        stored.storage_key,
+        f"sha256:{stored.checksum_sha256}",
+    )
+
+    assert verified.read_bytes() == content
+
+
+def test_verify_rejects_malformed_checksum_without_side_effects(tmp_path: Path) -> None:
+    root = tmp_path / "datasets"
+    storage = LocalDatasetStorage(root)
+
+    with pytest.raises(InvalidDatasetChecksumError, match="metadata is invalid"):
+        storage.verify(f"upload://sha256/{'a' * 64}.csv", "sha256:not-a-digest")
+
+    assert not root.exists()
+
+
+def test_verify_rejects_storage_key_checksum_mismatch(tmp_path: Path) -> None:
+    storage = LocalDatasetStorage(tmp_path / "datasets")
+
+    with pytest.raises(DatasetStorageIntegrityError, match="storage key"):
+        storage.verify(
+            f"upload://sha256/{'a' * 64}.csv",
+            f"sha256:{'b' * 64}",
+        )
+
+
+def test_verify_rejects_missing_and_tampered_files(tmp_path: Path) -> None:
+    storage = LocalDatasetStorage(tmp_path / "datasets")
+    missing_key = f"upload://sha256/{'a' * 64}.csv"
+
+    with pytest.raises(DatasetStorageFileMissingError, match="unavailable"):
+        storage.verify(missing_key, f"sha256:{'a' * 64}")
+
+    stored = storage.store(BytesIO(b"original"), "csv")
+    storage.resolve(stored.storage_key).write_bytes(b"tampered private content")
+    with pytest.raises(DatasetStorageIntegrityError, match="integrity validation") as captured:
+        storage.verify(stored.storage_key, f"sha256:{stored.checksum_sha256}")
+    assert "tampered" not in str(captured.value)
+    assert str(tmp_path) not in str(captured.value)
+
+
+def test_verify_maps_file_read_failure_to_safe_typed_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    storage = LocalDatasetStorage(tmp_path / "datasets")
+    stored = storage.store(BytesIO(b"content"), "jsonl")
+
+    def fail_open(*_: object, **__: object) -> object:
+        raise PermissionError("private path and content")
+
+    monkeypatch.setattr(Path, "open", fail_open)
+    with pytest.raises(DatasetStorageReadError, match="could not be read") as captured:
+        storage.verify(stored.storage_key, f"sha256:{stored.checksum_sha256}")
+    assert "private" not in str(captured.value)
+
+
+def test_verify_rejects_resolved_path_outside_storage_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "datasets"
+    root.mkdir()
+    outside_content = b"private external dataset content"
+    digest = hashlib.sha256(outside_content).hexdigest()
+    outside_path = tmp_path / "private-external.csv"
+    outside_path.write_bytes(outside_content)
+    storage = LocalDatasetStorage(root)
+
+    monkeypatch.setattr(
+        storage,
+        "_path_from_parts",
+        lambda *_: outside_path,
+    )
+
+    with pytest.raises(DatasetStorageIntegrityError, match="containment") as captured:
+        storage.verify(
+            f"upload://sha256/{digest}.csv",
+            f"sha256:{digest}",
+        )
+
+    assert str(tmp_path) not in str(captured.value)
+    assert "private external" not in str(captured.value)
+
+
+@pytest.mark.parametrize("link_kind", ["file", "directory"])
+def test_verify_rejects_symlink_escape_when_supported(
+    tmp_path: Path,
+    link_kind: str,
+) -> None:
+    root = tmp_path / "datasets"
+    outside_root = tmp_path / "outside"
+    outside_root.mkdir()
+    content = b"external dataset content"
+    digest = hashlib.sha256(content).hexdigest()
+    outside_file = outside_root / f"{digest}.csv"
+    outside_file.write_bytes(content)
+    root.mkdir()
+
+    try:
+        if link_kind == "directory":
+            (root / "sha256").symlink_to(
+                outside_root,
+                target_is_directory=True,
+            )
+        else:
+            stored_directory = root / "sha256"
+            stored_directory.mkdir()
+            (stored_directory / f"{digest}.csv").symlink_to(outside_file)
+    except OSError as error:
+        pytest.skip(f"filesystem symlinks are unavailable: {type(error).__name__}")
+
+    storage = LocalDatasetStorage(root)
+    with pytest.raises(DatasetStorageIntegrityError, match="containment") as captured:
+        storage.verify(
+            f"upload://sha256/{digest}.csv",
+            f"sha256:{digest}",
+        )
+
+    assert str(tmp_path) not in str(captured.value)
+    assert "external dataset" not in str(captured.value)

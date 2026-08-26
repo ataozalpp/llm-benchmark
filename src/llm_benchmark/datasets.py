@@ -4,9 +4,12 @@ import hashlib
 import json
 import random
 from collections import defaultdict
+from collections.abc import Callable
 from typing import Any, Iterable, Protocol
 
 from .config import DatasetConfig
+from .dataset_adapters import DatasetAdapterError, load_tabular_examples
+from .dataset_storage import DatasetStorageError, LocalDatasetStorage
 from .models import DatasetExample
 
 
@@ -38,6 +41,55 @@ class HuggingFaceMMLUProSource:
                 f"failed to load {config.name}@{config.revision} split={config.split}; check network/cache and revision: {exc}"
             ) from exc
         return normalize_mmlu_rows(rows)
+
+
+class UploadedDatasetLoadError(ValueError):
+    """Raised when registered uploaded content cannot be loaded safely."""
+
+
+class UploadedDatasetSource:
+    """Load verified uploaded content through the registered tabular adapter."""
+
+    def __init__(self, storage: LocalDatasetStorage) -> None:
+        self._storage = storage
+
+    def load(self, config: DatasetConfig) -> list[DatasetExample]:
+        if (
+            config.storage_key is None
+            or config.checksum is None
+            or config.adapter_type is None
+        ):
+            raise UploadedDatasetLoadError("Uploaded dataset provenance is incomplete")
+
+        file_formats = {
+            "tabular_mcq_csv_v1": "csv",
+            "tabular_mcq_jsonl_v1": "jsonl",
+        }
+        file_format = file_formats.get(config.adapter_type)
+        if file_format is None:
+            raise UploadedDatasetLoadError("Uploaded dataset adapter is unsupported")
+
+        try:
+            path = self._storage.verify(config.storage_key, config.checksum)
+            return load_tabular_examples(path, file_format)
+        except (DatasetStorageError, DatasetAdapterError) as error:
+            raise UploadedDatasetLoadError("Uploaded dataset could not be loaded") from error
+
+
+class DatasetLoader:
+    """Select a dataset source without exposing physical storage to callers."""
+
+    def __init__(self, uploaded_storage: LocalDatasetStorage | None = None) -> None:
+        self._uploaded_storage = uploaded_storage
+
+    def load(self, config: DatasetConfig) -> list[DatasetExample]:
+        if config.source == "local":
+            return LocalJsonlDatasetSource().load(config)
+        if config.source == "huggingface":
+            return HuggingFaceMMLUProSource().load(config)
+        if self._uploaded_storage is None:
+            raise UploadedDatasetLoadError("Uploaded dataset storage is not configured")
+        return UploadedDatasetSource(self._uploaded_storage).load(config)
 
 
 def normalize_mmlu_rows(rows: Iterable[dict[str, Any]]) -> list[DatasetExample]:
@@ -90,12 +142,16 @@ def sample_examples(examples: list[DatasetExample], config: DatasetConfig, seed:
 def load_examples(config: DatasetConfig) -> list[DatasetExample]:
     """Load normalized examples without applying selection rules."""
 
-    source: DatasetSource = LocalJsonlDatasetSource() if config.source == "local" else HuggingFaceMMLUProSource()
-    return source.load(config)
+    return DatasetLoader().load(config)
 
 
-def load_and_sample(config: DatasetConfig, seed: int) -> tuple[list[DatasetExample], dict[str, Any]]:
-    loaded = load_examples(config)
+def load_and_sample(
+    config: DatasetConfig,
+    seed: int,
+    *,
+    loader: Callable[[DatasetConfig], list[DatasetExample]] = load_examples,
+) -> tuple[list[DatasetExample], dict[str, Any]]:
+    loaded = loader(config)
     selected = sample_examples(loaded, config, seed)
     source_hash = None
     if config.path and config.path.exists():
@@ -120,4 +176,11 @@ def load_and_sample(config: DatasetConfig, seed: int) -> tuple[list[DatasetExamp
         "dataset_homepage": "https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro" if is_mmlu_pro else None,
         "dataset_citation": "MMLU-Pro, arXiv:2406.01574" if is_mmlu_pro else None,
     }
+    if config.source == "uploaded":
+        manifest.update({
+            "storage_key": config.storage_key,
+            "adapter_type": config.adapter_type,
+            "checksum": config.checksum,
+            "dataset_license": config.license,
+        })
     return selected, manifest

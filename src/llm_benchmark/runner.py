@@ -3,13 +3,14 @@ from __future__ import annotations
 import time
 import uuid
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .config import RunConfig
-from .datasets import load_and_sample
+from .config import DatasetConfig, RunConfig
+from .datasets import load_and_sample, load_examples
 from .metrics import summarize
 from .models import BenchmarkResult, DatasetExample
 from .parser import parse_multiple_choice
@@ -98,13 +99,21 @@ def _evaluate(
     )
 
 
-def execute_benchmark(config: RunConfig) -> PipelineExecution:
+def execute_benchmark(
+    config: RunConfig,
+    *,
+    dataset_loader: Callable[[DatasetConfig], list[DatasetExample]] = load_examples,
+) -> PipelineExecution:
     run_id = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
     run_dir = config.output_dir / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
     resolved = config.model_dump(mode="json")
     config_hash = canonical_hash(resolved)
-    examples, manifest = load_and_sample(config.dataset, config.seed)
+    examples, manifest = load_and_sample(
+        config.dataset,
+        config.seed,
+        loader=dataset_loader,
+    )
     manifest_hash = canonical_hash(manifest)
     environment = environment_snapshot()
     fingerprint_parts = {

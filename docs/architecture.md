@@ -20,7 +20,10 @@ The implementation currently provides two execution paths:
 | --- | --- | --- |
 | CLI | `src/llm_benchmark/cli.py` | Load YAML, apply explicit overrides, call the runner, print a concise result |
 | Configuration | `src/llm_benchmark/config.py` | Strict immutable Pydantic configuration and canonical serialization inputs |
-| Dataset layer | `src/llm_benchmark/datasets.py` | Local or pinned Hugging Face loading, normalization, filtering, deterministic sampling, manifest construction |
+| Dataset layer | `src/llm_benchmark/datasets.py` | Local, pinned Hugging Face, or verified uploaded loading; filtering, deterministic sampling, manifest construction |
+| Dataset adapters | `src/llm_benchmark/dataset_adapters.py` | Validate pandas-backed CSV/JSONL input and normalize it to `DatasetExample` records |
+| Dataset storage | `src/llm_benchmark/dataset_storage.py` | Bounded content-addressed storage, opaque-key parsing, checksum and physical-containment verification |
+| Dataset ingestion | `src/llm_benchmark/dataset_ingestion.py` | Coordinate storage, adapter validation, compact registration metadata, and failure compensation |
 | Prompt layer | `src/llm_benchmark/prompting.py` | Versioned multiple-choice prompt and template hash |
 | Provider layer | `src/llm_benchmark/providers.py` | Provider protocol, factory, Mock, LM Studio native, and OpenAI-compatible adapters |
 | Parser | `src/llm_benchmark/parser.py` | Strict deterministic parsing against actual allowed labels |
@@ -43,6 +46,7 @@ flowchart LR
     subgraph EntryPoints[Entry points]
         CLI[CLI]
         RegistryAPI[Registry CRUD API]
+        UploadAPI[Dataset upload API]
         RunAPI[Synchronous Run API]
     end
 
@@ -50,13 +54,18 @@ flowchart LR
     Config --> Runner[Benchmark runner]
 
     RegistryAPI --> Repositories[Repositories]
+    UploadAPI --> Ingestion[DatasetIngestionService]
+    Ingestion --> UploadedFiles[(Uploaded dataset files)]
+    Ingestion --> Repositories
     RunAPI --> Resolver[RegisteredRunConfigResolver]
     Resolver --> Preflight[RunPreflightService]
+    UploadedFiles --> Preflight
     Preflight --> AppService[BenchmarkApplicationService]
     AppService --> Runner
     AppService --> Repositories
 
     Runner --> Dataset[Dataset loading and sampling]
+    UploadedFiles --> Dataset
     Runner --> Providers[Provider adapters]
     Runner --> Artifacts[JSONL and JSON artifacts]
     Repositories --> DB[(SQLite development database)]
@@ -86,6 +95,64 @@ schemas and repositories rather than ORM objects.
 
 Only a credential environment-variable name may be stored. Secret values are
 rejected and resolved only by a provider at request time when configured.
+
+The upload route is separate from generic dataset registry CRUD. It accepts a
+bounded CSV or JSONL stream and server-controlled storage behavior, then
+returns the resulting dataset registration. Complete uploaded rows are not
+copied into the registry database.
+
+## Uploaded dataset ingestion and execution
+
+```mermaid
+flowchart LR
+    Upload[POST /api/v1/datasets/upload]
+    Stream[Bounded binary stream]
+    Store[LocalDatasetStorage]
+    File[(Content-addressed file)]
+    Adapter[CSV or JSONL adapter]
+    Registry[(Dataset registration)]
+    Run[POST /api/v1/runs]
+    Verify[Key, checksum, content and containment verification]
+    Preflight[RunPreflightService]
+    Runner[Benchmark runner]
+    Results[Artifacts and database results]
+
+    Upload --> Stream --> Store
+    Store --> File
+    Store --> Adapter --> Registry
+    Registry --> Run
+    Run --> Verify
+    File --> Verify
+    Verify --> Adapter
+    Adapter --> Preflight --> Runner --> Results
+```
+
+`LocalDatasetStorage.store()` reads positive bounded chunks, enforces the size
+limit, computes SHA-256 while streaming, and finalizes a content-addressed file
+on the same filesystem. Its application-facing key is
+`upload://sha256/<digest>.csv` or `.jsonl`; it contains no physical path.
+
+The ingestion service validates content through the selected adapter before
+repository persistence. It registers `source_type=uploaded`, the opaque key as
+`source_uri`, the adapter, `sha256:<digest>`, license when supplied, and compact
+format/size/sample/category metadata. Newly created content is removed after a
+validation or registration failure; reused content-addressed files remain.
+
+For execution, `RegisteredRunConfigResolver` copies only portable provenance
+into `DatasetConfig`. The application factory constructs one `DatasetLoader`
+from its server-controlled `dataset_storage_root`; the same loader semantics
+are injected into Run API preflight and the default runner executor.
+
+Verification requires the key digest, registered checksum digest, and actual
+file digest to agree. The physical candidate is resolved strictly and must
+remain beneath the resolved root; escaping symlink or junction targets are
+rejected. Verification creates no directory or file. CSV/JSONL adapters then
+return the ordinary `list[DatasetExample]` boundary used by sampling.
+
+CSV requires `sample_id`, `question`, `correct_answer`, `category`, and
+contiguous ordered `option_A` through at most `option_J` columns. JSONL uses
+the same scalar fields and a real `options` list. Both reject empty required
+values, fewer than two options, unavailable answer labels, and duplicate IDs.
 
 ## Registered Run API sequence
 
@@ -138,6 +205,12 @@ directory.
 Preflight and execution currently load the dataset independently. This avoids
 changing runner and CLI contracts but leaves duplicate I/O and a theoretical
 time-of-check/time-of-use boundary.
+
+For uploaded datasets, each load independently resolves the same opaque key
+through the same injected storage root and repeats checksum, containment, and
+adapter validation. A preflight failure therefore occurs before run creation;
+an execution-time failure after successful preflight follows the ordinary
+failed-run lifecycle.
 
 ## Persistence relationships
 
@@ -220,6 +293,10 @@ they do not form a single cross-storage transaction.
 - Execution is synchronous and in-process.
 - There is no worker, queue, retry, concurrency control, pagination, or resume.
 - There is no endpoint SSRF allowlist or dataset-root allowlist.
+- Uploaded content uses local runtime disk; there is no object storage or
+  distributed locking.
+- Generic registry CRUD remains a trusted administrative boundary and is not
+  protected by authentication or authorization.
 - There is no explicit Hugging Face network/cache policy at the API boundary.
 - Raw model responses are exposed by the sample-result API.
 - Public run responses do not expose persisted internal error messages.
@@ -291,10 +368,11 @@ features require additional persisted data or a separate product contract.
 
 ## Next architectural increments
 
-- Safe Comparison API over the completed strict comparison service
-- Authentication and endpoint/path policies
-- Async worker execution, cancellation, retry, and resume
-- PostgreSQL runtime validation
-- Pricing and cost calculation
-- Additional deterministic task families
-- Frontend only after stable API and operational boundaries
+- PostgreSQL validation through Docker Compose
+- Alembic upgrade/downgrade verification on PostgreSQL
+- PostgreSQL repository and API integration tests
+- Expanded API usage and operational documentation
+- Async worker/job execution design
+- Authentication, authorization, and registry trust-boundary hardening
+- Safe Comparison API, retry/resume, pricing, and additional task families
+- Frontend only after stable backend contracts and operational boundaries

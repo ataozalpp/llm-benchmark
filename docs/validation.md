@@ -69,9 +69,15 @@ The POC and full profiles were not run as part of this validation.
 The complete forced-offline suite most recently completed with:
 
 ```text
-234 passed
+378 passed
+2 skipped
 0 failed
 ```
+
+The two skipped cases are platform-dependent real symlink/junction tests. The
+Windows validation environment did not permit symbolic-link creation. Skipped
+does not mean failed: the deterministic physical-containment regression test
+ran and passed.
 
 Coverage includes:
 
@@ -97,6 +103,62 @@ Coverage includes:
 - Framework-independent strict comparison of completed runs
 - Deterministic sample alignment and typed incompatibility handling
 - Comparison metric null/coverage behavior, including partial P50/P95 coverage
+- Bounded CSV/JSONL storage, ingestion compensation, and upload API behavior
+- Uploaded storage-key/checksum/content and physical-containment verification
+- Uploaded dataset preflight and complete upload-to-Run-API execution
+
+## Uploaded-dataset run integration validation
+
+The completed integration was validated entirely with temporary SQLite,
+temporary dataset storage, temporary artifact output, synthetic CSV/JSONL, and
+`MockProvider`. No model, localhost, Hugging Face, or external request was made
+during this validation.
+
+The verified flow was:
+
+```text
+multipart CSV or JSONL upload
+-> bounded streaming and SHA-256 content-addressed storage
+-> adapter validation and dataset registration
+-> POST /api/v1/runs with model_id and dataset_id
+-> portable RunConfig resolution
+-> uploaded file checksum and containment verification
+-> exact dataset preflight
+-> existing runner and MockProvider
+-> persisted run/sample rows and reproducibility artifacts
+```
+
+Tests established that CSV and JSONL normalize to `DatasetExample`, explicit
+sample-ID order is preserved, and an uploaded CSV run completes through the
+actual Run API application path. Resolved dataset provenance and the manifest
+contain the opaque storage key, adapter, and checksum without the temporary
+physical storage root. Sample rows, summary data, JSONL results,
+`dataset_manifest.json`, and `resolved_config.json` were produced through the
+existing persistence and artifact contracts.
+
+Missing files, tampered content, and invalid tabular data were rejected during
+preflight before executor invocation. Those failures created no benchmark-run
+row, sample-result row, or artifact directory, and their public responses were
+sanitized. Storage tests separately cover malformed keys/checksums,
+key/checksum disagreement, unreadable files, complete multi-chunk hashing, and
+content-digest mismatch.
+
+Physical storage containment is checked after strict path resolution. A
+deterministic root-escape regression passed. Two additional tests that create
+real file and directory symlinks were skipped because the Windows environment
+did not allow symlink creation; they remain available on capable platforms.
+
+The accepted repository snapshot was:
+
+```text
+Focused uploaded storage/dataset/preflight/Run API: 120 passed, 2 skipped
+Complete forced-offline suite: 378 passed, 2 skipped, 0 failed
+Ruff: passed
+git diff --check: passed
+```
+
+All quality values produced by `MockProvider` in this path are synthetic
+software-validation results, not measurements of model performance.
 
 ## Phase 5A comparison-service validation
 
@@ -116,13 +178,13 @@ category, and sample levels.
 Null optional telemetry is preserved. Coverage records expose
 `available_count`, `missing_count`, and `complete`. P50/P95 values are computed
 from known successful-request latency values while coverage uses all successful
-requests; incomplete coverage suppresses the absolute delta. The validated
-snapshot was:
+requests; incomplete coverage suppresses the absolute delta. The historical
+Phase 5A snapshot was:
 
 ```text
 Comparison tests: 21 passed
 Comparison, repository, and application tests: 50 passed
-Complete forced-offline suite: 234 passed, 0 failed, 0 warnings
+Complete forced-offline suite at that checkpoint: 234 passed, 0 failed, 0 warnings
 ```
 
 The service performs no database or artifact writes and emits no raw response,

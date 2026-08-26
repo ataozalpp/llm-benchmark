@@ -205,11 +205,12 @@ class BenchmarkApplicationService:
             mismatches.append("dataset.revision")
         if config.dataset.split != dataset.split:
             mismatches.append("dataset.split")
-        configured_source_uri = (
-            _normalized_path(config.dataset.path)
-            if config.dataset.source == "local"
-            else config.dataset.name
-        )
+        if config.dataset.source == "local":
+            configured_source_uri = _normalized_path(config.dataset.path)
+        elif config.dataset.source == "uploaded":
+            configured_source_uri = config.dataset.storage_key
+        else:
+            configured_source_uri = config.dataset.name
         registered_source_uri = (
             _normalized_path(Path(dataset.source_uri))
             if dataset.source_type == "local"
@@ -217,6 +218,13 @@ class BenchmarkApplicationService:
         )
         if configured_source_uri != registered_source_uri:
             mismatches.append("dataset.source_uri")
+        if config.dataset.source == "uploaded":
+            if config.dataset.adapter_type != dataset.adapter_type:
+                mismatches.append("dataset.adapter_type")
+            if config.dataset.checksum != dataset.checksum:
+                mismatches.append("dataset.checksum")
+            if config.dataset.license != dataset.license:
+                mismatches.append("dataset.license")
         if mismatches:
             raise RegistrationMismatchError(
                 "Configuration conflicts with selected registrations: " + ", ".join(mismatches)

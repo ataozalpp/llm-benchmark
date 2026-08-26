@@ -1,9 +1,195 @@
+import json
 from pathlib import Path
 
 import pytest
 
-from llm_benchmark.config import ModelConfig, load_config
+from llm_benchmark.config import (
+    DatasetConfig,
+    ModelConfig,
+    RunConfig,
+    canonical_config,
+    load_config,
+)
 from llm_benchmark.reproducibility import canonical_hash
+
+_CSV_DIGEST = "a" * 64
+_JSONL_DIGEST = "b" * 64
+
+
+def _uploaded_dataset(**overrides: object) -> DatasetConfig:
+    values: dict[str, object] = {
+        "source": "uploaded",
+        "name": "uploaded-dataset",
+        "storage_key": f"upload://sha256/{_CSV_DIGEST}.csv",
+        "adapter_type": "tabular_mcq_csv_v1",
+        "checksum": f"sha256:{_CSV_DIGEST}",
+    }
+    values.update(overrides)
+    return DatasetConfig.model_validate(values)
+
+
+def _run_config(dataset: DatasetConfig) -> RunConfig:
+    return RunConfig(
+        schema_version=1,
+        experiment_name="uploaded-config-test",
+        dataset=dataset,
+        models=[ModelConfig(model_id="mock-model")],
+    )
+
+
+def test_uploaded_dataset_config_accepts_valid_provenance() -> None:
+    dataset = _uploaded_dataset(license="CC0-1.0")
+
+    assert dataset.source == "uploaded"
+    assert dataset.storage_key == (
+        f"upload://sha256/{_CSV_DIGEST}.csv"
+    )
+    assert dataset.adapter_type == "tabular_mcq_csv_v1"
+    assert dataset.checksum == f"sha256:{_CSV_DIGEST}"
+    assert dataset.license == "CC0-1.0"
+    assert dataset.path is None
+
+
+@pytest.mark.parametrize(
+    ("field_name", "message"),
+    [
+        ("storage_key", "requires storage_key"),
+        ("adapter_type", "requires adapter_type"),
+        ("checksum", "requires checksum"),
+    ],
+)
+def test_uploaded_dataset_config_requires_provenance_fields(
+    field_name: str,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        _uploaded_dataset(**{field_name: None})
+
+
+@pytest.mark.parametrize(
+    ("storage_key", "adapter_type", "checksum"),
+    [
+        (
+            f"upload://sha256/{_CSV_DIGEST}.csv",
+            "tabular_mcq_jsonl_v1",
+            f"sha256:{_CSV_DIGEST}",
+        ),
+        (
+            f"upload://sha256/{_JSONL_DIGEST}.jsonl",
+            "tabular_mcq_csv_v1",
+            f"sha256:{_JSONL_DIGEST}",
+        ),
+    ],
+)
+def test_uploaded_dataset_adapter_must_match_storage_format(
+    storage_key: str,
+    adapter_type: str,
+    checksum: str,
+) -> None:
+    with pytest.raises(ValueError, match="does not match storage format"):
+        _uploaded_dataset(
+            storage_key=storage_key,
+            adapter_type=adapter_type,
+            checksum=checksum,
+        )
+
+
+def test_uploaded_dataset_checksum_must_match_storage_key() -> None:
+    with pytest.raises(ValueError, match="checksum does not match storage_key"):
+        _uploaded_dataset(checksum=f"sha256:{_JSONL_DIGEST}")
+
+
+def test_uploaded_dataset_rejects_path() -> None:
+    with pytest.raises(ValueError, match="must not define path"):
+        _uploaded_dataset(path=Path("runtime/datasets/file.csv"))
+
+
+def test_local_dataset_rejects_uploaded_provenance() -> None:
+    with pytest.raises(ValueError, match="does not accept uploaded provenance"):
+        DatasetConfig(
+            source="local",
+            name="local",
+            path=Path("data/fixtures/questions.jsonl"),
+            storage_key=f"upload://sha256/{_CSV_DIGEST}.csv",
+        )
+
+
+def test_huggingface_dataset_rejects_uploaded_adapter() -> None:
+    with pytest.raises(ValueError, match="does not accept uploaded provenance"):
+        DatasetConfig(
+            source="huggingface",
+            name="dataset/repository",
+            revision="pinned-revision",
+            adapter_type="tabular_mcq_jsonl_v1",
+        )
+
+
+@pytest.mark.parametrize(
+    "storage_key",
+    [
+        "",
+        "upload://sha256/abc.csv",
+        f"upload://sha256/{'A' * 64}.csv",
+        f"upload://sha256/../{_CSV_DIGEST}.csv",
+        f"upload://sha256/{_CSV_DIGEST}.csv/../other",
+        f"file://sha256/{_CSV_DIGEST}.csv",
+        f"upload://sha256/{_CSV_DIGEST}.csv?path=../other",
+    ],
+)
+def test_uploaded_dataset_rejects_invalid_storage_keys(
+    storage_key: str,
+) -> None:
+    with pytest.raises(ValueError, match="storage_key is invalid"):
+        _uploaded_dataset(storage_key=storage_key)
+
+
+def test_uploaded_canonical_config_contains_only_portable_provenance() -> None:
+    parsed = json.loads(
+        canonical_config(
+            _run_config(_uploaded_dataset(license="CC0-1.0"))
+        )
+    )
+    dataset = parsed["dataset"]
+
+    assert dataset["storage_key"] == (
+        f"upload://sha256/{_CSV_DIGEST}.csv"
+    )
+    assert dataset["adapter_type"] == "tabular_mcq_csv_v1"
+    assert dataset["checksum"] == f"sha256:{_CSV_DIGEST}"
+    assert dataset["license"] == "CC0-1.0"
+    assert dataset["path"] is None
+    assert not {
+        "resolved_path",
+        "storage_root",
+        "runtime_dataset_path",
+    } & dataset.keys()
+    for value in dataset.values():
+        if isinstance(value, str):
+            lowered = value.lower()
+            assert "c:\\" not in lowered
+            assert "/app/" not in lowered
+            assert "/runtime/" not in lowered
+            assert "runtime/datasets" not in lowered
+
+
+@pytest.mark.parametrize(
+    "config_path",
+    [
+        "configs/mock_smoke.yaml",
+        "configs/mmlu_pro_lm_studio_smoke.yaml",
+    ],
+)
+def test_existing_dataset_canonical_mapping_omits_uploaded_fields(
+    config_path: str,
+) -> None:
+    parsed = json.loads(canonical_config(load_config(Path(config_path))))
+
+    assert not {
+        "storage_key",
+        "adapter_type",
+        "checksum",
+        "license",
+    } & parsed["dataset"].keys()
 
 
 def test_valid_config_and_cli_override() -> None:

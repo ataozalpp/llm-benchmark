@@ -7,15 +7,36 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from .dataset_storage import InvalidStorageKeyError, parse_storage_key
+
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
 class DatasetConfig(StrictModel):
-    source: Literal["local", "huggingface"]
+    source: Literal["local", "huggingface", "uploaded"]
     name: str
     path: Path | None = None
+    storage_key: str | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    adapter_type: Literal[
+        "tabular_mcq_csv_v1",
+        "tabular_mcq_jsonl_v1",
+    ] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    checksum: str | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+    license: str | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
     revision: str | None = None
     split: str = "test"
     profile: Literal["smoke", "poc", "full"] = "smoke"
@@ -26,10 +47,47 @@ class DatasetConfig(StrictModel):
 
     @model_validator(mode="after")
     def validate_source(self) -> "DatasetConfig":
+        uploaded_values = (
+            self.storage_key,
+            self.adapter_type,
+            self.checksum,
+            self.license,
+        )
+        if self.source != "uploaded" and any(
+            value is not None for value in uploaded_values
+        ):
+            raise ValueError(
+                f"{self.source} dataset source does not accept uploaded provenance fields"
+            )
         if self.source == "local" and self.path is None:
             raise ValueError("local dataset source requires path")
         if self.source == "huggingface" and not self.revision:
             raise ValueError("huggingface dataset source requires a pinned revision")
+        if self.source == "uploaded":
+            if self.path is not None:
+                raise ValueError("uploaded dataset source must not define path")
+            if self.storage_key is None:
+                raise ValueError("uploaded dataset source requires storage_key")
+            if self.adapter_type is None:
+                raise ValueError("uploaded dataset source requires adapter_type")
+            if self.checksum is None:
+                raise ValueError("uploaded dataset source requires checksum")
+            try:
+                parsed_key = parse_storage_key(self.storage_key)
+            except InvalidStorageKeyError:
+                raise ValueError("uploaded dataset storage_key is invalid") from None
+            expected_adapter = {
+                "csv": "tabular_mcq_csv_v1",
+                "jsonl": "tabular_mcq_jsonl_v1",
+            }[parsed_key.file_format]
+            if self.adapter_type != expected_adapter:
+                raise ValueError(
+                    "uploaded dataset adapter_type does not match storage format"
+                )
+            if self.checksum != f"sha256:{parsed_key.digest}":
+                raise ValueError(
+                    "uploaded dataset checksum does not match storage_key"
+                )
         if len(self.sample_ids) != len(set(self.sample_ids)):
             raise ValueError("dataset sample_ids must be unique")
         if self.sample_ids and self.sample_size is not None and self.sample_size != len(self.sample_ids):

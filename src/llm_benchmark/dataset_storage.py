@@ -8,13 +8,16 @@ import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO, Literal
+from typing import BinaryIO, Literal, cast
 
 DatasetStorageFormat = Literal["csv", "jsonl"]
 
 _SUPPORTED_FORMATS = frozenset({"csv", "jsonl"})
 _STORAGE_KEY_PATTERN = re.compile(
     r"upload://sha256/(?P<digest>[0-9a-f]{64})\.(?P<file_format>csv|jsonl)\Z"
+)
+_CHECKSUM_PATTERN = re.compile(
+    r"sha256:(?P<digest>[0-9a-f]{64})\Z"
 )
 
 
@@ -48,6 +51,67 @@ class DatasetFinalizationError(DatasetStorageError):
 
 class InvalidStorageKeyError(DatasetStorageError, ValueError):
     """Raised when an opaque storage key is malformed or unsupported."""
+
+
+class InvalidDatasetChecksumError(DatasetStorageError, ValueError):
+    """Raised when registered checksum metadata is malformed."""
+
+
+class DatasetStorageFileMissingError(DatasetStorageError):
+    """Raised when a registered dataset file is unavailable."""
+
+
+class DatasetStorageIntegrityError(DatasetStorageError):
+    """Raised when stored dataset content fails integrity validation."""
+
+
+class DatasetStorageReadError(DatasetStorageError):
+    """Raised when a stored dataset file cannot be read safely."""
+
+
+@dataclass(frozen=True)
+class ParsedDatasetStorageKey:
+    """Validated components of an uploaded dataset storage key."""
+
+    digest: str
+    file_format: DatasetStorageFormat
+
+
+def parse_storage_key(
+    storage_key: str,
+) -> ParsedDatasetStorageKey:
+    """Parse and validate an uploaded dataset storage key."""
+
+    match = _STORAGE_KEY_PATTERN.fullmatch(
+        storage_key
+    )
+    if match is None:
+        raise InvalidStorageKeyError(
+            "Dataset storage key is invalid"
+        )
+
+    return ParsedDatasetStorageKey(
+        digest=match.group("digest"),
+        file_format=cast(
+            DatasetStorageFormat,
+            match.group("file_format"),
+        ),
+    )
+
+
+def parse_checksum(
+    checksum: str,
+) -> str:
+    """Parse registered SHA-256 checksum metadata."""
+
+    match = _CHECKSUM_PATTERN.fullmatch(checksum)
+
+    if match is None:
+        raise InvalidDatasetChecksumError(
+            "Dataset checksum metadata is invalid"
+        )
+
+    return match.group("digest")
 
 
 @dataclass(frozen=True)
@@ -160,13 +224,65 @@ class LocalDatasetStorage:
                     pass
 
     def resolve(self, storage_key: str) -> Path:
-        match = _STORAGE_KEY_PATTERN.fullmatch(storage_key)
-        if match is None:
-            raise InvalidStorageKeyError("Dataset storage key is invalid")
+        parsed = parse_storage_key(storage_key)
+
         return self._path_from_parts(
-            match.group("digest"),
-            match.group("file_format"),
+            parsed.digest,
+            parsed.file_format,
         )
+
+    def verify(
+        self,
+        storage_key: str,
+        expected_checksum: str,
+    ) -> Path:
+        parsed_key = parse_storage_key(storage_key)
+        expected_digest = parse_checksum(expected_checksum)
+
+        if parsed_key.digest != expected_digest:
+            raise DatasetStorageIntegrityError(
+            "Dataset checksum metadata does not "
+            "match the storage key"
+        )
+
+        path = self._path_from_parts(
+            parsed_key.digest,
+            parsed_key.file_format,
+        )
+
+        digest = hashlib.sha256()
+
+        try:
+            resolved_root = self._root.resolve(strict=True)
+            resolved_path = path.resolve(strict=True)
+            if not resolved_path.is_relative_to(resolved_root):
+                raise DatasetStorageIntegrityError(
+                    "Stored dataset path failed containment validation"
+                )
+            with resolved_path.open("rb") as stream:
+                while True:
+                    chunk = stream.read(self._policy.chunk_size_bytes)
+                    if not chunk:
+                        break
+                    digest.update(chunk)
+        except DatasetStorageIntegrityError:
+            raise
+        except FileNotFoundError as error:
+            raise DatasetStorageFileMissingError(
+                "Stored dataset file is unavailable"
+            ) from error
+        except (OSError, RuntimeError) as error:
+            raise DatasetStorageReadError(
+                "Stored dataset file could not be read"
+            ) from error
+
+        if digest.hexdigest() != parsed_key.digest:
+            raise DatasetStorageIntegrityError(
+                "Stored dataset content failed "
+                "integrity validation"
+            )
+
+        return path
 
     def remove(self, storage_key: str) -> None:
         path = self.resolve(storage_key)

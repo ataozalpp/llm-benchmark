@@ -64,4 +64,7 @@ def get_run_config_resolver(request: Request) -> RegisteredRunConfigResolver:
 
 
 def get_run_preflight_service(request: Request) -> RunPreflightService:
-    return RunPreflightService(policy=request.app.state.run_guardrail_policy)
+    return RunPreflightService(
+        policy=request.app.state.run_guardrail_policy,
+        loader=request.app.state.dataset_loader,
+    )

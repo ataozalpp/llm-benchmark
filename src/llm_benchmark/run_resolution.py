@@ -60,6 +60,8 @@ _SUPPORTED_DATASET_ADAPTERS = {
     ("local", "local_jsonl"),
     ("huggingface", "huggingface"),
     ("huggingface", "mmlu_pro"),
+    ("uploaded", "tabular_mcq_csv_v1"),
+    ("uploaded", "tabular_mcq_jsonl_v1"),
 }
 
 
@@ -118,6 +120,13 @@ class RegisteredRunConfigResolver:
         }
         if dataset.source_type == "local":
             dataset_values["path"] = Path(dataset.source_uri)
+        elif dataset.source_type == "uploaded":
+            dataset_values.update({
+                "storage_key": dataset.source_uri,
+                "adapter_type": dataset.adapter_type,
+                "checksum": dataset.checksum,
+                "license": dataset.license,
+            })
 
         try:
             config = RunConfig(

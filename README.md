@@ -1,7 +1,9 @@
 # LLM Benchmark
 
-LLM Benchmark is a Python 3.12 proof of concept for reproducible
-multiple-choice evaluation of language-model service profiles. It keeps
+LLM Benchmark is a Python 3.12 backend proof of concept for reproducible
+multiple-choice evaluation of language-model service profiles. In addition to
+CLI execution, it provides registry persistence, synchronous benchmark APIs,
+uploaded-dataset ingestion, and strict completed-run comparison. It keeps
 quality, token usage, latency, reliability, and format compliance as separate
 measurements under explicit datasets, prompts, parser versions, and request
 parameters.
@@ -31,9 +33,13 @@ parameters.
 - A provider-neutral FastAPI registry API and synchronous registered Run API.
 - A framework-independent `BenchmarkApplicationService`, safe registered
   `RunConfig` resolution, and pre-execution Run API guardrails.
+- Bounded CSV/JSONL upload, SHA-256 content-addressed local storage, pandas
+  adapters, portable dataset provenance, and execution of uploaded datasets
+  through the existing benchmark pipeline.
 - A framework-independent, read-only `BenchmarkComparisonService` for strict
   comparison of two completed runs.
-- A forced-offline test snapshot of `234 passed, 0 failed`.
+- Docker Compose runtime and Ruff lint tooling for local development.
+- A forced-offline test snapshot of `378 passed, 2 skipped, 0 failed`.
 
 ## Architecture
 
@@ -43,15 +49,20 @@ orchestration and persistence boundaries.
 ```mermaid
 flowchart LR
     CLI[CLI and YAML] --> Core[Benchmark runner]
+    Client[Client or Swagger] --> RegistryAPI[Registry and upload API]
+    Client --> RunAPI
+    RegistryAPI --> Repositories[Repositories]
+    RegistryAPI --> Upload[Bounded upload and adapters]
+    Upload --> DatasetFiles[(Content-addressed files)]
     RunAPI[Synchronous Run API] --> Resolver[RegisteredRunConfigResolver]
     Resolver --> Preflight[RunPreflightService]
+    DatasetFiles --> Preflight
     Preflight --> Service[BenchmarkApplicationService]
     Service --> Core
 
     Core --> Providers[Provider adapters]
     Core --> Artifacts[JSONL and JSON artifacts]
 
-    RegistryAPI[Registry CRUD API] --> Repositories[Repositories]
     Service --> Repositories
     Repositories --> DB[(SQLite via SQLAlchemy)]
 ```
@@ -115,8 +126,11 @@ pytest -q
 The current Ruff gate performs linting only; `ruff format` is not enforced.
 Ruff complements and does not replace the offline pytest suite.
 
-The latest verified development snapshot is `234 passed, 0 failed`. Older
-counts in the validation history are labelled as historical checkpoints.
+The latest verified development snapshot is `378 passed, 2 skipped, 0
+failed`. The two platform-dependent symlink/junction tests were skipped because
+symbolic-link creation was unavailable in the Windows validation environment;
+the deterministic physical-containment regression test passed. Older counts
+in the validation history are labelled as historical checkpoints.
 
 ## CLI execution
 
@@ -291,6 +305,7 @@ PATCH  /api/v1/models/{id}
 DELETE /api/v1/models/{id}
 
 POST   /api/v1/datasets
+POST   /api/v1/datasets/upload
 GET    /api/v1/datasets
 GET    /api/v1/datasets/{id}
 PATCH  /api/v1/datasets/{id}
@@ -299,8 +314,72 @@ DELETE /api/v1/datasets/{id}
 
 Only credential environment-variable names may be registered. API keys,
 passwords, bearer tokens, and other secret values are rejected and are not
-stored. The project does not currently include a production ASGI server
-dependency or deployment command; the API is not production-ready.
+stored. Uvicorn is available for the documented local/Docker POC runtime, but
+the API is not production-ready.
+
+## Uploaded dataset API
+
+`POST /api/v1/datasets/upload` accepts one `multipart/form-data` file plus:
+
+- `name`
+- `file_format`: `csv` or `jsonl`
+- `split` (default `test`)
+- optional `revision`
+- optional `license`
+
+The server streams the file with a bounded size policy, computes SHA-256,
+validates and normalizes it, stores it beneath the configured runtime dataset
+root, and creates a dataset registration. SQLite stores metadata rather than
+the uploaded rows. `source_uri` is an opaque key such as
+`upload://sha256/<64-lowercase-hex>.csv`; the checksum and adapter type are
+also registered. Physical dataset paths are not portable provenance.
+
+CSV requires `sample_id`, `question`, `correct_answer`, `category`, and at
+least two contiguous ordered option columns beginning with `option_A` and
+ending no later than `option_J`. JSONL requires `sample_id`, `question`, an
+`options` list, `correct_answer`, and `category`. IDs must be unique; textual
+fields must be non-empty; and `correct_answer` must match a label derived from
+the ordered available options.
+
+Small synthetic CSV example:
+
+```csv
+sample_id,question,option_A,option_B,correct_answer,category
+demo-1,Which option is second?,First,Second,B,synthetic
+```
+
+Equivalent JSONL shape:
+
+```json
+{"sample_id":"demo-1","question":"Which option is second?","options":["First","Second"],"correct_answer":"B","category":"synthetic"}
+```
+
+Before uploaded content is benchmarked, its opaque key and registered checksum
+must agree with the actual file digest. The resolved file must remain beneath
+the resolved storage root, so escaping symlink/junction targets are rejected.
+Verification itself creates no files or directories. Valid content is returned
+as the same `DatasetExample` representation used by the benchmark pipeline.
+
+## API workflow
+
+The synchronous registered workflow is:
+
+1. `POST /api/v1/endpoints` with `name`, `provider_type`, `base_url`, and an
+   optional `credential_env_var`.
+2. `POST /api/v1/models` with `name`, `model_identifier`, `endpoint_id`, and
+   `reasoning_policy` plus optional capability/default metadata.
+3. `POST /api/v1/datasets/upload` with the multipart fields above; retain the
+   returned dataset `id`.
+4. `POST /api/v1/runs` with `experiment_name`, `model_id`, `dataset_id`, and
+   optional `seed`, `profile`, `sample_size`, `sample_ids`, or
+   `category_filter`.
+5. `GET /api/v1/runs/{run_id}` for run state and summary.
+6. `GET /api/v1/runs/{run_id}/results` for persisted sample outcomes.
+
+Creates return HTTP `201`; successful get/list operations return HTTP `200`.
+Registry routes manage registrations, the upload route stores and registers
+portable provenance, and Run routes resolve registrations and execute the
+benchmark synchronously.
 
 ## Synchronous registered Run API
 
@@ -312,7 +391,8 @@ GET  /api/v1/runs/{run_id}/results
 ```
 
 Clients select registered model and dataset IDs. They cannot directly override
-the provider, endpoint URL, credential, model identifier, dataset path,
+the provider, endpoint URL, credential value, model identifier, physical
+dataset path, storage root, dataset source URI, checksum, adapter type,
 artifact path, or output root. `RegisteredRunConfigResolver` constructs a
 validated configuration from active registrations.
 
@@ -377,6 +457,11 @@ stored as null rather than invented.
 The local fixture contains eight project-owned synthetic multiple-choice
 questions. Its output is software-validation data, not a model score.
 
+Uploaded CSV/JSONL datasets are stored in ignored runtime storage and are not
+tracked by Git. Their registration records retain an opaque storage key,
+checksum, adapter, split, license when supplied, and compact metadata; complete
+dataset rows are not copied into SQLite.
+
 The real benchmark source is:
 
 - Dataset: `TIGER-Lab/MMLU-Pro`
@@ -406,6 +491,10 @@ cost calculation are not implemented.
 - No endpoint SSRF allowlist or local dataset-root allowlist.
 - No explicit Hugging Face cache-only/download policy in the API.
 - Preflight and execution currently load the dataset independently.
+- Uploaded files currently use local disk storage; there is no object storage
+  or distributed locking.
+- Generic registry CRUD is an administrative trust boundary that still needs
+  explicit hardening and authorization.
 - No streaming transport.
 - No production deployment configuration.
 - Sample-result API responses include raw model responses and should not be
@@ -423,10 +512,12 @@ Historical local-model and reasoning calibration results are recorded in
 and do not establish statistical model quality, general provider reliability,
 or production readiness.
 
-The strict framework-independent comparison service is complete. The next
-product-oriented increment is a safe Comparison API. Later increments include
-operational authentication and URL/path policies, async execution, retry and
-resume, PostgreSQL runtime validation, pricing, and additional deterministic
-task families.
+The strict framework-independent comparison service is complete but has no API
+route yet. Suggested next increments are PostgreSQL validation through Docker
+Compose, Alembic upgrade/downgrade verification on PostgreSQL, PostgreSQL
+repository/API integration tests, expanded operational API documentation,
+async worker/job design, authentication/authorization, and a frontend only
+after backend contracts stabilize. Comparison API, pricing, retry/resume, and
+additional deterministic task families also remain future work.
 
 No project license has been selected yet.

@@ -269,7 +269,9 @@ def test_postgresql_repository_crud_json_history_and_samples(postgres_database_u
         sample_count=2,
         artifact_directory="outputs/test",
     )
-    running = registry.runs.transition_status(run.id, "running")
+    running = registry.runs.claim_next_queued()
+    assert running is not None
+    assert running.id == run.id
     assert running.started_at is not None
     persisted_samples = registry.samples.add_many(
         run.id, [_sample("one"), _sample("two", ttft_ms=1.25)]

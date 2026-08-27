@@ -5,15 +5,17 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from sqlalchemy import update
 
 from llm_benchmark.application import (
     BenchmarkApplicationService,
+    ClaimedRunStateError,
     RegistrationMismatchError,
 )
 from llm_benchmark.config import RunConfig, load_config
 from llm_benchmark.db import Base, create_db_engine, create_session_factory
 from llm_benchmark.db.errors import InactiveDependencyError, RecordNotFoundError
-from llm_benchmark.db.models import RunStatus
+from llm_benchmark.db.models import BenchmarkRun, RunStatus
 from llm_benchmark.db.repositories import (
     BenchmarkRunRepository,
     DatasetRepository,
@@ -21,6 +23,7 @@ from llm_benchmark.db.repositories import (
     ProviderEndpointRepository,
     SampleResultRepository,
 )
+from llm_benchmark.reproducibility import canonical_hash
 from llm_benchmark.runner import PipelineExecution, execute_benchmark
 
 
@@ -36,6 +39,7 @@ def service_context(tmp_path: Path) -> dict[str, Any]:
     samples = SampleResultRepository(session_factory)
     return {
         "engine": engine,
+        "session_factory": session_factory,
         "endpoints": endpoints,
         "models": models,
         "datasets": datasets,
@@ -97,6 +101,217 @@ def execute_registered(context: dict[str, Any], config: RunConfig) -> Any:
     return endpoint, model, dataset, result
 
 
+def enqueue_and_claim(
+    context: dict[str, Any],
+    config: RunConfig,
+    *,
+    selected_sample_count: int | None = None,
+) -> tuple[Any, Any, Any, Any]:
+    endpoint, model, dataset = register_config(context, config)
+    queued = context["service"].enqueue(
+        endpoint_id=endpoint.id,
+        model_id=model.id,
+        dataset_id=dataset.id,
+        config=config,
+        selected_sample_count=(
+            selected_sample_count
+            if selected_sample_count is not None
+            else config.dataset.sample_size or len(config.dataset.sample_ids)
+        ),
+    )
+    running = context["runs"].claim_next_queued()
+    assert running is not None
+    assert running.id == queued.run.id
+    return endpoint, model, dataset, running
+
+
+def update_run_record(context: dict[str, Any], run_id: int, **values: Any) -> Any:
+    with context["session_factory"]() as session, session.begin():
+        session.execute(update(BenchmarkRun).where(BenchmarkRun.id == run_id).values(**values))
+    return context["runs"].get_by_id(run_id)
+
+
+def test_enqueue_creates_only_queued_run_with_exact_count_and_stable_hash(
+    service_context: dict[str, Any], tmp_path: Path
+) -> None:
+    config = fixture_config(tmp_path)
+    endpoint, model, dataset = register_config(service_context, config)
+    executor_calls = 0
+
+    def forbidden_executor(_: RunConfig) -> PipelineExecution:
+        nonlocal executor_calls
+        executor_calls += 1
+        raise AssertionError("enqueue must not call the executor")
+
+    service = BenchmarkApplicationService(
+        endpoints=service_context["endpoints"],
+        models=service_context["models"],
+        datasets=service_context["datasets"],
+        runs=service_context["runs"],
+        samples=service_context["samples"],
+        executor=forbidden_executor,
+    )
+    result = service.enqueue(
+        endpoint_id=endpoint.id,
+        model_id=model.id,
+        dataset_id=dataset.id,
+        config=config,
+        selected_sample_count=3,
+    )
+
+    resolved = config.model_dump(mode="json")
+    assert result.run.status is RunStatus.QUEUED
+    assert result.run.started_at is None
+    assert result.run.completed_at is None
+    assert result.run.sample_count == 3
+    assert result.run.resolved_config_json == resolved
+    assert result.run.config_hash == canonical_hash(resolved)
+    assert result.samples == ()
+    assert result.summary is None
+    assert executor_calls == 0
+    assert service_context["samples"].list_by_run_id(result.run.id) == []
+    assert not config.output_dir.exists()
+
+
+def test_execute_claimed_requires_running_run(
+    service_context: dict[str, Any], tmp_path: Path
+) -> None:
+    config = fixture_config(tmp_path)
+    endpoint, model, dataset = register_config(service_context, config)
+    queued = service_context["service"].enqueue(
+        endpoint_id=endpoint.id,
+        model_id=model.id,
+        dataset_id=dataset.id,
+        config=config,
+        selected_sample_count=8,
+    )
+
+    with pytest.raises(ClaimedRunStateError):
+        service_context["service"].execute_claimed(queued.run)
+
+
+def test_execute_claimed_reconstructs_config_and_completes(
+    service_context: dict[str, Any], tmp_path: Path
+) -> None:
+    config = fixture_config(tmp_path)
+    _, _, _, running = enqueue_and_claim(service_context, config, selected_sample_count=8)
+
+    result = service_context["service"].execute_claimed(running)
+
+    assert result.run.status is RunStatus.COMPLETED
+    assert result.run.sample_count == 8
+    assert len(result.samples) == 8
+    assert result.summary == result.run.summary_json
+
+
+def test_invalid_persisted_config_fails_before_execution(
+    service_context: dict[str, Any], tmp_path: Path
+) -> None:
+    config = fixture_config(tmp_path)
+    _, _, _, running = enqueue_and_claim(service_context, config)
+    corrupted = update_run_record(
+        service_context,
+        running.id,
+        resolved_config_json={"schema_version": 999},
+    )
+    executor_calls = 0
+
+    def forbidden_executor(_: RunConfig) -> PipelineExecution:
+        nonlocal executor_calls
+        executor_calls += 1
+        raise AssertionError("invalid config must not execute")
+
+    service = BenchmarkApplicationService(
+        endpoints=service_context["endpoints"],
+        models=service_context["models"],
+        datasets=service_context["datasets"],
+        runs=service_context["runs"],
+        samples=service_context["samples"],
+        executor=forbidden_executor,
+    )
+    result = service.execute_claimed(corrupted)
+
+    assert result.run.status is RunStatus.FAILED
+    assert result.run.error_type == "PersistedRunConfigError"
+    assert executor_calls == 0
+
+
+def test_persisted_config_hash_mismatch_fails_before_execution(
+    service_context: dict[str, Any], tmp_path: Path
+) -> None:
+    config = fixture_config(tmp_path)
+    _, _, _, running = enqueue_and_claim(service_context, config)
+    corrupted = update_run_record(service_context, running.id, config_hash="f" * 64)
+    executor_calls = 0
+
+    def forbidden_executor(_: RunConfig) -> PipelineExecution:
+        nonlocal executor_calls
+        executor_calls += 1
+        raise AssertionError("hash mismatch must not execute")
+
+    service = BenchmarkApplicationService(
+        endpoints=service_context["endpoints"],
+        models=service_context["models"],
+        datasets=service_context["datasets"],
+        runs=service_context["runs"],
+        samples=service_context["samples"],
+        executor=forbidden_executor,
+    )
+    result = service.execute_claimed(corrupted)
+
+    assert result.run.status is RunStatus.FAILED
+    assert result.run.error_type == "PersistedRunConfigError"
+    assert executor_calls == 0
+
+
+@pytest.mark.parametrize("dependency", ["endpoint", "model", "dataset"])
+def test_execute_claimed_rejects_inactive_registration_before_execution(
+    service_context: dict[str, Any], tmp_path: Path, dependency: str
+) -> None:
+    config = fixture_config(tmp_path)
+    endpoint, model, dataset, running = enqueue_and_claim(service_context, config)
+    {
+        "endpoint": service_context["endpoints"],
+        "model": service_context["models"],
+        "dataset": service_context["datasets"],
+    }[dependency].soft_delete(
+        {"endpoint": endpoint.id, "model": model.id, "dataset": dataset.id}[dependency]
+    )
+    executor_calls = 0
+
+    def forbidden_executor(_: RunConfig) -> PipelineExecution:
+        nonlocal executor_calls
+        executor_calls += 1
+        raise AssertionError("inactive registration must not execute")
+
+    service = BenchmarkApplicationService(
+        endpoints=service_context["endpoints"],
+        models=service_context["models"],
+        datasets=service_context["datasets"],
+        runs=service_context["runs"],
+        samples=service_context["samples"],
+        executor=forbidden_executor,
+    )
+    result = service.execute_claimed(running)
+
+    assert result.run.status is RunStatus.FAILED
+    assert result.run.error_type == "InactiveDependencyError"
+    assert executor_calls == 0
+
+
+def test_execute_claimed_revalidates_registration_identity(
+    service_context: dict[str, Any], tmp_path: Path
+) -> None:
+    config = fixture_config(tmp_path)
+    endpoint, _, _, running = enqueue_and_claim(service_context, config)
+    service_context["endpoints"].update(endpoint.id, name="renamed-after-enqueue")
+
+    result = service_context["service"].execute_claimed(running)
+
+    assert result.run.status is RunStatus.FAILED
+    assert result.run.error_type == "RegistrationMismatchError"
+
+
 def test_successful_registered_execution_persists_run_samples_and_artifacts(
     service_context: dict[str, Any], tmp_path: Path
 ) -> None:
@@ -150,12 +365,17 @@ def test_execution_failure_transitions_to_failed_with_sanitized_details(
         samples=service_context["samples"],
         executor=failing_executor,
     )
-    result = service.execute(
+    queued = service.enqueue(
         endpoint_id=endpoint.id,
         model_id=model.id,
         dataset_id=dataset.id,
         config=config,
+        selected_sample_count=8,
     )
+    running = service_context["runs"].claim_next_queued()
+    assert running is not None
+    assert running.id == queued.run.id
+    result = service.execute_claimed(running)
 
     assert result.run.status is RunStatus.FAILED
     assert result.run.error_type == "RuntimeError"
@@ -246,12 +466,17 @@ def test_registered_dataset_identity_mismatch_is_rejected(
         )
 
 
-def test_unparseable_samples_complete_the_benchmark(service_context: dict[str, Any], tmp_path: Path) -> None:
-    config = fixture_config(tmp_path, scenario="unparseable")
-    _, _, _, result = execute_registered(service_context, config)
+@pytest.mark.parametrize("scenario", ["unparseable", "request_failed"])
+def test_sample_outcomes_complete_the_claimed_benchmark(
+    service_context: dict[str, Any], tmp_path: Path, scenario: str
+) -> None:
+    config = fixture_config(tmp_path, scenario=scenario)
+    _, _, _, running = enqueue_and_claim(service_context, config, selected_sample_count=8)
+    result = service_context["service"].execute_claimed(running)
     assert result.run.status is RunStatus.COMPLETED
-    assert all(item.evaluation_status == "unparseable" for item in result.samples)
-    assert all(item.parse_status == "ambiguous_multiple_answers" for item in result.samples)
+    assert all(item.evaluation_status == scenario for item in result.samples)
+    if scenario == "unparseable":
+        assert all(item.parse_status == "ambiguous_multiple_answers" for item in result.samples)
 
 
 def test_sample_persistence_failure_is_atomic_and_marks_run_failed(
@@ -276,12 +501,17 @@ def test_sample_persistence_failure_is_atomic_and_marks_run_failed(
         samples=service_context["samples"],
         executor=duplicate_executor,
     )
-    result = service.execute(
+    queued = service.enqueue(
         endpoint_id=endpoint.id,
         model_id=model.id,
         dataset_id=dataset.id,
         config=config,
+        selected_sample_count=8,
     )
+    running = service_context["runs"].claim_next_queued()
+    assert running is not None
+    assert running.id == queued.run.id
+    result = service.execute_claimed(running)
     assert result.run.status is RunStatus.FAILED
     assert result.run.error_type == "UniquenessConflictError"
     assert service_context["samples"].list_by_run_id(result.run.id) == []
@@ -307,11 +537,41 @@ def test_no_database_connection_is_held_during_execution(
         samples=service_context["samples"],
         executor=observing_executor,
     )
-    result = service.execute(
+    queued = service.enqueue(
+        endpoint_id=endpoint.id,
+        model_id=model.id,
+        dataset_id=dataset.id,
+        config=config,
+        selected_sample_count=8,
+    )
+    running = service_context["runs"].claim_next_queued()
+    assert running is not None
+    assert running.id == queued.run.id
+    result = service.execute_claimed(running)
+    assert result.run.status is RunStatus.COMPLETED
+    assert observed_checked_out == [0]
+
+
+def test_backward_compatible_execute_transitions_only_its_own_run(
+    service_context: dict[str, Any], tmp_path: Path
+) -> None:
+    config = fixture_config(tmp_path)
+    endpoint, model, dataset = register_config(service_context, config)
+    older = service_context["service"].enqueue(
+        endpoint_id=endpoint.id,
+        model_id=model.id,
+        dataset_id=dataset.id,
+        config=config,
+        selected_sample_count=8,
+    )
+
+    result = service_context["service"].execute(
         endpoint_id=endpoint.id,
         model_id=model.id,
         dataset_id=dataset.id,
         config=config,
     )
+
+    assert result.run.id != older.run.id
     assert result.run.status is RunStatus.COMPLETED
-    assert observed_checked_out == [0]
+    assert service_context["runs"].get_by_id(older.run.id).status is RunStatus.QUEUED

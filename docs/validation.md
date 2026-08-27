@@ -69,15 +69,14 @@ The POC and full profiles were not run as part of this validation.
 The complete forced-offline suite most recently completed with:
 
 ```text
-378 passed
+388 passed
 2 skipped
 0 failed
 ```
 
-The two skipped cases are platform-dependent real symlink/junction tests. The
-Windows validation environment did not permit symbolic-link creation. Skipped
-does not mean failed: the deterministic physical-containment regression test
-ran and passed.
+The five PostgreSQL integration tests ran and passed. The two skipped cases are
+platform-dependent real symlink/junction tests; the deterministic
+physical-containment regression ran and passed.
 
 Coverage includes:
 
@@ -106,6 +105,66 @@ Coverage includes:
 - Bounded CSV/JSONL storage, ingestion compensation, and upload API behavior
 - Uploaded storage-key/checksum/content and physical-containment verification
 - Uploaded dataset preflight and complete upload-to-Run-API execution
+
+## PostgreSQL integration validation
+
+PostgreSQL 16 is configured as the Docker integration runtime with Psycopg 3,
+SQLAlchemy 2.x, and Alembic revision `20260817_0001`. Compose orders services
+as PostgreSQL health, migration completion, then API startup. SQLite remains
+the default local/offline database.
+
+The integration test gate is deliberately separate from ordinary tests. It
+reads only `LLM_BENCHMARK_TEST_POSTGRES_URL`, requires a PostgreSQL database
+whose name ends in `_test`, and never derives a destructive target from the
+runtime database setting. When configured, the tests cover the Alembic
+upgrade/downgrade/re-upgrade cycle, schema constraints, repository persistence
+and rollback, and an uploaded synthetic dataset through the FastAPI Run API
+with `MockProvider`.
+
+The Docker runtime and the disposable `llm_benchmark_test` database were
+executed successfully. Observed Compose states were a healthy `postgres`
+service, a `migrate` service that exited successfully after applying Alembic
+head, and a running `api` service. The verified migration revision was
+`20260817_0001`.
+
+The PostgreSQL test command and result were:
+
+```text
+.\.venv\Scripts\python.exe -m pytest -m postgres -q
+5 passed, 385 deselected
+```
+
+The complete forced-offline suite, with the PostgreSQL test URL configured,
+reported:
+
+```text
+388 passed, 2 skipped, 0 failed
+```
+
+The PostgreSQL-backed API integration registered a Mock endpoint and model,
+uploaded one synthetic CSV multiple-choice dataset, and completed exactly one
+synchronous Run API benchmark with `MockProvider`. One sample result, summary,
+artifact directory, and the expected JSONL/config/manifest/summary artifacts
+were persisted through the existing boundaries. Dataset content remained in a
+temporary filesystem root; PostgreSQL stored registration and provenance
+metadata rather than the uploaded rows. Nullable TTFT and throughput remained
+null. No model, localhost inference, Hugging Face, or external API request was
+made.
+
+PostgreSQL restart persistence was not separately recorded during this gate,
+so this validation does not claim it. The local-development Compose credential
+is only a reproducible placeholder and is not suitable for production.
+
+Run the PostgreSQL gate only against an explicitly disposable test database:
+
+```powershell
+$env:LLM_BENCHMARK_TEST_POSTGRES_URL = "postgresql+psycopg://<user>:<password>@127.0.0.1:5432/llm_benchmark_test"
+.\.venv\Scripts\python.exe -m pytest -m postgres -q
+```
+
+Production secrets, connection-pool calibration, backup/restore, high
+availability, zero-downtime migration, and deployment hardening remain out of
+scope.
 
 ## Uploaded-dataset run integration validation
 

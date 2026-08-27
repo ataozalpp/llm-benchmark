@@ -32,9 +32,12 @@
   before creating a run.
 - Preflight and execution independently load the dataset. This is accepted
   V1.x technical debt and may be replaced by a prepared execution plan later.
-- SQLite is the default local/development database. SQLAlchemy types and
-  migrations are designed for future PostgreSQL portability, but PostgreSQL
-  runtime support has not been validated.
+- SQLite is the default local/development database. PostgreSQL 16 is the
+  configured Docker integration runtime through Psycopg 3, using the same
+  SQLAlchemy repositories and Alembic migration. Destructive PostgreSQL tests
+  require an explicit `LLM_BENCHMARK_TEST_POSTGRES_URL` whose database name
+  ends in `_test`. The bounded migration, repository, and uploaded-dataset Run
+  API integration gates have been validated against PostgreSQL.
 - Endpoint, model, and dataset deletion is soft. Historical benchmark runs are
   preserved.
 - Repository writes use explicit short transactions. Provider execution does

@@ -38,8 +38,10 @@ parameters.
   through the existing benchmark pipeline.
 - A framework-independent, read-only `BenchmarkComparisonService` for strict
   comparison of two completed runs.
-- Docker Compose runtime and Ruff lint tooling for local development.
-- A forced-offline test snapshot of `378 passed, 2 skipped, 0 failed`.
+- Docker Compose PostgreSQL integration runtime and Ruff lint tooling for local
+  development.
+- A forced-offline test snapshot of `388 passed, 2 skipped, 0 failed`,
+  including the PostgreSQL integration tests.
 
 ## Architecture
 
@@ -126,11 +128,12 @@ pytest -q
 The current Ruff gate performs linting only; `ruff format` is not enforced.
 Ruff complements and does not replace the offline pytest suite.
 
-The latest verified development snapshot is `378 passed, 2 skipped, 0
-failed`. The two platform-dependent symlink/junction tests were skipped because
-symbolic-link creation was unavailable in the Windows validation environment;
-the deterministic physical-containment regression test passed. Older counts
-in the validation history are labelled as historical checkpoints.
+The latest verified development snapshot is `388 passed, 2 skipped, 0
+failed`. It includes all five PostgreSQL integration tests. The two
+platform-dependent symlink/junction tests were skipped because symbolic-link
+creation was unavailable in the Windows validation environment; the
+deterministic physical-containment regression test passed. Older counts in the
+validation history are labelled as historical checkpoints.
 
 ## CLI execution
 
@@ -202,9 +205,10 @@ This may create the ignored local runtime database. The schema contains:
 - `benchmark_runs`
 - `sample_results`
 
-The schema uses portable SQLAlchemy types and generic JSON fields with future
-PostgreSQL migration in mind. PostgreSQL runtime behavior has not been
-validated.
+The schema uses portable SQLAlchemy types and generic JSON fields. PostgreSQL
+16 integration has been validated through Psycopg 3, Alembic, the synchronous
+repositories, and the FastAPI application. SQLite remains the default
+local/offline database.
 
 ## Running the API locally
 
@@ -260,12 +264,19 @@ docker compose ps -a
 docker compose down
 ```
 
-Compose runs `python -m alembic upgrade head` in the separate `migrate`
-service. The `api` service starts only after that migration completes
-successfully. Both services use the same SQLite database in the persistent
-`benchmark_runtime` named volume; generated benchmark outputs use the separate
-`benchmark_outputs` named volume. `docker compose down` preserves these named
-volumes unless they are explicitly removed with a volume-deletion option.
+Compose starts PostgreSQL 16, waits for its health check, and then runs
+`python -m alembic upgrade head` in the separate `migrate` service. The `api`
+service starts only after that migration completes successfully. Migration and
+API services use the same `postgresql+psycopg` URL and the PostgreSQL data is
+stored in the `postgres_data` named volume. Uploaded datasets retain the
+`benchmark_runtime` volume, while generated benchmark outputs use the separate
+`benchmark_outputs` volume. `docker compose down` preserves all named volumes
+unless they are explicitly removed with a volume-deletion option.
+
+The Compose username and `llm_benchmark_dev` password are reproducible local
+development placeholders, not production credentials. Production secrets,
+pool tuning, backups, high availability, and deployment hardening are outside
+this POC.
 
 The container listens on `0.0.0.0:8000`, while Compose publishes the API only
 on host address `127.0.0.1:8000`:
@@ -273,10 +284,11 @@ on host address `127.0.0.1:8000`:
 - Swagger UI: <http://127.0.0.1:8000/docs>
 - OpenAPI schema: <http://127.0.0.1:8000/openapi.json>
 
-Manual validation confirmed that `GET /api/v1/endpoints` returned HTTP `200`.
-A registered Mock endpoint remained available after container teardown and
-recreation, confirming named-volume persistence. That registration operation
-did not invoke a model or make an external request.
+The PostgreSQL Docker validation observed a healthy `postgres` service, a
+successfully completed `migrate` service, and a running `api` service. The
+uploaded-dataset Run API path also completed against PostgreSQL with
+`MockProvider`. PostgreSQL restart persistence was not separately recorded in
+this validation, so no restart-persistence claim is made here.
 
 ## Registry CRUD API
 
@@ -513,11 +525,10 @@ and do not establish statistical model quality, general provider reliability,
 or production readiness.
 
 The strict framework-independent comparison service is complete but has no API
-route yet. Suggested next increments are PostgreSQL validation through Docker
-Compose, Alembic upgrade/downgrade verification on PostgreSQL, PostgreSQL
-repository/API integration tests, expanded operational API documentation,
-async worker/job design, authentication/authorization, and a frontend only
-after backend contracts stabilize. Comparison API, pricing, retry/resume, and
-additional deterministic task families also remain future work.
+route yet. Suggested next increments are expanded operational API
+documentation, async worker/job design, authentication/authorization, and a
+frontend only after backend contracts stabilize. Comparison API, pricing,
+retry/resume, and additional deterministic task families also remain future
+work.
 
 No project license has been selected yet.

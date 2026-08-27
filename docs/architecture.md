@@ -68,7 +68,7 @@ flowchart LR
     UploadedFiles --> Dataset
     Runner --> Providers[Provider adapters]
     Runner --> Artifacts[JSONL and JSON artifacts]
-    Repositories --> DB[(SQLite development database)]
+    Repositories --> DB[(SQLite default or PostgreSQL integration DB)]
 ```
 
 ## CLI execution
@@ -222,10 +222,14 @@ erDiagram
     BENCHMARK_RUNS ||--o{ SAMPLE_RESULTS : contains
 ```
 
-SQLAlchemy 2.x uses SQLite by default for local/development persistence. The
-schema uses generic JSON and portable enum/check-constraint storage for a
-future PostgreSQL migration, but PostgreSQL runtime behavior has not been
-validated. Alembic currently provides the initial schema migration.
+SQLAlchemy 2.x uses SQLite by default for local/development persistence.
+PostgreSQL 16 is the configured Docker integration runtime through Psycopg 3.
+The schema uses generic JSON and portable enum/check-constraint storage, and
+Alembic provides the initial schema migration. PostgreSQL migration,
+repository, and API integration tests are opt-in and target only an explicitly
+configured disposable database whose name ends in `_test`. The migration,
+repository, and uploaded-dataset Run API paths have been executed successfully
+against PostgreSQL.
 
 Endpoints, models, and datasets use soft deletion. Foreign keys protect
 historical runs; there is no destructive cascade from registry records to run
@@ -368,9 +372,6 @@ features require additional persisted data or a separate product contract.
 
 ## Next architectural increments
 
-- PostgreSQL validation through Docker Compose
-- Alembic upgrade/downgrade verification on PostgreSQL
-- PostgreSQL repository and API integration tests
 - Expanded API usage and operational documentation
 - Async worker/job execution design
 - Authentication, authorization, and registry trust-boundary hardening

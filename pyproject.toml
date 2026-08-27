@@ -17,6 +17,7 @@ dependencies = [
   "uvicorn>=0.30,<1",
   "pandas>=2.2,<3",
   "python-multipart>=0.0.9,<1",
+  "psycopg[binary]>=3.2,<4",
 ]
 
 [project.optional-dependencies]
@@ -35,7 +36,10 @@ packages = ["src/llm_benchmark"]
 [tool.pytest.ini_options]
 addopts = "-ra"
 testpaths = ["tests"]
-markers = ["network: requires network access and Hugging Face"]
+markers = [
+  "network: requires network access and Hugging Face",
+  "postgres: requires an explicitly configured PostgreSQL test database",
+]
 
 [tool.ruff]
 target-version = "py312"

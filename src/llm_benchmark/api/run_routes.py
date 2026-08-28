@@ -1,4 +1,4 @@
-"""Thin synchronous benchmark-run API routes."""
+"""Thin benchmark-run API routes."""
 
 from __future__ import annotations
 
@@ -39,12 +39,14 @@ def create_run(
             category_filter=tuple(payload.category_filter),
         )
     )
-    preflight.preflight(resolved.config)
-    result = service.execute(
+    preflight_result = preflight.preflight(resolved.config)
+
+    result = service.enqueue(
         endpoint_id=resolved.endpoint_id,
         model_id=resolved.model_id,
         dataset_id=resolved.dataset_id,
         config=resolved.config,
+        selected_sample_count=preflight_result.selected_sample_count,
     )
     return RunResponse.from_record(result.run)
 

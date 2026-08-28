@@ -18,6 +18,7 @@ from llm_benchmark.db import DATABASE_URL_ENV, create_db_engine
 from llm_benchmark.db.errors import UniquenessConflictError
 from llm_benchmark.db.records import SampleResultCreate
 from llm_benchmark.db.registry import create_registry_repositories
+from llm_benchmark.worker import create_worker
 
 TEST_POSTGRES_URL_ENV = "LLM_BENCHMARK_TEST_POSTGRES_URL"
 EXPECTED_TABLES = {
@@ -416,8 +417,29 @@ def test_postgresql_fastapi_uploaded_dataset_mock_run(
         )
         assert run_response.status_code == 201
         public_run = run_response.json()
-        assert public_run["status"] == "completed"
+        assert public_run["status"] == "queued"
+        assert public_run["summary"] is None
+        assert public_run["started_at"] is None
+        assert public_run["completed_at"] is None
+        assert public_run["sample_count"] == 1
         assert str(tmp_path) not in run_response.text
+        queued_results = client.get(f"/api/v1/runs/{public_run['id']}/results")
+        assert queued_results.status_code == 200
+        assert queued_results.json() == []
+
+        worker = create_worker(
+            registry_factory=lambda: registry,
+            dataset_storage_root=dataset_root,
+        )
+        assert worker.run_once() is True
+
+        completed_response = client.get(f"/api/v1/runs/{public_run['id']}")
+        assert completed_response.status_code == 200
+        public_run = completed_response.json()
+        assert public_run["status"] == "completed"
+        assert public_run["summary"] is not None
+        assert public_run["started_at"] is not None
+        assert public_run["completed_at"] is not None
         results_response = client.get(f"/api/v1/runs/{public_run['id']}/results")
         assert results_response.status_code == 200
         results = results_response.json()

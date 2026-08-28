@@ -10,9 +10,9 @@ The implementation currently provides two execution paths:
 
 - The CLI directly executes a validated YAML configuration and writes
   filesystem artifacts.
-- The synchronous Run API resolves registered resources, preflights the exact
-  workload, executes through an application service, and persists both
-  artifacts and database records.
+- The Run API resolves registered resources, preflights the exact workload,
+  and persists a queued run. A separate worker atomically claims and executes
+  queued work through the application service.
 
 ## Component responsibilities
 
@@ -34,8 +34,9 @@ The implementation currently provides two execution paths:
 | Database foundation | `src/llm_benchmark/db/engine.py`, `models.py` | SQLAlchemy engine/session, portable ORM schema, SQLite foreign keys |
 | Repositories | `src/llm_benchmark/db/repositories.py` | Transactional persistence rules and immutable records |
 | Registered config resolver | `src/llm_benchmark/run_resolution.py` | Build a safe RunConfig from active registry records |
-| Run preflight | `src/llm_benchmark/run_preflight.py` | Apply synchronous API limits and validate the exact dataset selection |
+| Run preflight | `src/llm_benchmark/run_preflight.py` | Apply bounded submission limits and validate the exact dataset selection |
 | Application service | `src/llm_benchmark/application.py` | Run lifecycle, short transaction boundaries, runner invocation, result persistence |
+| Worker | `src/llm_benchmark/worker.py` | Atomically claim one queued run, execute it outside the API request, and poll without busy waiting |
 | Comparison service | `src/llm_benchmark/comparison.py` | Read two completed runs through reader protocols, validate strict comparability, and return immutable comparisons |
 | FastAPI boundary | `src/llm_benchmark/api/` | Strict schemas, dependency wiring, thin CRUD and Run routes, safe HTTP errors |
 
@@ -47,7 +48,8 @@ flowchart LR
         CLI[CLI]
         RegistryAPI[Registry CRUD API]
         UploadAPI[Dataset upload API]
-        RunAPI[Synchronous Run API]
+        RunAPI[Run submission API]
+        Worker[Benchmark worker]
     end
 
     CLI --> Config[RunConfig]
@@ -60,7 +62,9 @@ flowchart LR
     RunAPI --> Resolver[RegisteredRunConfigResolver]
     Resolver --> Preflight[RunPreflightService]
     UploadedFiles --> Preflight
-    Preflight --> AppService[BenchmarkApplicationService]
+    Preflight --> Queued[(Queued benchmark runs)]
+    Worker --> Queued
+    Worker --> AppService[BenchmarkApplicationService]
     AppService --> Runner
     AppService --> Repositories
 
@@ -162,6 +166,7 @@ sequenceDiagram
     participant API as Run API
     participant Resolver
     participant Preflight
+    participant Worker
     participant Service as BenchmarkApplicationService
     participant DB
     participant Runner
@@ -172,17 +177,23 @@ sequenceDiagram
     Resolver-->>API: validated RunConfig
     API->>Preflight: exact dataset selection
     Preflight-->>API: immutable selection result
-    API->>Service: execute registered run
+    API->>Service: enqueue with exact selected count
     Service->>DB: create queued
-    Service->>DB: transition running
+    Service-->>API: immutable queued run
+    API-->>Client: HTTP 201, status queued
+    Client->>API: GET /api/v1/runs/{id}
+    API-->>Client: current state
+    Worker->>DB: atomically claim oldest queued run
+    DB-->>Worker: immutable running run
+    Worker->>Service: execute_claimed(running run)
     Service->>Runner: execute with no open DB transaction
     Runner->>Provider: one request per selected sample
     Provider-->>Runner: normalized ProviderResponse
     Runner-->>Service: results, summary, artifact directory
     Service->>DB: atomic sample add_many
     Service->>DB: transition completed
-    Service-->>API: immutable application result
-    API-->>Client: public RunResponse
+    Client->>API: GET /api/v1/runs/{id}
+    API-->>Client: completed or failed state
 ```
 
 If runner execution or required persistence fails after run creation, the
@@ -251,9 +262,13 @@ stateDiagram-v2
     cancelled --> [*]
 ```
 
-Completed, failed, and cancelled are terminal states. Each repository write
-uses a short explicit transaction. No database transaction remains open during
-provider execution.
+Completed, failed, and cancelled are terminal states. Submission persists the
+exact selected sample count but no samples or artifacts. The worker repository
+claim selects the oldest queued run by creation time and ID and conditionally
+updates only a still-queued row to `running`. Each repository write uses a
+short explicit transaction; the claim transaction closes before provider
+execution. A completed run cannot be claimed again, including after a worker
+restart.
 
 ## Provider architecture
 
@@ -294,8 +309,11 @@ they do not form a single cross-storage transaction.
 ## Current security and operational boundaries
 
 - The API has no authentication or authorization.
-- Execution is synchronous and in-process.
-- There is no worker, queue, retry, concurrency control, pagination, or resume.
+- Run submission is synchronous, but provider execution occurs in a separate
+  database-backed worker process.
+- The bounded design supports one sequential worker and one attempt per run.
+  There is no retry, lease, heartbeat, stale-run recovery, cancellation,
+  resume, concurrency control, or pagination.
 - There is no endpoint SSRF allowlist or dataset-root allowlist.
 - Uploaded content uses local runtime disk; there is no object storage or
   distributed locking.
@@ -373,7 +391,7 @@ features require additional persisted data or a separate product contract.
 ## Next architectural increments
 
 - Expanded API usage and operational documentation
-- Async worker/job execution design
+- Worker lease, heartbeat, stale-run recovery, and controlled retry design
 - Authentication, authorization, and registry trust-boundary hardening
 - Safe Comparison API, retry/resume, pricing, and additional task families
 - Frontend only after stable backend contracts and operational boundaries

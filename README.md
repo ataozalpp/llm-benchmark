@@ -2,7 +2,7 @@
 
 LLM Benchmark is a Python 3.12 backend proof of concept for reproducible
 multiple-choice evaluation of language-model service profiles. In addition to
-CLI execution, it provides registry persistence, synchronous benchmark APIs,
+CLI execution, it provides registry persistence, queued benchmark APIs,
 uploaded-dataset ingestion, and strict completed-run comparison. It keeps
 quality, token usage, latency, reliability, and format compliance as separate
 measurements under explicit datasets, prompts, parser versions, and request
@@ -30,7 +30,8 @@ parameters.
   and Alembic migrations.
 - Repositories and immutable application-facing records for registered
   endpoints, models, datasets, benchmark runs, and sample results.
-- A provider-neutral FastAPI registry API and synchronous registered Run API.
+- A provider-neutral FastAPI registry API, submission-only Run API, and a
+  separate database-backed benchmark worker.
 - A framework-independent `BenchmarkApplicationService`, safe registered
   `RunConfig` resolution, and pre-execution Run API guardrails.
 - Bounded CSV/JSONL upload, SHA-256 content-addressed local storage, pandas
@@ -40,7 +41,7 @@ parameters.
   comparison of two completed runs.
 - Docker Compose PostgreSQL integration runtime and Ruff lint tooling for local
   development.
-- A forced-offline test snapshot of `388 passed, 2 skipped, 0 failed`,
+- A forced-offline test snapshot of `411 passed, 2 skipped, 0 failed`,
   including the PostgreSQL integration tests.
 
 ## Architecture
@@ -56,17 +57,19 @@ flowchart LR
     RegistryAPI --> Repositories[Repositories]
     RegistryAPI --> Upload[Bounded upload and adapters]
     Upload --> DatasetFiles[(Content-addressed files)]
-    RunAPI[Synchronous Run API] --> Resolver[RegisteredRunConfigResolver]
+    RunAPI[Run submission API] --> Resolver[RegisteredRunConfigResolver]
     Resolver --> Preflight[RunPreflightService]
     DatasetFiles --> Preflight
-    Preflight --> Service[BenchmarkApplicationService]
+    Preflight --> Queue[(Queued benchmark run)]
+    Worker[Database-backed worker] --> Queue
+    Worker --> Service[BenchmarkApplicationService]
     Service --> Core
 
     Core --> Providers[Provider adapters]
     Core --> Artifacts[JSONL and JSON artifacts]
 
     Service --> Repositories
-    Repositories --> DB[(SQLite via SQLAlchemy)]
+    Repositories --> DB[(SQLite or PostgreSQL via SQLAlchemy)]
 ```
 
 See [Architecture](docs/architecture.md) for component, transaction, and
@@ -128,7 +131,7 @@ pytest -q
 The current Ruff gate performs linting only; `ruff format` is not enforced.
 Ruff complements and does not replace the offline pytest suite.
 
-The latest verified development snapshot is `388 passed, 2 skipped, 0
+The latest verified development snapshot is `411 passed, 2 skipped, 0
 failed`. It includes all five PostgreSQL integration tests. The two
 platform-dependent symlink/junction tests were skipped because symbolic-link
 creation was unavailable in the Windows validation environment; the
@@ -246,10 +249,16 @@ is currently expected because those routes are not implemented. The documented
 command binds Uvicorn only to `127.0.0.1`.
 
 The API provides registry CRUD routes for provider endpoints, models, and
-datasets, plus synchronous in-process benchmark run and result routes. This
-execution model is appropriate for the current POC; long-running production
-execution will require a worker/task-queue design. Runtime SQLite databases and
-generated benchmark artifacts must remain untracked.
+datasets, plus queued benchmark submission and result routes. Run the worker
+in a second shell with the same database URL to process queued runs:
+
+```powershell
+& ".\.venv\Scripts\python.exe" -m llm_benchmark.worker
+```
+
+The bounded worker is appropriate for this POC but is not a production task
+queue. Runtime SQLite databases and generated benchmark artifacts must remain
+untracked.
 
 ## Running the API with Docker
 
@@ -266,12 +275,12 @@ docker compose down
 
 Compose starts PostgreSQL 16, waits for its health check, and then runs
 `python -m alembic upgrade head` in the separate `migrate` service. The `api`
-service starts only after that migration completes successfully. Migration and
-API services use the same `postgresql+psycopg` URL and the PostgreSQL data is
-stored in the `postgres_data` named volume. Uploaded datasets retain the
-`benchmark_runtime` volume, while generated benchmark outputs use the separate
-`benchmark_outputs` volume. `docker compose down` preserves all named volumes
-unless they are explicitly removed with a volume-deletion option.
+and `worker` services start only after that migration completes successfully.
+All three use the same PostgreSQL database. API and worker share uploaded
+datasets through `benchmark_runtime` and generated artifacts through
+`benchmark_outputs`; PostgreSQL data uses `postgres_data`. `docker compose
+down` preserves all named volumes unless they are explicitly removed with a
+volume-deletion option.
 
 The Compose username and `llm_benchmark_dev` password are reproducible local
 development placeholders, not production credentials. Production secrets,
@@ -285,10 +294,12 @@ on host address `127.0.0.1:8000`:
 - OpenAPI schema: <http://127.0.0.1:8000/openapi.json>
 
 The PostgreSQL Docker validation observed a healthy `postgres` service, a
-successfully completed `migrate` service, and a running `api` service. The
-uploaded-dataset Run API path also completed against PostgreSQL with
-`MockProvider`. PostgreSQL restart persistence was not separately recorded in
-this validation, so no restart-persistence claim is made here.
+successfully completed `migrate` service, and running `api` and `worker`
+services. A single uploaded synthetic multiple-choice sample was submitted as
+`queued`, claimed by the worker, and completed with one persisted correct
+`MockProvider` result and the expected artifacts. Restarting the worker did not
+execute that completed run again. This validates bounded claim behavior, not
+general crash recovery or production readiness.
 
 ## Registry CRUD API
 
@@ -374,7 +385,7 @@ as the same `DatasetExample` representation used by the benchmark pipeline.
 
 ## API workflow
 
-The synchronous registered workflow is:
+The registered workflow is:
 
 1. `POST /api/v1/endpoints` with `name`, `provider_type`, `base_url`, and an
    optional `credential_env_var`.
@@ -385,15 +396,18 @@ The synchronous registered workflow is:
 4. `POST /api/v1/runs` with `experiment_name`, `model_id`, `dataset_id`, and
    optional `seed`, `profile`, `sample_size`, `sample_ids`, or
    `category_filter`.
-5. `GET /api/v1/runs/{run_id}` for run state and summary.
-6. `GET /api/v1/runs/{run_id}/results` for persisted sample outcomes.
+5. The separate worker atomically claims the queued run and executes it.
+6. Poll `GET /api/v1/runs/{run_id}` for queued, running, completed, or failed
+   state and the eventual summary.
+7. `GET /api/v1/runs/{run_id}/results` for persisted sample outcomes.
 
 Creates return HTTP `201`; successful get/list operations return HTTP `200`.
 Registry routes manage registrations, the upload route stores and registers
-portable provenance, and Run routes resolve registrations and execute the
-benchmark synchronously.
+portable provenance, and Run routes resolve registrations, preflight the exact
+selection, and persist a queued submission. Provider execution is outside the
+API request.
 
-## Synchronous registered Run API
+## Queued registered Run API
 
 ```text
 POST /api/v1/runs
@@ -409,7 +423,7 @@ artifact path, or output root. `RegisteredRunConfigResolver` constructs a
 validated configuration from active registrations.
 
 Before any run record is created, `RunPreflightService` applies the default
-synchronous API policy:
+bounded API policy:
 
 - `smoke` and `poc` are allowed.
 - `full` is rejected by the Run API only.
@@ -421,8 +435,10 @@ synchronous API policy:
   empty selections are rejected.
 
 A rejected preflight performs no provider call and creates no benchmark-run
-row, sample-result row, or artifact directory. The API remains synchronous and
-in-process; the HTTP request stays open until execution completes.
+row, sample-result row, or artifact directory. An accepted POST returns HTTP
+`201` with `status=queued`, persists the exact preflight-selected sample count,
+and leaves summary/start/completion fields null. It creates neither samples nor
+artifacts. Clients poll the run GET route while the worker executes separately.
 
 ## Run lifecycle and durability
 
@@ -430,9 +446,9 @@ For an accepted registered run, `BenchmarkApplicationService` preserves short
 transactions:
 
 ```text
-queued transaction
--> running transaction
--> provider execution with no open database transaction
+queued transaction in the API request
+-> atomic worker claim and running transaction
+-> provider execution outside the API request with no open database transaction
 -> atomic sample_results transaction
 -> completed or failed transaction
 ```
@@ -498,7 +514,8 @@ cost calculation are not implemented.
 ## Security boundaries and limitations
 
 - No authentication or authorization.
-- No worker, queue, retry, concurrency control, rate limiting, resume, or
+- One worker processes runs sequentially. There is no retry, lease, heartbeat,
+  stale-run recovery, cancellation, resume, concurrency, rate limiting, or
   pagination.
 - No endpoint SSRF allowlist or local dataset-root allowlist.
 - No explicit Hugging Face cache-only/download policy in the API.
@@ -525,10 +542,10 @@ and do not establish statistical model quality, general provider reliability,
 or production readiness.
 
 The strict framework-independent comparison service is complete but has no API
-route yet. Suggested next increments are expanded operational API
-documentation, async worker/job design, authentication/authorization, and a
-frontend only after backend contracts stabilize. Comparison API, pricing,
-retry/resume, and additional deterministic task families also remain future
-work.
+route yet. The bounded queued-run worker is also implemented. Suggested next
+increments are authentication/authorization and explicit worker reliability
+policies only after the current contracts stabilize. Comparison API, leases,
+heartbeat/stale recovery, retry/resume, pricing, and additional deterministic
+task families remain future work.
 
 No project license has been selected yet.

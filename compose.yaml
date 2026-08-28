@@ -60,6 +60,21 @@ services:
       - benchmark_runtime:/app/runtime
       - benchmark_outputs:/app/outputs
 
+  worker:
+    image: llm-benchmark-poc:local
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command:
+      - python
+      - -m
+      - llm_benchmark.worker
+    environment:
+      LLM_BENCHMARK_DATABASE_URL: postgresql+psycopg://llm_benchmark:llm_benchmark_dev@postgres:5432/llm_benchmark
+    volumes:
+      - benchmark_runtime:/app/runtime
+      - benchmark_outputs:/app/outputs
+
 volumes:
   postgres_data:
   benchmark_runtime:

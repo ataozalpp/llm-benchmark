@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import delete
+from sqlalchemy import delete, event
 from sqlalchemy.exc import IntegrityError
 
 from llm_benchmark.db import Base, create_db_engine, create_session_factory
@@ -300,6 +301,87 @@ def test_queued_run_persists_immutable_inputs_and_lists(repositories: dict[str, 
     assert persisted.config_hash == "e" * 64
     assert persisted.artifact_directory == "outputs/queued"
     assert [item.id for item in repositories["runs"].list_runs()] == [run.id]
+
+
+def test_claim_next_queued_returns_none_for_empty_queue(repositories: dict[str, Any]) -> None:
+    assert repositories["runs"].claim_next_queued() is None
+
+
+def test_claim_next_queued_claims_oldest_once_and_sets_started_at(
+    repositories: dict[str, Any],
+) -> None:
+    oldest = create_run(repositories, "-claim-oldest")
+    newest = create_run(repositories, "-claim-newest")
+
+    first = repositories["runs"].claim_next_queued()
+    second = repositories["runs"].claim_next_queued()
+
+    assert first is not None
+    assert first.id == oldest.id
+    assert first.status is RunStatus.RUNNING
+    assert first.started_at is not None
+    assert first.completed_at is None
+    assert second is not None
+    assert second.id == newest.id
+    assert second.status is RunStatus.RUNNING
+    assert repositories["runs"].claim_next_queued() is None
+
+
+def test_claim_next_queued_skips_nonqueued_runs(repositories: dict[str, Any]) -> None:
+    running = create_run(repositories, "-claim-running")
+    completed = create_run(repositories, "-claim-completed")
+    failed = create_run(repositories, "-claim-failed")
+    cancelled = create_run(repositories, "-claim-cancelled")
+    queued = create_run(repositories, "-claim-queued")
+    repositories["runs"].transition_status(running.id, RunStatus.RUNNING)
+    repositories["runs"].transition_status(completed.id, RunStatus.RUNNING)
+    repositories["runs"].transition_status(completed.id, RunStatus.COMPLETED)
+    repositories["runs"].transition_status(failed.id, RunStatus.FAILED)
+    repositories["runs"].transition_status(cancelled.id, RunStatus.CANCELLED)
+
+    claimed = repositories["runs"].claim_next_queued()
+
+    assert claimed is not None
+    assert claimed.id == queued.id
+    assert repositories["runs"].claim_next_queued() is None
+
+
+def test_claim_next_queued_rolls_back_failed_write(repositories: dict[str, Any]) -> None:
+    queued = create_run(repositories, "-claim-rollback")
+
+    def fail_claim(
+        connection: object,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        executemany: bool,
+    ) -> None:
+        del connection, cursor, parameters, context, executemany
+        if statement.lstrip().upper().startswith("UPDATE BENCHMARK_RUNS"):
+            raise RuntimeError("simulated claim write failure")
+
+    event.listen(repositories["engine"], "before_cursor_execute", fail_claim)
+    try:
+        with pytest.raises(RuntimeError, match="simulated claim write failure"):
+            repositories["runs"].claim_next_queued()
+    finally:
+        event.remove(repositories["engine"], "before_cursor_execute", fail_claim)
+
+    persisted = repositories["runs"].get_by_id(queued.id)
+    assert persisted.status is RunStatus.QUEUED
+    assert persisted.started_at is None
+
+
+def test_competing_claims_return_a_queued_run_only_once(repositories: dict[str, Any]) -> None:
+    queued = create_run(repositories, "-claim-race")
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        claims = list(executor.map(lambda _: repositories["runs"].claim_next_queued(), range(2)))
+
+    claimed = [item for item in claims if item is not None]
+    assert [item.id for item in claimed] == [queued.id]
+    assert repositories["runs"].get_by_id(queued.id).status is RunStatus.RUNNING
 
 
 @pytest.mark.parametrize("terminal", [RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED])

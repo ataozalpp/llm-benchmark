@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict
 
 from .config import RunConfig
 from .db.errors import InactiveDependencyError
+from .db.models import RunStatus
 from .db.records import (
     BenchmarkRunRecord,
     DatasetRecord,
@@ -28,6 +29,14 @@ class ApplicationServiceError(Exception):
 
 class RegistrationMismatchError(ApplicationServiceError):
     """Raised when a selected registration conflicts with the run config."""
+
+
+class ClaimedRunStateError(ApplicationServiceError):
+    """Raised when execution is requested for a run that is not running."""
+
+
+class PersistedRunConfigError(ApplicationServiceError):
+    """Raised when persisted run configuration cannot be trusted."""
 
 
 class EndpointReader(Protocol):
@@ -101,14 +110,17 @@ class BenchmarkApplicationService:
         self._samples = samples
         self._executor = executor
 
-    def execute(
+    def enqueue(
         self,
         *,
         endpoint_id: int,
         model_id: int,
         dataset_id: int,
         config: RunConfig,
+        selected_sample_count: int,
     ) -> BenchmarkServiceResult:
+        if selected_sample_count < 0:
+            raise ValueError("selected_sample_count must not be negative")
         endpoint = self._endpoints.get_by_id(endpoint_id)
         model = self._models.get_by_id(model_id)
         dataset = self._datasets.get_by_id(dataset_id)
@@ -124,12 +136,30 @@ class BenchmarkApplicationService:
             resolved_config=resolved_config,
             config_hash=config_hash,
             seed=config.seed,
-            sample_count=_planned_sample_count(config),
+            sample_count=selected_sample_count,
             artifact_directory=str(config.output_dir),
         )
+        return BenchmarkServiceResult(run=run)
+
+    def execute_claimed(self, run: BenchmarkRunRecord) -> BenchmarkServiceResult:
+        if run.status is not RunStatus.RUNNING:
+            raise ClaimedRunStateError("Claimed execution requires a running benchmark run")
+
         pipeline_execution: PipelineExecution | None = None
         try:
-            run = self._runs.transition_status(run.id, "running")
+            try:
+                config = RunConfig.model_validate(run.resolved_config_json)
+            except (TypeError, ValueError) as error:
+                raise PersistedRunConfigError("Persisted run configuration is invalid") from error
+            if canonical_hash(config.model_dump(mode="json")) != run.config_hash:
+                raise PersistedRunConfigError("Persisted run configuration hash does not match")
+
+            model = self._models.get_by_id(run.model_id)
+            endpoint = self._endpoints.get_by_id(model.endpoint_id)
+            dataset = self._datasets.get_by_id(run.dataset_id)
+            self._validate_active(endpoint, model, dataset)
+            self._validate_identity(config, endpoint, model, dataset)
+
             pipeline_execution = self._executor(config)
             sample_inputs = [_to_sample_input(result) for result in pipeline_execution.results]
             persisted_samples = self._samples.add_many(run.id, sample_inputs)
@@ -157,6 +187,24 @@ class BenchmarkApplicationService:
                 error_message=str(error),
             )
             return BenchmarkServiceResult(run=run)
+
+    def execute(
+        self,
+        *,
+        endpoint_id: int,
+        model_id: int,
+        dataset_id: int,
+        config: RunConfig,
+    ) -> BenchmarkServiceResult:
+        queued = self.enqueue(
+            endpoint_id=endpoint_id,
+            model_id=model_id,
+            dataset_id=dataset_id,
+            config=config,
+            selected_sample_count=_planned_sample_count(config),
+        )
+        running = self._runs.transition_status(queued.run.id, "running")
+        return self.execute_claimed(running)
 
     @staticmethod
     def _validate_active(

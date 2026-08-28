@@ -6,7 +6,7 @@ import re
 from collections.abc import Iterable
 from typing import Any, TypeVar
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -363,6 +363,34 @@ class BenchmarkRunRepository(_Repository):
         with self._session_factory() as session:
             rows = session.scalars(select(BenchmarkRun).order_by(BenchmarkRun.id)).all()
             return [BenchmarkRunRecord.model_validate(row) for row in rows]
+
+    def claim_next_queued(self) -> BenchmarkRunRecord | None:
+        while True:
+            with self._session_factory() as session, session.begin():
+                run_id = session.scalar(
+                    select(BenchmarkRun.id)
+                    .where(BenchmarkRun.status == RunStatus.QUEUED)
+                    .order_by(BenchmarkRun.created_at, BenchmarkRun.id)
+                    .limit(1)
+                )
+                if run_id is None:
+                    return None
+
+                claimed_at = utc_now()
+                result = session.execute(
+                    update(BenchmarkRun)
+                    .where(
+                        BenchmarkRun.id == run_id,
+                        BenchmarkRun.status == RunStatus.QUEUED,
+                    )
+                    .values(status=RunStatus.RUNNING, started_at=claimed_at)
+                    .execution_options(synchronize_session=False)
+                )
+                if result.rowcount != 1:
+                    continue
+
+                run = self._require(session, BenchmarkRun, run_id, "benchmark run")
+                return BenchmarkRunRecord.model_validate(run)
 
     def transition_status(
         self,

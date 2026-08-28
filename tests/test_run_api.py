@@ -13,12 +13,14 @@ from fastapi.testclient import TestClient
 
 from llm_benchmark.api import create_app
 from llm_benchmark.api.app_dependencies import get_run_preflight_service
+from llm_benchmark.application import BenchmarkApplicationService
 from llm_benchmark.config import RunConfig
 from llm_benchmark.dataset_storage import LocalDatasetStorage
 from llm_benchmark.db.registry import create_registry_repositories
 from llm_benchmark.reproducibility import canonical_hash
 from llm_benchmark.run_preflight import RunApiGuardrailPolicy, RunPreflightService
 from llm_benchmark.runner import PipelineExecution
+from llm_benchmark.worker import BenchmarkWorker
 
 
 @pytest.fixture
@@ -46,6 +48,20 @@ def sample_row_count(context: dict[str, Any]) -> int:
         value = connection.execute("SELECT COUNT(*) FROM sample_results").fetchone()
     assert value is not None
     return int(value[0])
+
+
+def run_one_worker_job(context: dict[str, Any]) -> bool:
+    registry = context["registry"]
+    app = context["client"].app
+    service = BenchmarkApplicationService(
+        endpoints=registry.endpoints,
+        models=registry.models,
+        datasets=registry.datasets,
+        runs=registry.runs,
+        samples=registry.samples,
+        executor=app.state.benchmark_executor,
+    )
+    return BenchmarkWorker(runs=registry.runs, service=service).run_once()
 
 
 def register_fixture(context: dict[str, Any], *, scenario: str = "correct") -> tuple[int, int, int]:
@@ -118,11 +134,20 @@ def test_successful_run_creation_listing_detail_and_results(run_api: dict[str, A
     created = client.post("/api/v1/runs", json=run_payload(model_id, dataset_id))
     assert created.status_code == 201
     run = created.json()
-    assert run["status"] == "completed"
+    assert run["status"] == "queued"
     assert run["sample_count"] == 1
-    assert run["summary"]["overall"]["correct_count"] == 1
+    assert run["summary"] is None
+    assert run["started_at"] is None
+    assert run["completed_at"] is None
     assert "artifact_directory" not in run
     assert "resolved_config" not in run
+    assert sample_row_count(run_api) == 0
+    assert not run_api["output_root"].exists()
+
+    assert run_one_worker_job(run_api) is True
+    run = client.get(f"/api/v1/runs/{run['id']}").json()
+    assert run["status"] == "completed"
+    assert run["summary"]["overall"]["correct_count"] == 1
 
     assert client.get("/api/v1/runs").json() == [run]
     assert client.get(f"/api/v1/runs/{run['id']}").json() == run
@@ -147,6 +172,34 @@ def test_successful_run_creation_listing_detail_and_results(run_api: dict[str, A
     assert artifact_directory.parent == run_api["output_root"]
     assert (artifact_directory / "results.jsonl").is_file()
     assert (artifact_directory / "summary.json").is_file()
+
+
+def test_run_submission_is_queued_without_execution_or_artifacts(
+    run_api: dict[str, Any],
+) -> None:
+    _, model_id, dataset_id = register_fixture(run_api)
+    executor_calls = 0
+
+    def forbidden_executor(_: RunConfig) -> PipelineExecution:
+        nonlocal executor_calls
+        executor_calls += 1
+        raise AssertionError("submission must not execute the benchmark")
+
+    run_api["client"].app.state.benchmark_executor = forbidden_executor
+    response = run_api["client"].post(
+        "/api/v1/runs", json=run_payload(model_id, dataset_id)
+    )
+
+    assert response.status_code == 201
+    run = response.json()
+    assert run["status"] == "queued"
+    assert run["sample_count"] == 1
+    assert run["summary"] is None
+    assert run["started_at"] is None
+    assert run["completed_at"] is None
+    assert executor_calls == 0
+    assert sample_row_count(run_api) == 0
+    assert not run_api["output_root"].exists()
 
 
 @pytest.mark.parametrize(
@@ -322,6 +375,9 @@ def test_sample_outcomes_still_complete_the_run(run_api: dict[str, Any], scenari
     response = run_api["client"].post("/api/v1/runs", json=run_payload(model_id, dataset_id))
     assert response.status_code == 201
     run = response.json()
+    assert run["status"] == "queued"
+    assert run_one_worker_job(run_api) is True
+    run = run_api["client"].get(f"/api/v1/runs/{run['id']}").json()
     assert run["status"] == "completed"
     result = run_api["client"].get(f"/api/v1/runs/{run['id']}/results").json()[0]
     assert result["evaluation_status"] == scenario
@@ -406,8 +462,19 @@ def test_pipeline_system_failure_hides_internal_details_from_public_run_response
     _, model_id, dataset_id = register_fixture(context)
     with TestClient(app) as client:
         response = client.post("/api/v1/runs", json=run_payload(model_id, dataset_id))
-    assert response.status_code == 201
-    run = response.json()
+        assert response.status_code == 201
+        run = response.json()
+        assert run["status"] == "queued"
+        service = BenchmarkApplicationService(
+            endpoints=registry.endpoints,
+            models=registry.models,
+            datasets=registry.datasets,
+            runs=registry.runs,
+            samples=registry.samples,
+            executor=fail,
+        )
+        assert BenchmarkWorker(runs=registry.runs, service=service).run_once() is True
+        run = client.get(f"/api/v1/runs/{run['id']}").json()
     assert run["status"] == "failed"
     assert run["error_type"] == "RuntimeError"
     assert "error_message" not in run
@@ -479,6 +546,9 @@ def test_uploaded_csv_runs_end_to_end_with_portable_provenance(tmp_path: Path) -
 
         assert response.status_code == 201
         run = response.json()
+        assert run["status"] == "queued"
+        assert run_one_worker_job({"registry": registry, "client": client}) is True
+        run = client.get(f"/api/v1/runs/{run['id']}").json()
         assert run["status"] == "completed"
         results = client.get(f"/api/v1/runs/{run['id']}/results").json()
 

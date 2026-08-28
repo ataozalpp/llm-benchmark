@@ -69,7 +69,7 @@ The POC and full profiles were not run as part of this validation.
 The complete forced-offline suite most recently completed with:
 
 ```text
-388 passed
+411 passed
 2 skipped
 0 failed
 ```
@@ -97,7 +97,7 @@ Coverage includes:
 - Framework-independent application-service execution and failure handling
 - FastAPI registry CRUD routes and strict public schemas
 - OpenAI-compatible request/response normalization with mocked transports
-- Synchronous registered Run API execution
+- Queued Run API submission and separate worker execution
 - Exact Run API preflight selection, limits, and safe public errors
 - Framework-independent strict comparison of completed runs
 - Deterministic sample alignment and typed incompatibility handling
@@ -110,8 +110,8 @@ Coverage includes:
 
 PostgreSQL 16 is configured as the Docker integration runtime with Psycopg 3,
 SQLAlchemy 2.x, and Alembic revision `20260817_0001`. Compose orders services
-as PostgreSQL health, migration completion, then API startup. SQLite remains
-the default local/offline database.
+as PostgreSQL health, migration completion, then independent API and worker
+startup. SQLite remains the default local/offline database.
 
 The integration test gate is deliberately separate from ordinary tests. It
 reads only `LLM_BENCHMARK_TEST_POSTGRES_URL`, requires a PostgreSQL database
@@ -131,29 +131,36 @@ The PostgreSQL test command and result were:
 
 ```text
 .\.venv\Scripts\python.exe -m pytest -m postgres -q
-5 passed, 385 deselected
+5 passed, 408 deselected
 ```
 
 The complete forced-offline suite, with the PostgreSQL test URL configured,
 reported:
 
 ```text
-388 passed, 2 skipped, 0 failed
+411 passed, 2 skipped, 0 failed
 ```
 
-The PostgreSQL-backed API integration registered a Mock endpoint and model,
-uploaded one synthetic CSV multiple-choice dataset, and completed exactly one
-synchronous Run API benchmark with `MockProvider`. One sample result, summary,
-artifact directory, and the expected JSONL/config/manifest/summary artifacts
-were persisted through the existing boundaries. Dataset content remained in a
-temporary filesystem root; PostgreSQL stored registration and provenance
-metadata rather than the uploaded rows. Nullable TTFT and throughput remained
-null. No model, localhost inference, Hugging Face, or external API request was
-made.
+The PostgreSQL-backed API integration registered a Mock endpoint and model and
+uploaded one synthetic CSV multiple-choice dataset. POST returned HTTP 201
+with `status=queued`, exact `sample_count=1`, null summary/start/completion
+fields, and no sample rows. The real worker factory used the same registry and
+uploaded-dataset root, claimed the run once, and completed it with one correct
+synthetic `MockProvider` result. Summary, timestamps, artifact directory, and
+the expected JSONL/config/manifest/summary artifacts were then present.
+Dataset content remained in filesystem storage; PostgreSQL stored registration
+and provenance metadata rather than uploaded rows. Nullable TTFT and
+throughput remained null. No real model, Hugging Face, or external API request
+was made.
 
-PostgreSQL restart persistence was not separately recorded during this gate,
-so this validation does not claim it. The local-development Compose credential
-is only a reproducible placeholder and is not suitable for production.
+Manual Docker validation used the same PostgreSQL database,
+`benchmark_runtime` uploaded-dataset volume, and `benchmark_outputs` artifact
+volume across API and worker services. Restarting the worker after completion
+did not duplicate the run or its single sample result because terminal runs
+are not claimable. This bounded observation does not establish lease,
+heartbeat, stale-run recovery, retry, or general crash recovery. The
+local-development Compose credential is only a reproducible placeholder and
+is not suitable for production.
 
 Run the PostgreSQL gate only against an explicitly disposable test database:
 

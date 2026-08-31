@@ -33,6 +33,22 @@ YAML config
 The fixture data is owned by the project and exists only to exercise software
 behavior. Its scores are not benchmark results for any model.
 
+### Generic evaluation task-adapter Phase 1 checkpoint
+
+Focused adapter and runner tests verify that the default
+`MultipleChoiceTaskAdapter` reproduces the existing prompt and prompt hash,
+strict parsing across the actual option-label range, and the established
+correct, incorrect, ambiguous, unparseable, and request-failed outcomes.
+Runner-injection tests also verify that an injected adapter controls prompt
+construction, evaluation, and prompt-hash provenance while provider calls,
+telemetry, artifacts, and metric aggregation remain runner responsibilities.
+
+This checkpoint preserves existing CLI, Run API, worker, provider,
+configuration-hash, artifact, comparison, and persistence contracts. It
+validates a task boundary, not support for additional task families; multiple
+choice remains the only implemented adapter. RAG, tools, MCP, agent loops, and
+trace persistence were not introduced.
+
 ## Pinned MMLU-Pro MockProvider smoke validation
 
 A controlled smoke validation was completed with the official

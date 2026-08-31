@@ -13,11 +13,10 @@ from .config import DatasetConfig, RunConfig
 from .datasets import load_and_sample, load_examples
 from .metrics import summarize
 from .models import BenchmarkResult, DatasetExample
-from .parser import parse_multiple_choice
-from .prompting import build_prompt, prompt_hash
 from .providers import Provider, create_provider
 from .reproducibility import canonical_hash, environment_snapshot
 from .storage import append_result, write_json
+from .task_adapters import DEFAULT_TASK_ADAPTER, TaskAdapter
 
 
 @dataclass(frozen=True)
@@ -32,22 +31,15 @@ def utc_now() -> str:
 
 
 def _evaluate(
-    run_id: str, config: RunConfig, example: DatasetExample, model_config: Any, provider: Provider | None = None
+    run_id: str, config: RunConfig, example: DatasetExample, model_config: Any, provider: Provider | None = None, *, task_adapter: TaskAdapter = DEFAULT_TASK_ADAPTER,
 ) -> BenchmarkResult:
-    prompt = build_prompt(example)
+    prompt = task_adapter.build_prompt(example)
     provider = provider or create_provider(model_config)
     started_at = utc_now()
     response = provider.generate(prompt, example)
     completed_at = utc_now()
-    parsed = parse_multiple_choice(response.raw_response, example.allowed_labels)
-    if response.request_status != "succeeded":
-        evaluation_status = "request_failed"
-    elif parsed.parsed_answer is None:
-        evaluation_status = "unparseable"
-    elif parsed.parsed_answer == example.correct_answer:
-        evaluation_status = "correct"
-    else:
-        evaluation_status = "incorrect"
+
+    outcome = task_adapter.evaluate_response(example, response)
     return BenchmarkResult(
         run_id=run_id,
         sample_id=example.sample_id,
@@ -59,11 +51,11 @@ def _evaluate(
         model=model_config.model_id,
         returned_model=response.returned_model,
         raw_response=response.raw_response,
-        parsed_answer=parsed.parsed_answer,
+        parsed_answer=outcome.parsed_answer,
         correct_answer=example.correct_answer,
-        is_correct=evaluation_status == "correct",
-        evaluation_status=evaluation_status,
-        parse_status=parsed.parse_status,
+        is_correct=outcome.is_correct,
+        evaluation_status=outcome.evaluation_status,
+        parse_status=outcome.parse_status,
         request_status=response.request_status,
         error_type=response.error_type,
         prompt_tokens=response.prompt_tokens,
@@ -103,6 +95,7 @@ def execute_benchmark(
     config: RunConfig,
     *,
     dataset_loader: Callable[[DatasetConfig], list[DatasetExample]] = load_examples,
+    task_adapter: TaskAdapter = DEFAULT_TASK_ADAPTER,
 ) -> PipelineExecution:
     run_id = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
     run_dir = config.output_dir / run_id
@@ -116,10 +109,12 @@ def execute_benchmark(
     )
     manifest_hash = canonical_hash(manifest)
     environment = environment_snapshot()
+    task_prompt_hash = task_adapter.prompt_template_hash()
+
     fingerprint_parts = {
         "resolved_config_hash": config_hash,
         "dataset_manifest_hash": manifest_hash,
-        "prompt_template_hash": prompt_hash(),
+        "prompt_template_hash": task_prompt_hash,
         "parser_version": config.evaluation.parser_version,
         "evaluator_version": config.evaluation.evaluator_version,
         "git_revision": environment["git_commit"],
@@ -134,7 +129,7 @@ def execute_benchmark(
     for model_config in config.models:
         provider = create_provider(model_config)
         for example in examples:
-            result = _evaluate(run_id, config, example, model_config, provider)
+            result = _evaluate(run_id, config, example, model_config, provider, task_adapter=task_adapter,)
             append_result(run_dir / "results.jsonl", result)
             results.append(result)
     wall_time_ms = (time.perf_counter() - started_perf) * 1000
@@ -151,7 +146,7 @@ def execute_benchmark(
         "resolved_config_hash": config_hash,
         "dataset_manifest_hash": manifest_hash,
         "run_fingerprint": run_fingerprint,
-        "prompt_template_hash": prompt_hash(),
+        "prompt_template_hash": task_prompt_hash,
         "parser_version": config.evaluation.parser_version,
         "evaluator_version": config.evaluation.evaluator_version,
         "dataset": manifest,

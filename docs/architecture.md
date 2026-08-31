@@ -25,9 +25,10 @@ The implementation currently provides two execution paths:
 | Dataset storage | `src/llm_benchmark/dataset_storage.py` | Bounded content-addressed storage, opaque-key parsing, checksum and physical-containment verification |
 | Dataset ingestion | `src/llm_benchmark/dataset_ingestion.py` | Coordinate storage, adapter validation, compact registration metadata, and failure compensation |
 | Prompt layer | `src/llm_benchmark/prompting.py` | Versioned multiple-choice prompt and template hash |
+| Task adapter | `src/llm_benchmark/task_adapters.py` | Own task-specific prompt construction and normalized-response evaluation; currently implements multiple choice only |
 | Provider layer | `src/llm_benchmark/providers.py` | Provider protocol, factory, Mock, LM Studio native, and OpenAI-compatible adapters |
 | Parser | `src/llm_benchmark/parser.py` | Strict deterministic parsing against actual allowed labels |
-| Runner | `src/llm_benchmark/runner.py` | Execute samples, classify results, write artifacts, aggregate metrics |
+| Runner | `src/llm_benchmark/runner.py` | Orchestrate provider execution, timing and telemetry, write artifacts, and aggregate metrics |
 | Metrics | `src/llm_benchmark/metrics.py` | Quality, reliability, token, latency, and category aggregation |
 | Artifact storage | `src/llm_benchmark/storage.py` | Append JSONL and atomically replace individual JSON files |
 | Reproducibility | `src/llm_benchmark/reproducibility.py` | Canonical hashes and runtime/Git environment metadata |
@@ -89,6 +90,37 @@ YAML + --set overrides
 
 The CLI does not use repositories, the application service, or Run API
 guardrails. Its configured `full` profile remains available.
+
+## Evaluation task boundary
+
+The framework-independent `TaskAdapter` protocol separates task-specific
+behavior from provider-neutral runner orchestration. The runner selects data,
+calls providers, records timing and normalized telemetry, writes artifacts,
+and aggregates metrics. The adapter builds the task prompt, supplies its
+stable prompt-template hash, and evaluates the normalized provider response.
+
+```mermaid
+flowchart LR
+    Example[DatasetExample] --> Adapter[TaskAdapter]
+    Adapter --> Prompt[Task prompt]
+    Prompt --> Provider[Provider adapter]
+    Provider --> Response[ProviderResponse]
+    Response --> Adapter
+    Adapter --> Outcome[TaskEvaluationOutcome]
+    Outcome --> Runner[Benchmark runner]
+    Runner --> Results[Results, artifacts, and metrics]
+```
+
+`MultipleChoiceTaskAdapter` is the only implemented task adapter. It delegates
+to the existing versioned multiple-choice prompt builder and strict parser,
+then preserves the established `correct`, `incorrect`, `unparseable`, and
+`request_failed` classification policy. Its prompt-template hash remains the
+existing prompt hash and continues to participate in the run fingerprint.
+
+This boundary does not add RAG, tool calling, MCP, agent loops, execution-trace
+persistence, or additional task types. Existing CLI, Run API, worker,
+providers, configuration hashes, artifacts, comparison, and database
+persistence continue to use the same contracts.
 
 ## Registry API
 

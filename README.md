@@ -22,6 +22,9 @@ parameters.
   `TIGER-Lab/MMLU-Pro` Hugging Face source.
 - Deterministic sampling, versioned prompts, a strict multiple-choice parser,
   deterministic evaluation, metrics, and reproducibility hashes.
+- A framework-independent task-adapter boundary; the implemented
+  `MultipleChoiceTaskAdapter` preserves the existing prompt, strict parsing,
+  and correctness behavior while the runner retains orchestration.
 - `MockProvider`, LM Studio native, and generic OpenAI-compatible provider
   adapters behind one normalized provider boundary.
 - Append-friendly JSONL results and JSON summary, configuration, manifest, and

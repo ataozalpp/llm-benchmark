@@ -46,8 +46,31 @@ telemetry, artifacts, and metric aggregation remain runner responsibilities.
 This checkpoint preserves existing CLI, Run API, worker, provider,
 configuration-hash, artifact, comparison, and persistence contracts. It
 validates a task boundary, not support for additional task families; multiple
-choice remains the only implemented adapter. RAG, tools, MCP, agent loops, and
-trace persistence were not introduced.
+choice remains the only implemented adapter. RAG, tools, MCP, and agent loops
+were not introduced.
+
+### Execution-trace Phase 2 checkpoint
+
+Focused tests verify immutable typed events, deterministic ordering from one,
+a fresh recorder per execution, Windows/POSIX path redaction, UTF-8 JSONL
+temporary-file replacement, and exclusion of prompt, response, reasoning,
+credential, Authorization, provider-error-message, and sensitive sentinel
+content. Directly constructed events and injected recorders are passed through
+the same centralized exact-allowlist serializer. Tests cover bounded strings,
+path-like values, and recognizable Authorization, Bearer, API-key, token,
+password, and secret assignment patterns; this does not claim detection of
+arbitrary unlabelled secrets. Tests also verify that trace recording or
+persistence failure neither changes successful benchmark results nor masks
+provider/task-adapter exceptions. Normalized request failures remain benchmark
+outcomes.
+
+Compatibility tests preserve results, summaries, config and manifest hashes,
+prompt hashes, and run fingerprints. No result/summary schema, CLI, Run API,
+worker, repository, or database-schema change was introduced. Successful
+pipeline traces are diagnostic artifact-only `trace.jsonl` files; events are
+buffered in memory, unexpected failures do not finalize error events, and a
+missing trace is not separately reported in summary/DB. No trace API, database
+table, streaming recorder, tools, RAG, MCP, or agent loop was added.
 
 ## Pinned MMLU-Pro MockProvider smoke validation
 
@@ -85,14 +108,16 @@ The POC and full profiles were not run as part of this validation.
 The complete forced-offline suite most recently completed with:
 
 ```text
-411 passed
-2 skipped
+449 passed
+7 skipped
 0 failed
 ```
 
-The five PostgreSQL integration tests ran and passed. The two skipped cases are
-platform-dependent real symlink/junction tests; the deterministic
-physical-containment regression ran and passed.
+Five PostgreSQL integration tests were skipped because the disposable test URL
+was not configured for this run; their separate verified execution is recorded
+below. The other two skipped cases are platform-dependent real
+symlink/junction tests; the deterministic physical-containment regression ran
+and passed.
 
 Coverage includes:
 
@@ -107,6 +132,8 @@ Coverage includes:
 - Accuracy, answered accuracy, reliability, token, and percentile metrics
 - JSONL persistence and summary generation
 - Complete fixture-to-artifacts integration flow
+- Immutable typed execution traces, safe redaction, deterministic ordering,
+  and best-effort artifact persistence
 - SQLAlchemy engine/session behavior and SQLite foreign-key enforcement
 - Alembic upgrade, downgrade, and re-upgrade behavior
 - Repository CRUD, uniqueness, soft deletion, transactions, and run lifecycle

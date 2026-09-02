@@ -25,6 +25,8 @@ parameters.
 - A framework-independent task-adapter boundary; the implemented
   `MultipleChoiceTaskAdapter` preserves the existing prompt, strict parsing,
   and correctness behavior while the runner retains orchestration.
+- A framework-independent execution-trace boundary with immutable, typed
+  lifecycle events and best-effort artifact-only `trace.jsonl` output.
 - `MockProvider`, LM Studio native, and generic OpenAI-compatible provider
   adapters behind one normalized provider boundary.
 - Append-friendly JSONL results and JSON summary, configuration, manifest, and
@@ -44,8 +46,7 @@ parameters.
   comparison of two completed runs.
 - Docker Compose PostgreSQL integration runtime and Ruff lint tooling for local
   development.
-- A forced-offline test snapshot of `411 passed, 2 skipped, 0 failed`,
-  including the PostgreSQL integration tests.
+- A forced-offline test snapshot of `449 passed, 7 skipped, 0 failed`.
 
 ## Architecture
 
@@ -70,6 +71,7 @@ flowchart LR
 
     Core --> Providers[Provider adapters]
     Core --> Artifacts[JSONL and JSON artifacts]
+    Core --> Trace[Best-effort trace.jsonl]
 
     Service --> Repositories
     Repositories --> DB[(SQLite or PostgreSQL via SQLAlchemy)]
@@ -536,6 +538,9 @@ cost calculation are not implemented.
 - Actual secrets are never persisted; only credential environment-variable
   names may be stored.
 - The evaluation task is currently multiple-choice only.
+- Execution traces are diagnostic lifecycle data. Events are buffered in
+  memory and successful pipelines write `trace.jsonl` on a best-effort basis;
+  missing trace persistence is not reported separately in the summary or DB.
 
 ## Validation and roadmap
 

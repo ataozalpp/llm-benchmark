@@ -26,6 +26,7 @@ The implementation currently provides two execution paths:
 | Dataset ingestion | `src/llm_benchmark/dataset_ingestion.py` | Coordinate storage, adapter validation, compact registration metadata, and failure compensation |
 | Prompt layer | `src/llm_benchmark/prompting.py` | Versioned multiple-choice prompt and template hash |
 | Task adapter | `src/llm_benchmark/task_adapters.py` | Own task-specific prompt construction and normalized-response evaluation; currently implements multiple choice only |
+| Execution trace | `src/llm_benchmark/trace.py` | Immutable typed lifecycle events, fresh per-execution recorders, safe identifier handling, and deterministic event ordering |
 | Provider layer | `src/llm_benchmark/providers.py` | Provider protocol, factory, Mock, LM Studio native, and OpenAI-compatible adapters |
 | Parser | `src/llm_benchmark/parser.py` | Strict deterministic parsing against actual allowed labels |
 | Runner | `src/llm_benchmark/runner.py` | Orchestrate provider execution, timing and telemetry, write artifacts, and aggregate metrics |
@@ -117,10 +118,60 @@ then preserves the established `correct`, `incorrect`, `unparseable`, and
 `request_failed` classification policy. Its prompt-template hash remains the
 existing prompt hash and continues to participate in the run fingerprint.
 
-This boundary does not add RAG, tool calling, MCP, agent loops, execution-trace
-persistence, or additional task types. Existing CLI, Run API, worker,
+This boundary does not add RAG, tool calling, MCP, agent loops, or additional
+task types. Existing CLI, Run API, worker,
 providers, configuration hashes, artifacts, comparison, and database
 persistence continue to use the same contracts.
+
+## Execution trace boundary
+
+The framework-independent `TraceRecorder` boundary records diagnostic
+lifecycle data without changing task or provider contracts. Each benchmark
+execution obtains a fresh recorder, and immutable `TraceEvent` values contain
+immutable, typed `TraceEventData`. Sequence numbers start at one and increase
+deterministically within that execution.
+
+For each model/sample scenario, the normal event order is:
+
+```text
+scenario_started
+-> model_request
+-> model_response
+-> task_evaluation
+-> scenario_completed
+```
+
+An `error` event is recorded in memory when a provider or task-adapter
+exception is observable. A normalized request failure is not an orchestration
+exception: it continues through task evaluation and remains a benchmark
+outcome.
+
+Successful pipelines write buffered events to `trace.jsonl` using UTF-8 and
+temporary-file replacement. Event recording and trace persistence are
+best-effort: their failure cannot change a benchmark outcome or mask the
+original provider/task-adapter exception. `results.jsonl` remains the
+authoritative per-sample result and `summary.json` remains the aggregate
+result; `trace.jsonl` is diagnostic lifecycle data.
+
+The trace contract has no arbitrary payload or metadata mapping. A centralized
+serializer validates the built-in event/data types, emits an exact field
+allowlist, bounds every persisted string to 256 characters, and does not trust
+an injected event's serialization method. Prompt text, raw responses, raw
+reasoning, credential/header fields, and provider error messages are not part
+of that allowlist. Absolute Windows/POSIX path-like strings are replaced with
+`[REDACTED_PATH]`; recognizable Authorization, Bearer, API-key, token,
+password, and secret assignment patterns are replaced with `[REDACTED]`.
+Unlabelled arbitrary values cannot be guaranteed to be identifiable as
+secrets, so callers must still keep sensitive values out of identifiers and
+other trace inputs.
+
+Trace support does not change resolved configuration, config or manifest
+hashes, prompt hashes, run fingerprints, result/summary schemas, CLI, Run API,
+worker, repositories, or database schemas. Events are currently buffered in
+memory. Unexpected execution failures do not finalize their in-memory error
+events to `trace.jsonl`, and missing trace persistence is not recorded in the
+summary or database. There is no trace API, trace table, streaming recorder,
+tools, RAG, MCP, or agent loop.
 
 ## Registry API
 
@@ -332,6 +383,11 @@ Runner artifacts are:
 - `resolved_config.json`
 - `dataset_manifest.json`
 - `environment.json`
+- `trace.jsonl` for successful pipelines when best-effort trace persistence
+  succeeds
+
+`results.jsonl` and `summary.json` are authoritative benchmark outputs;
+`trace.jsonl` is non-authoritative diagnostic lifecycle data.
 
 CLI runs write under `outputs/<run_id>/`. Registered Run API executions use
 `outputs/api/<run_id>/` by default and additionally persist run/sample records.

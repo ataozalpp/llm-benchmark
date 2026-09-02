@@ -18,6 +18,7 @@ from llm_benchmark.providers import (
 )
 from llm_benchmark.runner import _evaluate
 from llm_benchmark.storage import append_result
+from llm_benchmark.trace import InMemoryTraceRecorder
 
 
 @pytest.fixture
@@ -158,12 +159,28 @@ def test_credential_value_never_reaches_resolved_config_or_result_artifact(
         models=[model],
     )
     provider = OpenAICompatibleProvider(model, FakeTransport(success_body()))
-    result = _evaluate("run", run_config, example, model, provider)
+    trace_recorder = InMemoryTraceRecorder(
+        clock=lambda: "2026-09-01T10:00:00+00:00"
+    )
+
+    result = _evaluate(
+        "run",
+        run_config,
+        example,
+        model,
+        provider,
+        trace_recorder=trace_recorder,
+    )
     artifact = tmp_path / "results.jsonl"
     append_result(artifact, result)
 
     assert secret not in json.dumps(run_config.model_dump(mode="json"))
     assert secret not in artifact.read_text(encoding="utf-8")
+
+    serialized_trace = json.dumps(
+        [event.to_dict() for event in trace_recorder.events()]
+    )
+    assert secret not in serialized_trace
 
 
 def test_missing_credential_fails_before_transport_call(

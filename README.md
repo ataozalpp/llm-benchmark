@@ -27,6 +27,10 @@ parameters.
   and correctness behavior while the runner retains orchestration.
 - A framework-independent execution-trace boundary with immutable, typed
   lifecycle events and best-effort artifact-only `trace.jsonl` output.
+- A standalone synchronous tool runtime with strict JSON snapshots, Pydantic
+  argument validation, closed error codes, and a UTF-8 output-size limit.
+  Provider tool-call integration, bounded agent loops, and tool-call evaluation
+  remain future work; see [Tool runtime boundary](docs/architecture.md#tool-runtime-boundary).
 - `MockProvider`, LM Studio native, and generic OpenAI-compatible provider
   adapters behind one normalized provider boundary.
 - Append-friendly JSONL results and JSON summary, configuration, manifest, and
@@ -46,7 +50,7 @@ parameters.
   comparison of two completed runs.
 - Docker Compose PostgreSQL integration runtime and Ruff lint tooling for local
   development.
-- A forced-offline test snapshot of `449 passed, 7 skipped, 0 failed`.
+- Offline validation coverage and checkpoint history in [Validation](docs/validation.md).
 
 ## Architecture
 
@@ -136,12 +140,14 @@ pytest -q
 The current Ruff gate performs linting only; `ruff format` is not enforced.
 Ruff complements and does not replace the offline pytest suite.
 
-The latest verified development snapshot is `411 passed, 2 skipped, 0
+The historical PostgreSQL-inclusive development snapshot is `411 passed, 2 skipped, 0
 failed`. It includes all five PostgreSQL integration tests. The two
 platform-dependent symlink/junction tests were skipped because symbolic-link
 creation was unavailable in the Windows validation environment; the
 deterministic physical-containment regression test passed. Older counts in the
 validation history are labelled as historical checkpoints.
+For tool-runtime coverage, focused commands, and the previously reported
+checkpoint, see [Tool-runtime validation](docs/validation.md#tool-runtime-validation).
 
 ## CLI execution
 

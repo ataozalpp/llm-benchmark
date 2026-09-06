@@ -27,6 +27,7 @@ The implementation currently provides two execution paths:
 | Prompt layer | `src/llm_benchmark/prompting.py` | Versioned multiple-choice prompt and template hash |
 | Task adapter | `src/llm_benchmark/task_adapters.py` | Own task-specific prompt construction and normalized-response evaluation; currently implements multiple choice only |
 | Execution trace | `src/llm_benchmark/trace.py` | Immutable typed lifecycle events, fresh per-execution recorders, safe identifier handling, and deterministic event ordering |
+| Tool runtime | `src/llm_benchmark/tool_runtime.py` | Standalone registration, strict argument validation, synchronous handler execution, and normalized immutable results; not wired into the benchmark pipeline |
 | Provider layer | `src/llm_benchmark/providers.py` | Provider protocol, factory, Mock, LM Studio native, and OpenAI-compatible adapters |
 | Parser | `src/llm_benchmark/parser.py` | Strict deterministic parsing against actual allowed labels |
 | Runner | `src/llm_benchmark/runner.py` | Orchestrate provider execution, timing and telemetry, write artifacts, and aggregate metrics |
@@ -170,8 +171,74 @@ hashes, prompt hashes, run fingerprints, result/summary schemas, CLI, Run API,
 worker, repositories, or database schemas. Events are currently buffered in
 memory. Unexpected execution failures do not finalize their in-memory error
 events to `trace.jsonl`, and missing trace persistence is not recorded in the
-summary or database. There is no trace API, trace table, streaming recorder,
-tools, RAG, MCP, or agent loop.
+summary or database. This trace boundary adds no trace API, trace table,
+streaming recorder, tool integration, RAG, MCP, or agent loop.
+
+## Tool runtime boundary
+
+`tool_runtime.py` is a standalone synchronous module using only the standard
+library and Pydantic. It has no provider, runner, trace, API, worker, or database
+dependency and performs no filesystem or network operations itself. Importing
+it does not initialize runtime storage or a database.
+
+- `ToolDefinition` is a frozen name/description pair. Names use ASCII letters,
+  digits, underscores, and hyphens, start with a letter, and contain at most
+  64 characters. Descriptions must be non-blank strings of at most 512 characters.
+- `ToolRegistration` binds a definition to a Pydantic `BaseModel` subclass and
+  a callable handler. Registration requires the argument model's config to
+  set `strict=True` and `extra="forbid"`; nested models and field overrides
+  are not recursively audited.
+- `ToolRegistry` rejects duplicate names, resolves registrations by name, and
+  lists definitions in sorted name order. This guarantees listing order, not
+  deterministic behavior of arbitrary handlers.
+- `ToolCall` stores a frozen snapshot of a JSON object and validates its call
+  ID: ASCII alphanumeric first character, followed by alphanumerics,
+  underscores, or hyphens, with a 128-character maximum. This is syntax
+  validation, not detection of every possible secret.
+- `ToolResult` stores a frozen output snapshot, status, and closed error code.
+  Both snapshot properties return newly decoded copies, so mutating the
+  original data or a returned nested object cannot change the stored value.
+
+Arguments must be an actual dictionary. Nested arguments and outputs accept
+only JSON scalars, lists, and string-keyed dictionaries; non-finite floats,
+tuples, sets, bytes, and arbitrary objects are rejected. Snapshots use sorted
+keys, compact JSON, and UTF-8 encoding. Output may be any supported JSON value.
+
+`ToolRuntime.execute()` looks up the tool, validates arguments with the
+registered model, calls its handler with that model instance, validates the
+returned JSON value, and checks serialized output size before returning a
+`ToolResult`. Unknown tools and Pydantic validation failures do not call a
+handler. Handler `Exception` values become fixed failure outcomes without
+exception text; `BaseException` propagates. Non-validation programming errors
+from argument validation also propagate.
+
+`ToolExecutionStatus` and `ToolErrorCode` are closed string enums. The result
+constructor requires enum members rather than arbitrary strings and enforces
+the following matching pairs (shown by their string values):
+
+| Status | Error code |
+| --- | --- |
+| `succeeded` | `None` |
+| `tool_not_found` | `tool_not_found` |
+| `invalid_arguments` | `invalid_arguments` |
+| `execution_failed` | `tool_execution_failed` |
+| `invalid_output` | `invalid_tool_output` |
+| `output_too_large` | `tool_output_too_large` |
+
+Failed results cannot contain output. Invalid setup or direct construction
+raises an exception rather than producing an execution outcome.
+
+The default `max_output_bytes` is 65,536 and must be a positive integer.
+The limit includes JSON syntax and is checked after serialization to UTF-8;
+oversized results return no output. It is not a handler memory or execution-time
+limit. Handlers and model validators are trusted application code and are not
+sandboxed; their side effects are not prevented. There is no input-size budget,
+timeout, cancellation, or registry thread-safety mechanism in this slice.
+
+Provider tool-call mapping, tool-result messages, model-driven tool selection,
+bounded agent loops, and tool-call evaluation remain separate future work.
+The runtime does not produce benchmark scores, traces, artifacts, or database
+records and is not connected to the existing benchmark execution paths.
 
 ## Registry API
 

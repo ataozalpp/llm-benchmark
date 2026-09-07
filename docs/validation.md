@@ -72,6 +72,83 @@ buffered in memory, unexpected failures do not finalize error events, and a
 missing trace is not separately reported in summary/DB. No trace API, database
 table, streaming recorder, tools, RAG, MCP, or agent loop was added.
 
+## Tool-runtime validation
+
+`tests/test_tool_runtime.py` exercises the standalone runtime with in-process
+test handlers. Its coverage includes:
+
+- Successful execution and normalized unknown-tool outcomes.
+- Missing, extra, and incorrectly typed arguments rejected before handler execution.
+- Tool-name, description, and call-ID validation, including length boundaries.
+- Strict JSON input/output rejection and frozen nested snapshots that remain
+  unchanged when source objects or returned copies are mutated.
+- Strict Pydantic registration, duplicate rejection, and sorted registry listing.
+- Fixed handler-error outcomes without sensitive exception details and
+  propagation of a custom `BaseException` subclass.
+- Closed `ToolErrorCode` validation: arbitrary strings and a mismatched
+  status/code pair are rejected; execution tests cover the emitted outcome pairs.
+- Oversized-output rejection, UTF-8 byte boundaries, and invalid output limits.
+- Import in a subprocess with a temporary working directory, verifying no
+  runtime/output directories or SQLite database files are created there.
+
+From the activated project environment, run focused tests and the complete
+suite with Hugging Face and Transformers offline modes forced:
+
+```powershell
+$env:HF_HUB_OFFLINE = "1"
+$env:HF_DATASETS_OFFLINE = "1"
+$env:TRANSFORMERS_OFFLINE = "1"
+python -m pytest tests/test_tool_runtime.py -q
+python -m pytest -q
+ruff check .
+```
+
+The previously reported tool-runtime checkpoint was `67 passed` for focused
+tests and `516 passed, 7 skipped` for the complete forced-offline suite; Ruff
+passed. Two skips were platform-dependent symlink tests, and five were
+PostgreSQL tests whose test URL was not configured. These are prior reported
+results, not a new test run performed for this documentation update, and do
+not establish PostgreSQL validation for this checkpoint.
+
+Coverage does not exhaust every direct-constructor status/code combination or
+explicitly test cyclic containers. The import test checks local filesystem
+side effects, not a general network sandbox. Registration checks the root
+Pydantic config; it does not audit nested models or field-level overrides.
+Call-ID syntax validation cannot identify every secret. Trusted handlers are
+not sandboxed, and the serialized-output limit does not bound their execution
+time or peak memory. Provider tool-call integration, bounded agent loops, and
+tool-call evaluation are future work and are not validated by these tests.
+
+### Deterministic example-tool coverage
+
+`tests/test_tools.py` calls the registered examples through `ToolRuntime`.
+It covers all four calculator operations, negative and zero operands, selected
+range boundaries, rejected string/bool/fractional inputs, unsupported
+operations, missing/extra fields, and normalized division-by-zero failure.
+Lookup tests cover all three synthetic entries, successful not-found results,
+and rejected missing, incorrectly typed, empty, uppercase, spaced, oversized,
+or extra-field arguments. Further tests verify repeated calculator results,
+sorted tool names, and independent registry membership after adding a tool to
+only one factory-created registry.
+
+With the offline environment variables above set, run both focused files:
+
+```powershell
+python -m pytest tests/test_tools.py tests/test_tool_runtime.py -q
+```
+
+The 2026-09-08 example-tool checkpoint completed with `96 passed` across
+these two focused files and `545 passed, 7 skipped` in the complete forced-offline
+suite. Ruff passed. Two skips were platform-dependent symlink tests and five
+were PostgreSQL tests with no configured test URL; PostgreSQL was not exercised
+at this checkpoint.
+
+These are software-behavior tests, not measurements of LLM tool selection or
+answer quality. They do not exhaust both operands' boundary combinations or
+the city-key grammar, and do not include a separate subprocess import test for
+`tools.py`; the existing import test covers `tool_runtime.py` only. No general
+handler timeout or sandbox guarantee is established.
+
 ## Pinned MMLU-Pro MockProvider smoke validation
 
 A controlled smoke validation was completed with the official
@@ -103,9 +180,9 @@ count, license, homepage, citation, and manifest hash.
 
 The POC and full profiles were not run as part of this validation.
 
-## Current forced-offline automated validation
+## Historical execution-trace forced-offline validation
 
-The complete forced-offline suite most recently completed with:
+At the execution-trace checkpoint, the complete forced-offline suite completed with:
 
 ```text
 449 passed

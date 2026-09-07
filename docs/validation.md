@@ -119,6 +119,36 @@ not sandboxed, and the serialized-output limit does not bound their execution
 time or peak memory. Provider tool-call integration, bounded agent loops, and
 tool-call evaluation are future work and are not validated by these tests.
 
+### Deterministic example-tool coverage
+
+`tests/test_tools.py` calls the registered examples through `ToolRuntime`.
+It covers all four calculator operations, negative and zero operands, selected
+range boundaries, rejected string/bool/fractional inputs, unsupported
+operations, missing/extra fields, and normalized division-by-zero failure.
+Lookup tests cover all three synthetic entries, successful not-found results,
+and rejected missing, incorrectly typed, empty, uppercase, spaced, oversized,
+or extra-field arguments. Further tests verify repeated calculator results,
+sorted tool names, and independent registry membership after adding a tool to
+only one factory-created registry.
+
+With the offline environment variables above set, run both focused files:
+
+```powershell
+python -m pytest tests/test_tools.py tests/test_tool_runtime.py -q
+```
+
+The 2026-09-08 example-tool checkpoint completed with `96 passed` across
+these two focused files and `545 passed, 7 skipped` in the complete forced-offline
+suite. Ruff passed. Two skips were platform-dependent symlink tests and five
+were PostgreSQL tests with no configured test URL; PostgreSQL was not exercised
+at this checkpoint.
+
+These are software-behavior tests, not measurements of LLM tool selection or
+answer quality. They do not exhaust both operands' boundary combinations or
+the city-key grammar, and do not include a separate subprocess import test for
+`tools.py`; the existing import test covers `tool_runtime.py` only. No general
+handler timeout or sandbox guarantee is established.
+
 ## Pinned MMLU-Pro MockProvider smoke validation
 
 A controlled smoke validation was completed with the official

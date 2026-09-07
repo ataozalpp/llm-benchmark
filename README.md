@@ -29,6 +29,8 @@ parameters.
   lifecycle events and best-effort artifact-only `trace.jsonl` output.
 - A standalone synchronous tool runtime with strict JSON snapshots, Pydantic
   argument validation, closed error codes, and a UTF-8 output-size limit.
+  Deterministic offline examples include a bounded integer calculator and a
+  synthetic city-code lookup.
   Provider tool-call integration, bounded agent loops, and tool-call evaluation
   remain future work; see [Tool runtime boundary](docs/architecture.md#tool-runtime-boundary).
 - `MockProvider`, LM Studio native, and generic OpenAI-compatible provider

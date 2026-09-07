@@ -240,6 +240,34 @@ bounded agent loops, and tool-call evaluation remain separate future work.
 The runtime does not produce benchmark scores, traces, artifacts, or database
 records and is not connected to the existing benchmark execution paths.
 
+### Deterministic example tools
+
+`tools.py` supplies `create_example_tool_registry()`, which creates a fresh
+registry containing `calculator` and `lookup_city_code`. Registries have
+independent membership and share the argument-model classes and handler
+functions. Importing the module defines models, functions, and a read-only
+synthetic lookup mapping; it does not create a registry or execute a tool.
+
+Both argument models require `strict=True` and `extra="forbid"`:
+
+- `calculator` accepts `operation` (`add`, `subtract`, `multiply`, `divide`)
+  and integer `left`/`right` operands in the inclusive range -1,000,000 to
+  1,000,000. It returns a `result` field. Division uses Python floating-point
+  arithmetic, not exact decimal arithmetic. Division by zero raises a handler
+  error which the runtime normalizes to `execution_failed` with
+  `tool_execution_failed`, without exposing the exception message.
+- `lookup_city_code` accepts a 1-64 character `city` key containing lowercase
+  ASCII words separated by single underscores. Its fixed three-entry mapping
+  is synthetic. A known key returns `found=true` and a `code`; an unknown but
+  valid key returns `found=false` and `code=null` with status `succeeded`.
+  Keys are not automatically trimmed or case-normalized.
+
+These handlers perform only arithmetic or in-memory lookup. They reuse the
+runtime's validation, JSON snapshots, output limit, and error normalization.
+The operand range is a tool-specific value constraint, not a general input-byte
+budget. These examples add no timeout, sandbox, provider calls, persistence,
+or tool-selection evaluation.
+
 ## Registry API
 
 The registry API exposes CRUD operations for endpoint, model, and dataset

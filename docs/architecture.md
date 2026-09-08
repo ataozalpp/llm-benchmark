@@ -28,6 +28,7 @@ The implementation currently provides two execution paths:
 | Task adapter | `src/llm_benchmark/task_adapters.py` | Own task-specific prompt construction and normalized-response evaluation; currently implements multiple choice only |
 | Execution trace | `src/llm_benchmark/trace.py` | Immutable typed lifecycle events, fresh per-execution recorders, safe identifier handling, and deterministic event ordering |
 | Tool runtime | `src/llm_benchmark/tool_runtime.py` | Standalone registration, strict argument validation, synchronous handler execution, and normalized immutable results; not wired into the benchmark pipeline |
+| Tool-call normalization | `src/llm_benchmark/tool_calling.py` | Validate supplied response data into immutable text, ordered ToolCall snapshots, and finish reason; no HTTP or tool execution |
 | Provider layer | `src/llm_benchmark/providers.py` | Provider protocol, factory, Mock, LM Studio native, and OpenAI-compatible adapters |
 | Parser | `src/llm_benchmark/parser.py` | Strict deterministic parsing against actual allowed labels |
 | Runner | `src/llm_benchmark/runner.py` | Orchestrate provider execution, timing and telemetry, write artifacts, and aggregate metrics |
@@ -235,8 +236,10 @@ limit. Handlers and model validators are trusted application code and are not
 sandboxed; their side effects are not prevented. There is no input-size budget,
 timeout, cancellation, or registry thread-safety mechanism in this slice.
 
-Provider tool-call mapping, tool-result messages, model-driven tool selection,
-bounded agent loops, and tool-call evaluation remain separate future work.
+Live provider tool-call integration, request mapping, tool-result messages,
+model-driven tool selection, bounded agent loops, and tool-call evaluation
+remain separate future work. Pure supplied-response normalization is available
+as a separate boundary described below.
 The runtime does not produce benchmark scores, traces, artifacts, or database
 records and is not connected to the existing benchmark execution paths.
 
@@ -267,6 +270,81 @@ runtime's validation, JSON snapshots, output limit, and error normalization.
 The operand range is a tool-specific value constraint, not a general input-byte
 budget. These examples add no timeout, sandbox, provider calls, persistence,
 or tool-selection evaluation.
+
+## Tool-call response normalization
+
+`tool_calling.py` exposes `normalize_openai_tool_response(body, *,
+max_arguments_bytes=65_536, max_total_arguments_bytes=262_144)`. It consumes
+already-decoded response data, not an HTTP response or JSON response-body text.
+It imports only standard-library modules and the existing `ToolCall` contract
+and JSON-validation error from `tool_runtime.py`.
+
+The returned frozen `NormalizationToolTurn` keeps `content`, a tuple of ordered
+`tool_calls`, and `finish_reason` separate. Text and finish reason are preserved
+without trimming or inferred meaning. Missing optional fields become `None`
+or an empty calls tuple. A turn requires non-blank text or at least one valid
+call: null or blank content is accepted when valid calls are present. Reasoning
+and unrelated response metadata are not used as final content or copied into
+the normalized turn.
+
+The accepted envelope is an actual dictionary containing exactly one choice,
+whose message has role `assistant`. Content and finish reason must be strings
+or null. Calls must be function calls with string IDs, names, and JSON-encoded
+argument strings. Argument JSON must decode to an object; duplicate keys at
+any nesting level, nonstandard numeric constants, non-finite numbers, and
+values outside the runtime's strict JSON contract are rejected.
+
+Each call reuses `ToolCall` validation and immutable snapshots. Accepted IDs
+are preserved exactly, not repaired or generated. Duplicate call IDs reject
+the response. One malformed call rejects the whole response even if valid text
+or other valid calls are present; no partial turn is returned. Tool names are
+syntax-checked but are not resolved against a registry, and arguments are not
+validated against a registered tool's Pydantic schema here.
+
+### Argument budgets and errors
+
+Both limits must be positive integers, excluding booleans. The per-call limit
+is 65,536 bytes by default; the independent aggregate limit is 262,144 bytes.
+Limits count the original arguments strings encoded as UTF-8, including JSON
+syntax, whitespace, and escape sequences, before JSON parsing. They do not
+limit the full response body, content length, handler execution, or overall
+memory usage.
+
+Expected malformed inputs raise `ToolCallNormalizationError` with a closed
+`ToolCallNormalizationErrorCode` and fixed message, without raw payloads or a
+chained parser exception:
+
+| Code | Rejection |
+| --- | --- |
+| `invalid_response` | Invalid envelope, choice count, message, or role |
+| `invalid_content` | Content is neither a string nor null |
+| `invalid_finish_reason` | Finish reason is neither a string nor null |
+| `empty_turn` | Neither non-blank text nor a valid call is present |
+| `invalid_tool_call` | Invalid call structure or ID/name contract |
+| `unsupported_tool_type` | A string tool type other than `function` |
+| `duplicate_call_id` | A repeated ID within the response |
+| `invalid_arguments` | Non-string, malformed, non-object, or unsupported JSON arguments |
+| `duplicate_argument_key` | A repeated JSON object key |
+| `arguments_too_large` | Per-call UTF-8 budget exceeded |
+| `total_arguments_too_large` | Aggregate UTF-8 budget exceeded |
+
+Invalid limit configuration raises `ValueError`; invalid direct construction
+of a turn or error raises `TypeError` or `ValueError`. Unexpected failures are
+not broadly caught, and `BaseException` propagates. This error contract is
+separate from the runtime's execution status/code pairs: normalization never
+returns a `ToolResult` or runs a handler.
+
+Payload fields are excluded from the turn's generated representation, but
+successful text and argument snapshots are not secret-redacted. Call-ID syntax
+checks do not detect every secret. Callers must not assume that successful
+normalized data is safe to log or publish.
+
+This standalone module does not initialize a registry or runtime, resolve
+tools, perform filesystem/network operations, or import provider, runner,
+trace, API, worker, or database components. It does not change `ProviderResponse`,
+`generate()`, config hashes, artifacts, or persistence. Streaming chunks,
+multiple choices, multimodal content, live provider integration, bounded agent
+loops, and tool-call evaluation are outside this boundary.
 
 ## Registry API
 

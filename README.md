@@ -33,6 +33,10 @@ parameters.
   synthetic city-code lookup.
   Provider tool-call integration, bounded agent loops, and tool-call evaluation
   remain future work; see [Tool runtime boundary](docs/architecture.md#tool-runtime-boundary).
+- Pure normalization of supplied OpenAI-compatible tool-call responses into
+  immutable text, ordered calls, and finish reason, with strict JSON arguments
+  and UTF-8 argument budgets. This does not make requests or execute tools;
+  see [Tool-call response normalization](docs/architecture.md#tool-call-response-normalization).
 - `MockProvider`, LM Studio native, and generic OpenAI-compatible provider
   adapters behind one normalized provider boundary.
 - Append-friendly JSONL results and JSON summary, configuration, manifest, and
@@ -150,6 +154,8 @@ deterministic physical-containment regression test passed. Older counts in the
 validation history are labelled as historical checkpoints.
 For tool-runtime coverage, focused commands, and the previously reported
 checkpoint, see [Tool-runtime validation](docs/validation.md#tool-runtime-validation).
+For supplied-response normalization coverage and its limits, see
+[Tool-call normalization validation](docs/validation.md#tool-call-normalization-validation).
 
 ## CLI execution
 

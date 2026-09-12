@@ -149,6 +149,61 @@ the city-key grammar, and do not include a separate subprocess import test for
 `tools.py`; the existing import test covers `tool_runtime.py` only. No general
 handler timeout or sandbox guarantee is established.
 
+## Tool-call normalization validation
+
+`tests/test_tool_calling.py` supplies in-memory response dictionaries to
+`normalize_openai_tool_response()`; it makes no HTTP or model request and does
+not execute tools. Coverage includes:
+
+- Text-only, calls-only, and mixed turns; call order and exact accepted IDs;
+  null/blank content with valid calls; finish reasons preserved without inference.
+- Invalid envelopes, multiple choices, wrong roles and field types, missing
+  required call fields, unsupported tool types, and duplicate call IDs.
+- All-or-nothing rejection when one call is malformed, even with valid text.
+- JSON-object-only arguments, nested duplicate keys, nonstandard constants,
+  non-finite numbers, invalid Unicode, and deeply nested invalid input.
+- Exact UTF-8 boundaries, whitespace and escape-sequence accounting, default
+  budgets, independent per-call/aggregate limits, and invalid limit settings.
+- Frozen turns and independent nested snapshots after source or returned-copy
+  mutation; direct-constructor contract enforcement.
+- Closed safe errors, sensitive-sentinel exclusion from standard error
+  rendering, absence of chained parser exceptions, and payload-free turn repr.
+- Propagation of injected unexpected programming errors and a `BaseException`
+  subclass, without broad error normalization.
+- Subprocess import and normalization in a temporary working directory with
+  bytecode writes disabled, audit checks rejecting file writes, directory
+  creation, socket and process operations, and guards rejecting registry/runtime
+  initialization or execution. The test also checks that unrelated provider,
+  runner, trace, API, worker, database, and example-tool modules are not imported.
+
+Run focused checks from the project environment:
+
+```powershell
+$env:HF_HUB_OFFLINE = "1"
+$env:HF_DATASETS_OFFLINE = "1"
+$env:TRANSFORMERS_OFFLINE = "1"
+python -m pytest tests/test_tool_calling.py tests/test_tool_runtime.py tests/test_openai_compatible_provider.py -q
+python -m pytest -q
+ruff check .
+git diff --check
+```
+
+The previously reported normalization checkpoint was `242 passed` across those
+three focused files, including 155 normalization cases, and `700 passed, 7
+skipped` in the complete forced-offline suite. Ruff and whitespace checks
+passed. Two skips were platform-dependent symlink tests; five were PostgreSQL
+tests with no configured test URL. These are prior execution results, not a
+fresh test run for this documentation update or a PostgreSQL validation claim.
+
+These tests validate a pure supplied-response contract, not endpoint
+interoperability, tool-selection quality, or a benchmark score. The subprocess
+guards are regression checks, not a general sandbox. Argument budgets do not
+bound the whole response or execution time; successful payloads are not
+secret-redacted. Registry/schema resolution, actual provider requests,
+streaming, tool execution, agent loops, and tool-call evaluation remain outside
+this slice. See [Architecture](architecture.md#tool-call-response-normalization)
+for the exact contract and closed error codes.
+
 ## Pinned MMLU-Pro MockProvider smoke validation
 
 A controlled smoke validation was completed with the official

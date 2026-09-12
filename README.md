@@ -31,12 +31,18 @@ parameters.
   argument validation, closed error codes, and a UTF-8 output-size limit.
   Deterministic offline examples include a bounded integer calculator and a
   synthetic city-code lookup.
-  Provider tool-call integration, bounded agent loops, and tool-call evaluation
+  Model-driven tool execution, bounded agent loops, and tool-call evaluation
   remain future work; see [Tool runtime boundary](docs/architecture.md#tool-runtime-boundary).
 - Pure normalization of supplied OpenAI-compatible tool-call responses into
   immutable text, ordered calls, and finish reason, with strict JSON arguments
   and UTF-8 argument budgets. This does not make requests or execute tools;
   see [Tool-call response normalization](docs/architecture.md#tool-call-response-normalization).
+- Pure initial tool-request mapping and a separate
+  `OpenAICompatibleProvider.generate_tool_turn()` operation with immutable
+  results and nullable telemetry, validated through mock HTTP transport.
+  It does not execute tools or start an agent loop; real-endpoint tool-call
+  interoperability is not yet verified. See
+  [Initial tool-turn provider boundary](docs/architecture.md#initial-tool-turn-provider-boundary).
 - `MockProvider`, LM Studio native, and generic OpenAI-compatible provider
   adapters behind one normalized provider boundary.
 - Append-friendly JSONL results and JSON summary, configuration, manifest, and

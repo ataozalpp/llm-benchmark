@@ -116,8 +116,9 @@ side effects, not a general network sandbox. Registration checks the root
 Pydantic config; it does not audit nested models or field-level overrides.
 Call-ID syntax validation cannot identify every secret. Trusted handlers are
 not sandboxed, and the serialized-output limit does not bound their execution
-time or peak memory. Provider tool-call integration, bounded agent loops, and
-tool-call evaluation are future work and are not validated by these tests.
+time or peak memory. These runtime tests do not validate provider integration,
+bounded agent loops, or tool-call evaluation. The separate initial provider
+operation is covered below; loops and tool-call evaluation remain future work.
 
 ### Deterministic example-tool coverage
 
@@ -203,6 +204,62 @@ secret-redacted. Registry/schema resolution, actual provider requests,
 streaming, tool execution, agent loops, and tool-call evaluation remain outside
 this slice. See [Architecture](architecture.md#tool-call-response-normalization)
 for the exact contract and closed error codes.
+
+## Initial tool-request and provider validation
+
+`tests/test_tool_requests.py` covers exact payload fields, explicit tool
+selection, deterministic order, Pydantic argument constraints and nested schema
+references, independent schema/payload copies, frozen requests, UTF-8 messages,
+optional system text, output-budget omission, and rejection of unsupported
+generation settings. It also checks malformed/cyclic schema handling, preserved
+trusted-hook failures, no credential reads, and import/build side effects in a
+temporary-directory subprocess. These checks are not a general schema sandbox.
+
+`tests/test_tool_provider_models.py` covers closed enum/status combinations,
+frozen results and telemetry, invalid token/timing types and values, and nullable
+measurements. `tests/test_openai_compatible_tool_provider.py` uses only an
+injected fake transport. It verifies:
+
+- Exact URL, payload, timeout, Authorization omission/injection, and one
+  transport invocation per attempted operation, with no automatic retry.
+- Request-time credential reads; missing credentials cause no transport call.
+- Text-only, calls-only, and mixed responses; call IDs, arguments, and finish
+  reasons preserved by the existing normalizer.
+- HTTP 400/401/403/429/5xx, timeout, wrapped timeout, network and JSON/Unicode
+  decoding failure codes; provider error bodies are not read or returned.
+- Invalid responses and all-or-nothing call rejection, separate from transport
+  failures; reported usage can survive normalization rejection.
+- Explicit usage aliases, nullable invalid/missing usage, no synthesized total
+  tokens, and null non-streaming TTFT/throughput.
+- Safe result serialization/repr and credential exclusion from configs/payloads;
+  request validation before transport and propagation of unexpected exceptions.
+- No runtime execution and preserved classic `generate()` empty-text rejection.
+
+With the forced-offline environment variables described above set:
+
+```powershell
+python -m pytest tests/test_tool_requests.py tests/test_tool_provider_models.py tests/test_openai_compatible_tool_provider.py tests/test_openai_compatible_provider.py -q
+python -m pytest -q
+ruff check .
+git diff --check
+```
+
+The previously executed provider checkpoint passed 150 tests across the result
+models, new tool-provider tests, and existing OpenAI-compatible provider tests.
+The complete forced-offline suite passed `912 passed, 7 skipped`; Ruff and
+whitespace checks passed. Two skips were platform-dependent symlink tests and
+five were PostgreSQL tests with no configured test URL. These are previous
+execution results, not fresh test executions for this documentation update.
+The focused command above additionally includes request-mapping tests and is
+therefore broader than the 150-test checkpoint command.
+
+No real model, localhost endpoint, external service, or PostgreSQL database was
+validated by that checkpoint. These are software-contract checks, not an
+interoperability result or model-quality score. The tests do not establish
+bounded agent execution, schema dialect support at an endpoint, or total
+request/response memory limits. See
+[Architecture](architecture.md#initial-tool-turn-provider-boundary) for the
+execution boundary, telemetry semantics, and remaining limitations.
 
 ## Pinned MMLU-Pro MockProvider smoke validation
 

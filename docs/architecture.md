@@ -29,6 +29,8 @@ The implementation currently provides two execution paths:
 | Execution trace | `src/llm_benchmark/trace.py` | Immutable typed lifecycle events, fresh per-execution recorders, safe identifier handling, and deterministic event ordering |
 | Tool runtime | `src/llm_benchmark/tool_runtime.py` | Standalone registration, strict argument validation, synchronous handler execution, and normalized immutable results; not wired into the benchmark pipeline |
 | Tool-call normalization | `src/llm_benchmark/tool_calling.py` | Validate supplied response data into immutable text, ordered ToolCall snapshots, and finish reason; no HTTP or tool execution |
+| Tool requests | `src/llm_benchmark/tool_requests.py` | Map explicitly selected registrations and initial text messages into an independent request payload |
+| Tool-provider results | `src/llm_benchmark/tool_provider_models.py` | Frozen result/status contract and validated nullable telemetry for the separate tool-turn operation |
 | Provider layer | `src/llm_benchmark/providers.py` | Provider protocol, factory, Mock, LM Studio native, and OpenAI-compatible adapters |
 | Parser | `src/llm_benchmark/parser.py` | Strict deterministic parsing against actual allowed labels |
 | Runner | `src/llm_benchmark/runner.py` | Orchestrate provider execution, timing and telemetry, write artifacts, and aggregate metrics |
@@ -236,10 +238,10 @@ limit. Handlers and model validators are trusted application code and are not
 sandboxed; their side effects are not prevented. There is no input-size budget,
 timeout, cancellation, or registry thread-safety mechanism in this slice.
 
-Live provider tool-call integration, request mapping, tool-result messages,
-model-driven tool selection, bounded agent loops, and tool-call evaluation
-remain separate future work. Pure supplied-response normalization is available
-as a separate boundary described below.
+Initial request mapping and a separate tool-turn provider operation are
+available through the boundaries below, with mock-transport validation only.
+Tool-result messages, model-driven tool execution, bounded agent loops, and
+tool-call evaluation remain future work.
 The runtime does not produce benchmark scores, traces, artifacts, or database
 records and is not connected to the existing benchmark execution paths.
 
@@ -345,6 +347,82 @@ trace, API, worker, or database components. It does not change `ProviderResponse
 `generate()`, config hashes, artifacts, or persistence. Streaming chunks,
 multiple choices, multimodal content, live provider integration, bounded agent
 loops, and tool-call evaluation are outside this boundary.
+
+## Initial tool-turn provider boundary
+
+`tool_requests.py` prepares an initial request without HTTP, credential reads,
+or handler execution. The frozen `ToolTurnRequest` accepts non-blank UTF-8 user
+text, optional non-blank system text, and a non-empty tuple of explicitly
+selected `ToolRegistration` objects. Duplicate tool names are rejected. Tools
+are serialized in name order without changing the input selection; their
+names, descriptions, and validation-mode Pydantic JSON Schemas are copied into
+independent payloads. Nested schema references are preserved, not resolved or
+rewritten. Schema hooks remain trusted application code; a JSON-serializable
+object schema does not establish compatibility with any particular endpoint.
+
+`build_openai_tool_payload()` requires an `openai_compatible` config. It emits
+`model`, initial `messages`, `tools`, `temperature`, and `stream=false`.
+`max_tokens` and `top_p` are included only when their config values are set.
+Omitting the output limit retains `provider_default` provenance. This new
+builder rejects configured `reasoning`, `top_k`, `min_p`, and `repeat_penalty`
+rather than silently dropping them; existing classic-provider behavior is
+unchanged. No native reasoning fields, presence penalty, `tool_choice`, or
+`parallel_tool_calls` are sent. Reasoning behavior is not requested on or off.
+
+`OpenAICompatibleProvider.generate_tool_turn(request)` composes that builder,
+the existing JSON transport, and `normalize_openai_tool_response()`. It makes
+one transport invocation after successful local validation and credential
+resolution, with no automatic retry, using the configured timeout and
+`POST {base_url}/chat/completions`. Credential values are read at request time
+through a shared helper, never cached on the provider. An unset credential
+name means no Authorization header; a missing/empty configured variable
+returns a failure without a transport call. Values are used only in the
+request header, not in payloads or returned results.
+
+The existing `generate()` method and `Provider` protocol remain unchanged.
+Unlike classic text generation, the separate tool operation accepts null
+content when valid calls are present. It returns a frozen `ToolProviderResult`:
+
+| Status | Turn | Error |
+| --- | --- | --- |
+| `succeeded` | Required | Neither error field is set |
+| `request_failed` | Absent | Required closed `ToolProviderErrorCode` |
+| `response_invalid` | Absent | Required `ToolCallNormalizationErrorCode` |
+
+The constructor enforces these combinations and enum types. Expected credential,
+HTTP, timeout, network, and JSON/Unicode decoding failures become fixed error
+codes; provider error bodies are not read or included. `request_failed` describes
+the logical operation, not proof that no response arrived: decoding can fail
+after transport receives data. Normalizer rejections are distinct from transport
+failures. Request/config errors and unexpected programming failures propagate;
+`BaseException` is not caught. Success means a valid turn, not tool execution
+or successful completion of the user's task.
+
+### Tool-turn telemetry and limits
+
+`ToolProviderTelemetry` is frozen. Token fields accept non-negative integers or
+null, excluding booleans. Timing/rate fields must be finite and non-negative;
+latency is required. A result may be constructed without telemetry, but the
+provider operation supplies it for every returned outcome.
+
+Latency measures the transport invocation, including its JSON decoding, but
+not payload preparation or response normalization. Missing credentials yield
+zero transport latency because no call was attempted. Input/output tokens use
+the reported prompt/completion fields or their aliases; reasoning tokens use
+explicit completion details or the reported reasoning field. Missing or invalid
+measurements remain null. The tool operation does not synthesize missing total
+tokens, TTFT, throughput, or final-text token counts. Tool-call arguments can
+consume output tokens; output minus reasoning is not labelled final-answer text
+usage. Individually valid reported counts are not cross-field reconciled.
+
+This is an initial, non-streaming turn only. It does not check returned tool
+names against the offered selection, execute handlers, send tool-result
+messages, or implement a bounded loop. There is no runner/API/worker integration,
+new artifact schema, config-hash change, or database persistence for these
+results. Request messages/schemas have no size budget, and the existing JSON
+transport has no new response-body size limit. Successful payloads and turns
+are not secret-redacted and must not be assumed safe to log. Real endpoint
+tool-call interoperability remains unverified.
 
 ## Registry API
 

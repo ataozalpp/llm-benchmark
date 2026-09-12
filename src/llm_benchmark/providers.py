@@ -11,6 +11,14 @@ from typing import Any, Protocol
 
 from .config import ModelConfig
 from .models import DatasetExample, ProviderResponse
+from .tool_calling import ToolCallNormalizationError, normalize_openai_tool_response
+from .tool_provider_models import (
+    ToolProviderErrorCode,
+    ToolProviderResult,
+    ToolProviderStatus,
+    ToolProviderTelemetry,
+)
+from .tool_requests import ToolTurnRequest, build_openai_tool_payload
 
 _MAX_ERROR_BODY_BYTES = 16_384
 _MAX_ERROR_MESSAGE_CHARS = 512
@@ -257,6 +265,91 @@ class OpenAICompatibleProvider:
             )
 
 
+    def generate_tool_turn(self, request: ToolTurnRequest) -> ToolProviderResult:
+        """Execute one initial tool-enabled request, without executing tools.
+
+        Request/config errors and unexpected programming failures propagate.
+        Transport latency includes transport JSON decoding, not normalization.
+        Errors expose only closed codes, never provider bodies or credentials.
+        """
+        payload = build_openai_tool_payload(self.config, request)
+        try:
+            credential = _read_credential(self.config.credential_env_var)
+        except _MissingCredentialError:
+            return ToolProviderResult(
+                status=ToolProviderStatus.REQUEST_FAILED,
+                error_code=ToolProviderErrorCode.MISSING_CREDENTIAL,
+                telemetry=ToolProviderTelemetry(latency_ms=0.0),
+            )
+
+        assert self.config.base_url is not None
+        url = f"{self.config.base_url.rstrip('/')}/chat/completions"
+        headers = {"Authorization": f"Bearer {credential}"} if credential is not None else None
+        started = time.perf_counter()
+        try:
+            body = self.transport.post_json(url, payload, self.config.timeout_seconds, headers=headers)
+        except (urllib.error.HTTPError, urllib.error.URLError, OSError, ConnectionError,
+                json.JSONDecodeError, UnicodeError) as exc:
+            latency_ms = (time.perf_counter() - started) * 1000
+            if isinstance(exc, (json.JSONDecodeError, UnicodeError)):
+                code = ToolProviderErrorCode.MALFORMED_JSON
+            else:
+                code = {
+                    "timeout": ToolProviderErrorCode.TIMEOUT,
+                    "rate_limit": ToolProviderErrorCode.RATE_LIMIT,
+                    "authentication_error": ToolProviderErrorCode.AUTHENTICATION_ERROR,
+                    "permission_error": ToolProviderErrorCode.PERMISSION_ERROR,
+                    "invalid_request": ToolProviderErrorCode.INVALID_REQUEST,
+                    "server_error": ToolProviderErrorCode.SERVER_ERROR,
+                    "network_error": ToolProviderErrorCode.NETWORK_ERROR,
+                }.get(_error_type(exc), ToolProviderErrorCode.INVALID_REQUEST)
+                if isinstance(exc, urllib.error.URLError) and isinstance(exc.reason, TimeoutError):
+                    code = ToolProviderErrorCode.TIMEOUT
+            return ToolProviderResult(
+                status=ToolProviderStatus.REQUEST_FAILED,
+                error_code=code,
+                telemetry=ToolProviderTelemetry(latency_ms=latency_ms),
+            )
+
+        latency_ms = (time.perf_counter() - started) * 1000
+        telemetry = _tool_telemetry(body, latency_ms)
+        try:
+            turn = normalize_openai_tool_response(body)
+        except ToolCallNormalizationError as exc:
+            return ToolProviderResult(
+                status=ToolProviderStatus.RESPONSE_INVALID,
+                normalization_error_code=exc.code,
+                telemetry=telemetry,
+            )
+        return ToolProviderResult(
+            status=ToolProviderStatus.SUCCEEDED,
+            turn=turn,
+            telemetry=telemetry,
+        )
+
+
+def _tool_telemetry(body: object, latency_ms: float) -> ToolProviderTelemetry:
+    usage = body.get("usage") if type(body) is dict else None
+    usage = usage if type(usage) is dict else {}
+    details = usage.get("completion_tokens_details")
+    details = details if type(details) is dict else {}
+
+    def reported(source: dict, *keys: str) -> int | None:
+        value = _integer(source, *keys)
+        return value if value is not None and value >= 0 else None
+
+    reasoning = reported(details, "reasoning_tokens")
+    if reasoning is None:
+        reasoning = reported(usage, "reasoning_tokens")
+    return ToolProviderTelemetry(
+        latency_ms=latency_ms,
+        input_tokens=reported(usage, "prompt_tokens", "input_tokens"),
+        output_tokens=reported(usage, "completion_tokens", "output_tokens"),
+        reasoning_tokens=reasoning,
+        total_tokens=reported(usage, "total_tokens"),
+    )
+
+
 def create_provider(config: ModelConfig, transport: JsonTransport | None = None) -> Provider:
     if config.provider == "mock":
         return MockProvider(config)
@@ -290,12 +383,24 @@ class ProviderProtocolError(ValueError):
         self.safe_message = safe_message
 
 
-def _resolve_credential(environment_variable: str | None) -> str | None | ProviderResponse:
+class _MissingCredentialError(ValueError):
+    pass
+
+
+def _read_credential(environment_variable: str | None) -> str | None:
     if environment_variable is None:
         return None
     value = os.environ.get(environment_variable)
     if value:
         return value
+    raise _MissingCredentialError("Configured credential environment variable is missing or empty")
+
+
+def _resolve_credential(environment_variable: str | None) -> str | None | ProviderResponse:
+    try:
+        return _read_credential(environment_variable)
+    except _MissingCredentialError:
+        pass
     return ProviderResponse(
         request_status="failed",
         raw_response=None,

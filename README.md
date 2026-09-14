@@ -31,8 +31,7 @@ parameters.
   argument validation, closed error codes, and a UTF-8 output-size limit.
   Deterministic offline examples include a bounded integer calculator and a
   synthetic city-code lookup.
-  Model-driven tool execution, bounded agent loops, and tool-call evaluation
-  remain future work; see [Tool runtime boundary](docs/architecture.md#tool-runtime-boundary).
+  See [Tool runtime boundary](docs/architecture.md#tool-runtime-boundary).
 - Pure normalization of supplied OpenAI-compatible tool-call responses into
   immutable text, ordered calls, and finish reason, with strict JSON arguments
   and UTF-8 argument budgets. This does not make requests or execute tools;
@@ -43,6 +42,12 @@ parameters.
   It does not execute tools or start an agent loop; real-endpoint tool-call
   interoperability is not yet verified. See
   [Initial tool-turn provider boundary](docs/architecture.md#initial-tool-turn-provider-boundary).
+- Immutable tool conversations and a standalone synchronous bounded loop with
+  selected-tool enforcement, provider-turn/tool-call budgets, and explicit stop
+  reasons. Conversation-based provider requests share the existing tool transport.
+  Scripted-provider tests validate execution, not model quality; tool-call
+  evaluation and benchmark-pipeline integration remain future work. See
+  [Bounded tool loop](docs/architecture.md#bounded-tool-loop).
 - `MockProvider`, LM Studio native, and generic OpenAI-compatible provider
   adapters behind one normalized provider boundary.
 - Append-friendly JSONL results and JSON summary, configuration, manifest, and
@@ -162,6 +167,8 @@ For tool-runtime coverage, focused commands, and the previously reported
 checkpoint, see [Tool-runtime validation](docs/validation.md#tool-runtime-validation).
 For supplied-response normalization coverage and its limits, see
 [Tool-call normalization validation](docs/validation.md#tool-call-normalization-validation).
+Conversation and loop coverage is described in
+[Bounded tool-loop validation](docs/validation.md#bounded-tool-loop-validation).
 
 ## CLI execution
 

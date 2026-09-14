@@ -118,7 +118,8 @@ Call-ID syntax validation cannot identify every secret. Trusted handlers are
 not sandboxed, and the serialized-output limit does not bound their execution
 time or peak memory. These runtime tests do not validate provider integration,
 bounded agent loops, or tool-call evaluation. The separate initial provider
-operation is covered below; loops and tool-call evaluation remain future work.
+operation and bounded loop are covered separately below; tool-call evaluation
+remains future work.
 
 ### Deterministic example-tool coverage
 
@@ -260,6 +261,61 @@ bounded agent execution, schema dialect support at an endpoint, or total
 request/response memory limits. See
 [Architecture](architecture.md#initial-tool-turn-provider-boundary) for the
 execution boundary, telemetry semantics, and remaining limitations.
+
+## Bounded tool-loop validation
+
+`tests/test_tool_conversation.py` covers immutable message histories, pending
+calls, conversation-wide unique IDs, result ordering/matching, and independent
+serialization. Request and fake-transport provider tests cover ready-history
+payloads and `generate_tool_conversation()` without contacting an endpoint.
+
+`tests/test_tool_loop.py` uses a scripted in-process provider and synthetic
+handlers. It covers:
+
+- Positive integer policies, frozen result contracts, and final-text consistency.
+- Direct final responses and tool-call/result/final round trips; non-final finish
+  reasons yield `completion_unconfirmed`, not confirmed task completion.
+- Provider failures before or after tool execution, preserved prior outcomes,
+  and no automatic retry.
+- Whole-batch rejection of unselected tools or insufficient tool budget; exact
+  budget success and no new tool execution on the last provider turn.
+- Ordered multi-call results, duplicate IDs across turns, unchanged input/history
+  snapshots, and independent execution state.
+- Invalid arguments without handler execution, normalized handler errors sent
+  back to the provider, and propagation of unexpected provider errors and
+  `BaseException` from providers or handlers.
+- Invalid setup without execution and invalid provider return-type rejection.
+- Subprocess import checks rejecting writes, directory creation, socket/process
+  operations, runtime initialization, and unrelated execution-layer imports.
+  Ordinary Python import reads are permitted; this is not a sandbox guarantee.
+
+From the existing project environment:
+
+```powershell
+$env:HF_HUB_OFFLINE = "1"
+$env:HF_DATASETS_OFFLINE = "1"
+$env:TRANSFORMERS_OFFLINE = "1"
+Remove-Item Env:LLM_BENCHMARK_TEST_POSTGRES_URL -ErrorAction SilentlyContinue
+python -m pytest tests/test_tool_loop.py -q
+python -m pytest tests/test_tool_loop.py tests/test_tool_conversation.py tests/test_tool_requests.py tests/test_tool_provider_models.py tests/test_openai_compatible_tool_provider.py -q
+python -m pytest -q
+ruff check .
+git diff --check
+```
+
+The previously executed loop checkpoint included all 55 loop cases in the
+300-test related package and completed the full forced-offline suite with
+`1000 passed, 7 skipped`; Ruff and whitespace checks passed. Two skips were
+platform-dependent symlink tests and five were unconfigured PostgreSQL tests.
+These are prior results, not a fresh execution for this documentation update.
+
+The loop and provider transport are tested at separate boundaries; this does
+not establish real-model interoperability, tool-selection quality, or task
+accuracy. No hard handler deadline, side-effect rollback, general secret
+redaction, or total memory budget is established. A returned result may retain
+pending calls on a budget/authorization stop. Tool-call evaluation and
+runner/API/worker/trace/database integration remain outside this slice.
+See [Bounded tool loop](architecture.md#bounded-tool-loop) for stop semantics.
 
 ## Pinned MMLU-Pro MockProvider smoke validation
 

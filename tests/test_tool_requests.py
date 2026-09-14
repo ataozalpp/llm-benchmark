@@ -12,13 +12,30 @@ import pytest
 from pydantic import BaseModel, ConfigDict, Field
 
 from llm_benchmark.config import ModelConfig
+from llm_benchmark.tool_calling import NormalizationToolTurn
+from llm_benchmark.tool_conversation import (
+    AssistantMessage,
+    SystemMessage,
+    ToolConversation,
+    ToolResultMessage,
+    UserMessage,
+    serialize_conversation,
+)
 from llm_benchmark.tool_requests import (
+    ToolConversationRequest,
     ToolTurnRequest,
+    build_openai_tool_conversation_payload,
     build_openai_tool_payload,
     serialize_tool_registration,
     serialize_tool_registrations,
 )
-from llm_benchmark.tool_runtime import ToolDefinition, ToolRegistration
+from llm_benchmark.tool_runtime import (
+    ToolCall,
+    ToolDefinition,
+    ToolExecutionStatus,
+    ToolRegistration,
+    ToolResult,
+)
 from llm_benchmark.tools import create_example_tool_registry
 
 
@@ -496,6 +513,147 @@ def test_invalid_message_errors_do_not_retain_content() -> None:
     assert captured.value.__context__ is None
 
 
+def completed_conversation() -> ToolConversation:
+    call = ToolCall(call_id="call_1", tool_name="example", arguments={"value": 3})
+    return ToolConversation(
+        messages=(
+            UserMessage("Synthetic task."),
+            AssistantMessage(
+                NormalizationToolTurn(
+                    content=None,
+                    tool_calls=(call,),
+                    finish_reason="tool_calls",
+                )
+            ),
+            ToolResultMessage(
+                ToolResult(
+                    call_id="call_1",
+                    tool_name="example",
+                    status=ToolExecutionStatus.SUCCEEDED,
+                    output={"result": 3},
+                )
+            ),
+        )
+    )
+
+
+@pytest.mark.parametrize("system", [None, "  Türkçe yönerge.  "])
+def test_conversation_initial_payload_matches_existing_builder(
+    system: str | None,
+) -> None:
+    selected = (registration(),)
+    user = "  Synthetic task.  "
+    messages = (
+        (UserMessage(user),)
+        if system is None
+        else (SystemMessage(system), UserMessage(user))
+    )
+    cfg = model_config()
+    expected = build_openai_tool_payload(
+        cfg,
+        ToolTurnRequest(
+            user_content=user,
+            system_content=system,
+            registrations=selected,
+        ),
+    )
+    actual = build_openai_tool_conversation_payload(
+        cfg,
+        ToolConversationRequest(
+            conversation=ToolConversation(messages),
+            registrations=selected,
+        ),
+    )
+    assert actual == expected
+
+
+def test_conversation_complete_exchange_and_independent_payloads() -> None:
+    conversation = completed_conversation()
+    req = ToolConversationRequest(
+        conversation=conversation, registrations=(registration(),)
+    )
+    cfg = model_config()
+    before = cfg.model_dump_json()
+    payload = build_openai_tool_conversation_payload(cfg, req)
+    expected = {
+        "model": "synthetic-model",
+        "messages": serialize_conversation(conversation),
+        "tools": serialize_tool_registrations(req.registrations),
+        "temperature": 0,
+        "stream": False,
+    }
+    assert payload == expected
+    assert [item["role"] for item in payload["messages"]] == [
+        "user",
+        "assistant",
+        "tool",
+    ]
+    assert cfg.output_budget_provenance == "provider_default"
+    payload["messages"][0]["content"] = "changed"
+    payload["messages"][1]["tool_calls"][0]["function"]["arguments"] = "{}"
+    payload["tools"][0]["function"]["parameters"]["required"].append("extra")
+    assert build_openai_tool_conversation_payload(cfg, req) == expected
+    assert serialize_conversation(conversation) == expected["messages"]
+    assert cfg.model_dump_json() == before
+    with pytest.raises(FrozenInstanceError):
+        req.conversation = None
+    assert "Synthetic task." not in repr(req)
+
+
+@pytest.mark.parametrize("terminal", [False, True])
+def test_conversation_request_requires_provider_readiness(terminal: bool) -> None:
+    conversation = ToolConversation(completed_conversation().messages[:2])
+    if terminal:
+        conversation = ToolConversation(
+            (
+                UserMessage("Task"),
+                AssistantMessage(
+                    NormalizationToolTurn(
+                        content="Final", tool_calls=(), finish_reason="stop"
+                    ),
+                ),
+            )
+        )
+    with pytest.raises(ValueError, match="not ready"):
+        ToolConversationRequest(
+            conversation=conversation, registrations=(registration(),)
+        )
+
+
+def test_conversation_request_types_and_registration_validation() -> None:
+    with pytest.raises(TypeError, match="ToolConversation"):
+        ToolConversationRequest(
+            conversation=registration(), registrations=(registration(),)
+        )
+    for selected in ((), (registration(), registration())):
+        with pytest.raises(ValueError):
+            ToolConversationRequest(
+                conversation=completed_conversation(), registrations=selected
+            )
+    with pytest.raises(TypeError, match="tuple"):
+        ToolConversationRequest(
+            conversation=completed_conversation(), registrations=[registration()]
+        )
+    with pytest.raises(TypeError, match="ToolConversationRequest"):
+        build_openai_tool_conversation_payload(model_config(), object())
+
+
+def test_conversation_generation_policy_is_shared() -> None:
+    req = ToolConversationRequest(
+        conversation=completed_conversation(), registrations=(registration(),)
+    )
+    cfg = model_config(max_output_tokens=128, top_p=0.9, temperature=0.5)
+    payload = build_openai_tool_conversation_payload(cfg, req)
+    assert payload["max_tokens"] == 128
+    assert payload["top_p"] == 0.9
+    assert payload["temperature"] == 0.5
+    assert cfg.output_budget_provenance == "fixed"
+    with pytest.raises(ValueError, match="Unsupported"):
+        build_openai_tool_conversation_payload(model_config(reasoning="off"), req)
+    with pytest.raises(ValueError, match="openai_compatible"):
+        build_openai_tool_conversation_payload(model_config(provider="mock"), req)
+
+
 def test_import_and_build_have_no_runtime_io(tmp_path: Path) -> None:
     environment = os.environ.copy()
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
@@ -514,7 +672,11 @@ def reject_io(event, args):
         ):
             raise AssertionError('Unexpected file write')
 sys.addaudithook(reject_io)
-from llm_benchmark.tool_requests import ToolTurnRequest, build_openai_tool_payload
+from llm_benchmark.tool_requests import (
+    ToolTurnRequest, build_openai_tool_payload,
+    ToolConversationRequest, build_openai_tool_conversation_payload,
+)
+from llm_benchmark.tool_conversation import ToolConversation, UserMessage
 from llm_benchmark.config import ModelConfig
 from llm_benchmark.tool_runtime import ToolDefinition, ToolRegistration, ToolRegistry, ToolRuntime
 from pydantic import BaseModel, ConfigDict
@@ -531,6 +693,11 @@ selected = ToolRegistration(ToolDefinition('example', 'Synthetic tool.'), Argume
 request = ToolTurnRequest(user_content='Synthetic request.', registrations=(selected,))
 config = ModelConfig(provider='openai_compatible', model_id='synthetic', base_url='http://127.0.0.1:1234/v1')
 assert build_openai_tool_payload(config, request)['stream'] is False
+conversation_request = ToolConversationRequest(
+    conversation=ToolConversation((UserMessage('Synthetic request.'),)),
+    registrations=(selected,),
+)
+assert build_openai_tool_conversation_payload(config, conversation_request)['stream'] is False
 for name in ('providers', 'runner', 'trace', 'api', 'worker', 'db', 'tools'):
     assert 'llm_benchmark.' + name not in sys.modules
 """

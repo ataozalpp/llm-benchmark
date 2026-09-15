@@ -32,6 +32,7 @@ The implementation currently provides two execution paths:
 | Tool requests | `src/llm_benchmark/tool_requests.py` | Map explicitly selected registrations and initial or conversation messages into independent request payloads |
 | Tool conversation | `src/llm_benchmark/tool_conversation.py` | Immutable ordered messages, conversation-wide call IDs, and matched tool-result messages |
 | Bounded tool loop | `src/llm_benchmark/tool_loop.py` | Sequential provider/tool execution under per-invocation budgets; explicit stop reasons, not task scores |
+| Tool-loop evaluation | `src/llm_benchmark/tool_evaluation.py` | Pure per-invocation comparison against immutable expectations; separate matching flags and call counts |
 | Tool-provider results | `src/llm_benchmark/tool_provider_models.py` | Frozen result/status contract and validated nullable telemetry for the separate tool-turn operation |
 | Provider layer | `src/llm_benchmark/providers.py` | Provider protocol, factory, Mock, LM Studio native, and OpenAI-compatible adapters |
 | Parser | `src/llm_benchmark/parser.py` | Strict deterministic parsing against actual allowed labels |
@@ -243,7 +244,7 @@ timeout, cancellation, or registry thread-safety mechanism in this slice.
 Initial request mapping and a separate tool-turn provider operation are
 available through the boundaries below, with mock-transport validation only.
 Tool-result messages and a standalone bounded tool loop are implemented below.
-Tool-call evaluation remains future work.
+Standalone tool-loop evaluation is described below; it does not execute tools.
 The runtime does not produce benchmark scores, traces, artifacts, or database
 records and is not connected to the existing benchmark execution paths.
 
@@ -500,7 +501,60 @@ budget, total token budget, or wall-clock deadline. Histories/results remain in
 memory, and excluded repr fields are not a general secret-redaction guarantee.
 No runner, API, worker, trace, artifact, config-hash, or database integration is
 added. Scripted-provider validation does not establish real-model tool-call
-interoperability. Tool-call evaluation remains a separate future boundary.
+interoperability. Tool-call evaluation is a separate boundary described below.
+
+## Tool-loop evaluation
+
+`evaluate_tool_loop(case=..., result=...)` compares a `ToolEvaluationCase` with
+an existing `ToolLoopResult`. It performs no provider or handler execution,
+runtime initialization, persistence, or network operations. Expectations are
+defined before evaluation, not inferred from observed calls.
+
+`ExpectedToolCall` reuses `ToolCall` for name validation and strict immutable
+JSON snapshots. Its internal fixed ID is an implementation detail, never a
+provider request or matching criterion. The frozen `ToolEvaluationCase` holds
+a non-blank UTF-8 case ID, an ordered tuple of expectations (possibly empty),
+and non-blank UTF-8 expected final text. Returned argument copies do not mutate
+the stored expectation.
+
+Requested calls are collected in order from successful normalized turns in
+the current invocation's `provider_results`, not from runtime results or the
+whole conversation. Calls rejected later by loop authorization, budget, or
+history checks still count as requested. Malformed provider responses are not
+re-parsed. Calls from supplied prior conversation history are not counted.
+
+The frozen `ToolEvaluationResult` exposes independent measurements:
+
+| Field | Meaning |
+| --- | --- |
+| `completed` | Stop reason is `final_response`; not proof of task correctness |
+| `tool_sequence_match` | Tool names, count, and order match exactly; call IDs are ignored |
+| `arguments_match` | Type-sensitive recursive JSON equality when the tool sequence matches; otherwise null |
+| `final_answer_match` | Exact final-text equality when completed; otherwise null |
+| `requested_tool_call_count` | Number of calls in successful normalized provider turns |
+| `executed_tool_call_count` | Number of runtime results, including rejected arguments and handler failures; not the number of handler invocations |
+| `successful_tool_call_count` | Number of runtime results with status `succeeded` |
+| `case_id`, `stop_reason` | Evaluation identity and preserved loop stop reason |
+
+Object key order is ignored; list order matters. Boolean, integer, float, and
+string values are distinct, including inside nested containers. Final text is
+not trimmed, case-folded, or semantically interpreted. Empty expected and
+requested sequences match, with `arguments_match=true`. Null means the
+comparison is inapplicable, not a successful match or a false match.
+
+Result construction checks strict boolean/count types, count ordering,
+completion/stop-reason agreement, and nullable-match consistency. Setup or
+contract errors raise exceptions rather than becoming model-quality failures.
+The evaluator expects coherent loop-produced results; it is not a complete
+auditor for arbitrarily constructed histories. Hidden repr fields are not
+general secret redaction, and case IDs must be chosen appropriately by callers.
+
+There is no combined task-success score, multi-case aggregation, alternative
+valid call-plan matching, semantic judge, or token/latency aggregation here.
+Correct final text and matching arguments can coexist with failed runtime
+calls; consumers must interpret the separate measurements. This boundary adds
+no CLI/runner/API/worker/trace/artifact/database integration and makes no
+real-model quality or interoperability claim.
 
 ## Registry API
 

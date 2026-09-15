@@ -45,9 +45,14 @@ parameters.
 - Immutable tool conversations and a standalone synchronous bounded loop with
   selected-tool enforcement, provider-turn/tool-call budgets, and explicit stop
   reasons. Conversation-based provider requests share the existing tool transport.
-  Scripted-provider tests validate execution, not model quality; tool-call
-  evaluation and benchmark-pipeline integration remain future work. See
+  Scripted-provider tests validate execution, not model quality;
+  benchmark-pipeline integration remains future work. See
   [Bounded tool loop](docs/architecture.md#bounded-tool-loop).
+- Standalone deterministic tool-loop evaluation compares expected tool order,
+  type-sensitive JSON arguments, and exact final text separately, retaining
+  completion status and requested/executed/successful call counts. No combined
+  score or real-model quality claim is produced. See
+  [Tool-loop evaluation](docs/architecture.md#tool-loop-evaluation).
 - `MockProvider`, LM Studio native, and generic OpenAI-compatible provider
   adapters behind one normalized provider boundary.
 - Append-friendly JSONL results and JSON summary, configuration, manifest, and
@@ -169,6 +174,8 @@ For supplied-response normalization coverage and its limits, see
 [Tool-call normalization validation](docs/validation.md#tool-call-normalization-validation).
 Conversation and loop coverage is described in
 [Bounded tool-loop validation](docs/validation.md#bounded-tool-loop-validation).
+Evaluation rules and coverage are described in
+[Tool-loop evaluation validation](docs/validation.md#tool-loop-evaluation-validation).
 
 ## CLI execution
 
@@ -564,7 +571,8 @@ cost calculation are not implemented.
   only the high-level error type.
 - Actual secrets are never persisted; only credential environment-variable
   names may be stored.
-- The evaluation task is currently multiple-choice only.
+- The CLI/registered benchmark task is currently multiple-choice only;
+  standalone tool-loop evaluation is not yet integrated into those paths.
 - Execution traces are diagnostic lifecycle data. Events are buffered in
   memory and successful pipelines write `trace.jsonl` on a best-effort basis;
   missing trace persistence is not reported separately in the summary or DB.

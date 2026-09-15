@@ -118,8 +118,7 @@ Call-ID syntax validation cannot identify every secret. Trusted handlers are
 not sandboxed, and the serialized-output limit does not bound their execution
 time or peak memory. These runtime tests do not validate provider integration,
 bounded agent loops, or tool-call evaluation. The separate initial provider
-operation and bounded loop are covered separately below; tool-call evaluation
-remains future work.
+operation, bounded loop, and tool-loop evaluation are covered separately below.
 
 ### Deterministic example-tool coverage
 
@@ -316,6 +315,52 @@ redaction, or total memory budget is established. A returned result may retain
 pending calls on a budget/authorization stop. Tool-call evaluation and
 runner/API/worker/trace/database integration remain outside this slice.
 See [Bounded tool loop](architecture.md#bounded-tool-loop) for stop semantics.
+
+## Tool-loop evaluation validation
+
+`tests/test_tool_evaluation.py` validates the pure evaluator with synthetic
+expectations and loop outcomes. Coverage includes:
+
+- Wrong, missing, extra, or reordered tools; different call IDs do not alter
+  matching. Regression tests ensure expected names come from the case, not
+  from the observed calls themselves.
+- Strict JSON argument equality, nested values, object-key order independence,
+  ordered lists, missing versus null fields, Unicode, and boolean/integer/float/
+  string distinctions. Expectations reuse runtime JSON validation.
+- Exact final text without trimming; nullable comparisons for inapplicable
+  argument or final-answer evaluation.
+- Strict case/result contracts, frozen snapshots, boolean types, invalid
+  counts, and inconsistent completion/match combinations.
+- Real `run_tool_loop()` integration with scripted providers and successful,
+  invalid-argument, and failing synthetic handlers. Evaluation does not execute
+  providers or tools again and produces deterministic results.
+- Every non-final loop stop reason, requested-but-unexecuted calls, and exclusion
+  of supplied prior history from current-invocation counts.
+- Subprocess import/evaluation guards against writes, directory creation,
+  socket/process operations, runtime initialization, and unrelated execution
+  layer imports. These are regression checks, not a general sandbox.
+
+With the forced-offline variables set and the PostgreSQL test URL unset as in
+the loop commands above:
+
+```powershell
+python -m pytest tests/test_tool_evaluation.py tests/test_tool_loop.py -q
+python -m pytest -q
+ruff check .
+git diff --check
+```
+
+The previously executed evaluation checkpoint passed `131` evaluation/loop
+tests (including 76 evaluation cases) and `1076 passed, 7 skipped` in the full
+forced-offline suite. Ruff and whitespace checks passed. Two skips were
+platform-dependent symlink tests and five were unconfigured PostgreSQL tests.
+These are prior results, not fresh test runs for this documentation update.
+
+No real model or PostgreSQL connection was validated. This checks measurement
+logic, not actual model quality. Exact ordered plans and exact text are the
+only matching policies; aggregate reports, semantic judging, and benchmark
+pipeline/persistence integration are not implemented. See
+[Tool-loop evaluation](architecture.md#tool-loop-evaluation) for field semantics.
 
 ## Pinned MMLU-Pro MockProvider smoke validation
 

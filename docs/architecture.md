@@ -29,7 +29,10 @@ The implementation currently provides two execution paths:
 | Execution trace | `src/llm_benchmark/trace.py` | Immutable typed lifecycle events, fresh per-execution recorders, safe identifier handling, and deterministic event ordering |
 | Tool runtime | `src/llm_benchmark/tool_runtime.py` | Standalone registration, strict argument validation, synchronous handler execution, and normalized immutable results; not wired into the benchmark pipeline |
 | Tool-call normalization | `src/llm_benchmark/tool_calling.py` | Validate supplied response data into immutable text, ordered ToolCall snapshots, and finish reason; no HTTP or tool execution |
-| Tool requests | `src/llm_benchmark/tool_requests.py` | Map explicitly selected registrations and initial text messages into an independent request payload |
+| Tool requests | `src/llm_benchmark/tool_requests.py` | Map explicitly selected registrations and initial or conversation messages into independent request payloads |
+| Tool conversation | `src/llm_benchmark/tool_conversation.py` | Immutable ordered messages, conversation-wide call IDs, and matched tool-result messages |
+| Bounded tool loop | `src/llm_benchmark/tool_loop.py` | Sequential provider/tool execution under per-invocation budgets; explicit stop reasons, not task scores |
+| Tool-loop evaluation | `src/llm_benchmark/tool_evaluation.py` | Pure per-invocation comparison against immutable expectations; separate matching flags and call counts |
 | Tool-provider results | `src/llm_benchmark/tool_provider_models.py` | Frozen result/status contract and validated nullable telemetry for the separate tool-turn operation |
 | Provider layer | `src/llm_benchmark/providers.py` | Provider protocol, factory, Mock, LM Studio native, and OpenAI-compatible adapters |
 | Parser | `src/llm_benchmark/parser.py` | Strict deterministic parsing against actual allowed labels |
@@ -240,8 +243,8 @@ timeout, cancellation, or registry thread-safety mechanism in this slice.
 
 Initial request mapping and a separate tool-turn provider operation are
 available through the boundaries below, with mock-transport validation only.
-Tool-result messages, model-driven tool execution, bounded agent loops, and
-tool-call evaluation remain future work.
+Tool-result messages and a standalone bounded tool loop are implemented below.
+Standalone tool-loop evaluation is described below; it does not execute tools.
 The runtime does not produce benchmark scores, traces, artifacts, or database
 records and is not connected to the existing benchmark execution paths.
 
@@ -415,14 +418,143 @@ tokens, TTFT, throughput, or final-text token counts. Tool-call arguments can
 consume output tokens; output minus reasoning is not labelled final-answer text
 usage. Individually valid reported counts are not cross-field reconciled.
 
-This is an initial, non-streaming turn only. It does not check returned tool
-names against the offered selection, execute handlers, send tool-result
-messages, or implement a bounded loop. There is no runner/API/worker integration,
+The initial operation performs one non-streaming turn. The separate
+`generate_tool_conversation()` operation also accepts serialized tool-result
+history and shares `_generate_tool_payload()` with the initial operation.
+Neither provider method checks returned tool names against the offered
+selection or executes handlers; those decisions belong to the loop below.
+There is no runner/API/worker integration,
 new artifact schema, config-hash change, or database persistence for these
 results. Request messages/schemas have no size budget, and the existing JSON
 transport has no new response-body size limit. Successful payloads and turns
 are not secret-redacted and must not be assumed safe to log. Real endpoint
 tool-call interoperability remains unverified.
+
+## Tool conversations
+
+`ToolConversation` contains a frozen tuple beginning with an optional system
+message and one user message. Assistant turns and ordered `ToolResultMessage`
+values follow. Call IDs must be unique across the conversation; each result
+must match the next pending call's ID and tool name. An assistant turn without
+calls is terminal; later messages are rejected. A partial history may contain
+pending calls, but is not ready for another provider request.
+
+`ToolConversationRequest` validates readiness and a non-empty selection of
+registrations. `build_openai_tool_conversation_payload()` serializes messages
+using the same generation-policy checks as the initial builder. Tool messages
+carry a JSON status/output/error-code envelope. `append()` creates a new
+conversation; serialization produces independent payloads. These are not
+secret-redacted representations or a general conversation-size limit.
+
+## Bounded tool loop
+
+`run_tool_loop(provider, request, policy)` takes keyword-only arguments and uses
+the `ConversationProvider.generate_tool_conversation()` protocol, not a concrete
+provider import. Each invocation builds a fresh registry from exactly the
+selected registrations and executes tools sequentially through `ToolRuntime`.
+Importing the module does not initialize a registry or runtime.
+
+```text
+ready conversation -> provider result -> assistant-history validation
+  -> final response or whole-batch authorization/budget checks
+  -> sequential ToolRuntime calls -> append matched tool results -> next turn
+```
+
+`ToolLoopPolicy` requires positive integer `max_provider_turns` and
+`max_tool_calls` values (booleans are rejected). Counters cover only the current
+invocation, not any supplied prior history. Provider turns count returned
+logical provider results, not physical HTTP requests; a missing-credential
+result still counts. Tool calls count runtime results, including argument or
+handler failures, not just successful handler executions.
+
+After validating the assistant history, checks occur in order: final-response
+detection, selected-tool membership for the entire batch, remaining tool-call
+budget, and capacity for another provider turn. A rejected batch executes no
+tools. The last allowed provider turn cannot start new tools because there is
+no remaining turn to consume their results. This is pre-execution checking,
+not rollback of handler side effects.
+
+| Stop reason | Meaning |
+| --- | --- |
+| `final_response` | No tool calls, non-blank text, and `finish_reason=stop`; not proof of answer correctness |
+| `provider_failed` | Provider returned `request_failed`; no automatic retry |
+| `invalid_response` | Provider returned `response_invalid` |
+| `invalid_conversation` | Appending an assistant turn violates history rules, such as a reused call ID |
+| `completion_unconfirmed` | A text-only turn lacks the required final finish reason |
+| `tool_not_allowed` | A batch names a tool outside the selected registrations |
+| `tool_call_limit` | The whole batch exceeds the remaining tool budget |
+| `provider_turn_limit` | No provider turn remains to continue execution |
+
+Expected tool failures remain normalized `ToolResult` values and are sent back
+on the next turn when budget permits. Unexpected provider/programming errors
+and `BaseException` propagate; there is no broad loop exception handler.
+
+The frozen `ToolLoopResult` retains provider results, tool results, and the
+conversation; only `final_response` carries `final_text`. Rejected assistant
+history is not appended, but its provider result is retained. An accepted turn
+stopped by authorization or budget checks may leave pending calls in the final
+history. The result constructor validates types and final-response consistency,
+not every relationship between the recorded history and outcomes.
+
+The loop has no retry/resume, hard handler timeout, sandbox, conversation-byte
+budget, total token budget, or wall-clock deadline. Histories/results remain in
+memory, and excluded repr fields are not a general secret-redaction guarantee.
+No runner, API, worker, trace, artifact, config-hash, or database integration is
+added. Scripted-provider validation does not establish real-model tool-call
+interoperability. Tool-call evaluation is a separate boundary described below.
+
+## Tool-loop evaluation
+
+`evaluate_tool_loop(case=..., result=...)` compares a `ToolEvaluationCase` with
+an existing `ToolLoopResult`. It performs no provider or handler execution,
+runtime initialization, persistence, or network operations. Expectations are
+defined before evaluation, not inferred from observed calls.
+
+`ExpectedToolCall` reuses `ToolCall` for name validation and strict immutable
+JSON snapshots. Its internal fixed ID is an implementation detail, never a
+provider request or matching criterion. The frozen `ToolEvaluationCase` holds
+a non-blank UTF-8 case ID, an ordered tuple of expectations (possibly empty),
+and non-blank UTF-8 expected final text. Returned argument copies do not mutate
+the stored expectation.
+
+Requested calls are collected in order from successful normalized turns in
+the current invocation's `provider_results`, not from runtime results or the
+whole conversation. Calls rejected later by loop authorization, budget, or
+history checks still count as requested. Malformed provider responses are not
+re-parsed. Calls from supplied prior conversation history are not counted.
+
+The frozen `ToolEvaluationResult` exposes independent measurements:
+
+| Field | Meaning |
+| --- | --- |
+| `completed` | Stop reason is `final_response`; not proof of task correctness |
+| `tool_sequence_match` | Tool names, count, and order match exactly; call IDs are ignored |
+| `arguments_match` | Type-sensitive recursive JSON equality when the tool sequence matches; otherwise null |
+| `final_answer_match` | Exact final-text equality when completed; otherwise null |
+| `requested_tool_call_count` | Number of calls in successful normalized provider turns |
+| `executed_tool_call_count` | Number of runtime results, including rejected arguments and handler failures; not the number of handler invocations |
+| `successful_tool_call_count` | Number of runtime results with status `succeeded` |
+| `case_id`, `stop_reason` | Evaluation identity and preserved loop stop reason |
+
+Object key order is ignored; list order matters. Boolean, integer, float, and
+string values are distinct, including inside nested containers. Final text is
+not trimmed, case-folded, or semantically interpreted. Empty expected and
+requested sequences match, with `arguments_match=true`. Null means the
+comparison is inapplicable, not a successful match or a false match.
+
+Result construction checks strict boolean/count types, count ordering,
+completion/stop-reason agreement, and nullable-match consistency. Setup or
+contract errors raise exceptions rather than becoming model-quality failures.
+The evaluator expects coherent loop-produced results; it is not a complete
+auditor for arbitrarily constructed histories. Hidden repr fields are not
+general secret redaction, and case IDs must be chosen appropriately by callers.
+
+There is no combined task-success score, multi-case aggregation, alternative
+valid call-plan matching, semantic judge, or token/latency aggregation here.
+Correct final text and matching arguments can coexist with failed runtime
+calls; consumers must interpret the separate measurements. This boundary adds
+no CLI/runner/API/worker/trace/artifact/database integration and makes no
+real-model quality or interoperability claim.
 
 ## Registry API
 

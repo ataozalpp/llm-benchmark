@@ -11,10 +11,25 @@ import pytest
 import llm_benchmark.providers as providers
 from llm_benchmark.config import ModelConfig
 from llm_benchmark.models import DatasetExample
-from llm_benchmark.tool_calling import ToolCallNormalizationErrorCode
+from llm_benchmark.tool_calling import (
+    ToolCallNormalizationErrorCode,
+    normalize_openai_tool_response,
+)
+from llm_benchmark.tool_conversation import (
+    AssistantMessage,
+    ToolConversation,
+    ToolResultMessage,
+    UserMessage,
+    serialize_conversation,
+)
 from llm_benchmark.tool_provider_models import ToolProviderErrorCode, ToolProviderStatus
-from llm_benchmark.tool_requests import ToolTurnRequest, build_openai_tool_payload
-from llm_benchmark.tool_runtime import ToolRuntime
+from llm_benchmark.tool_requests import (
+    ToolConversationRequest,
+    ToolTurnRequest,
+    build_openai_tool_conversation_payload,
+    build_openai_tool_payload,
+)
+from llm_benchmark.tool_runtime import ToolExecutionStatus, ToolResult, ToolRuntime
 from llm_benchmark.tools import create_example_tool_registry
 
 
@@ -349,3 +364,141 @@ def test_no_tool_execution_and_old_generate_preserved(monkeypatch) -> None:
     assert classic.request_status == "failed"
     assert classic.provider_error_type == "empty_message_content"
     assert len(transport.calls) == 2
+
+
+def conversation_request() -> ToolConversationRequest:
+    history = ToolConversation(
+        messages=(
+            UserMessage("Synthetic request"),
+            AssistantMessage(normalize_openai_tool_response(response())),
+            ToolResultMessage(
+                ToolResult(
+                    call_id="call_1",
+                    tool_name="calculator",
+                    status=ToolExecutionStatus.SUCCEEDED,
+                    output={"result": 5},
+                )
+            ),
+        )
+    )
+    return ToolConversationRequest(
+        conversation=history, registrations=request().registrations
+    )
+
+
+@pytest.mark.parametrize("calls", [False, True], ids=["final-text", "next-call"])
+def test_conversation_history_sent_once_without_execution(monkeypatch, calls) -> None:
+    req = conversation_request()
+    original = serialize_conversation(req.conversation)
+    body = response(None if calls else "Synthetic final", calls)
+    if calls:
+        body["choices"][0]["message"]["tool_calls"][0]["id"] = "call_2"
+    body["usage"] = {"input_tokens": 15, "output_tokens": 7}
+    transport = FakeTransport(body)
+    cfg = config()
+
+    def reject_execution(*args, **kwargs):
+        raise AssertionError("Conversation provider must not execute tools")
+
+    monkeypatch.setattr(ToolRuntime, "execute", reject_execution)
+    ticks = iter([2.0, 2.25])
+    monkeypatch.setattr(providers.time, "perf_counter", lambda: next(ticks))
+    result = providers.OpenAICompatibleProvider(
+        cfg, transport
+    ).generate_tool_conversation(req)
+    assert result.status is ToolProviderStatus.SUCCEEDED
+    assert result.turn.content == (None if calls else "Synthetic final")
+    assert result.turn.finish_reason == ("tool_calls" if calls else "stop")
+    if calls:
+        assert result.turn.tool_calls[0].call_id == "call_2"
+    else:
+        assert result.turn.tool_calls == ()
+    assert transport.calls == [
+        (
+            "http://127.0.0.1:1234/v1/chat/completions",
+            build_openai_tool_conversation_payload(cfg, req),
+            45,
+            None,
+        )
+    ]
+    payload = transport.calls[0][1]
+    assert [message["role"] for message in payload["messages"]] == [
+        "user",
+        "assistant",
+        "tool",
+    ]
+    assert payload["messages"] == original
+    assert payload["stream"] is False
+    assert "max_tokens" not in payload
+    assert result.telemetry.latency_ms == 250
+    assert result.telemetry.input_tokens == 15
+    assert result.telemetry.output_tokens == 7
+    assert result.telemetry.total_tokens is None
+    assert result.telemetry.ttft_ms is None
+    assert result.telemetry.throughput_tokens_per_second is None
+    assert serialize_conversation(req.conversation) == original
+
+
+def test_conversation_invalid_inputs_never_reach_transport() -> None:
+    transport = FakeTransport(response())
+    provider = providers.OpenAICompatibleProvider(config(), transport)
+    with pytest.raises(TypeError, match="ToolConversationRequest"):
+        provider.generate_tool_conversation(request())
+    with pytest.raises(ValueError, match="Unsupported"):
+        providers.OpenAICompatibleProvider(
+            config(reasoning="off"), transport
+        ).generate_tool_conversation(conversation_request())
+    history = conversation_request().conversation
+    with pytest.raises(ValueError, match="not ready"):
+        pending = ToolConversationRequest(
+            conversation=ToolConversation(history.messages[:2]),
+            registrations=request().registrations,
+        )
+        provider.generate_tool_conversation(pending)
+    assert transport.calls == []
+
+
+@pytest.mark.parametrize(
+    "malformed", [False, True], ids=["timeout", "invalid-response"]
+)
+def test_conversation_shared_failure_boundary(malformed) -> None:
+    transport = FakeTransport(
+        {} if malformed else None, None if malformed else TimeoutError("PRIVATE")
+    )
+    result = providers.OpenAICompatibleProvider(
+        config(), transport
+    ).generate_tool_conversation(conversation_request())
+    assert result.turn is None
+    if malformed:
+        assert result.status is ToolProviderStatus.RESPONSE_INVALID
+        assert (
+            result.normalization_error_code
+            is ToolCallNormalizationErrorCode.INVALID_RESPONSE
+        )
+        assert result.error_code is None
+    else:
+        assert result.status is ToolProviderStatus.REQUEST_FAILED
+        assert result.error_code is ToolProviderErrorCode.TIMEOUT
+        assert result.normalization_error_code is None
+    assert len(transport.calls) == 1
+    assert "PRIVATE" not in repr(result)
+
+
+def test_conversation_credential_boundary(monkeypatch) -> None:
+    monkeypatch.delenv("TEST_CONVERSATION_KEY", raising=False)
+    transport = FakeTransport(response("Final", False))
+    provider = providers.OpenAICompatibleProvider(
+        config(credential_env_var="TEST_CONVERSATION_KEY"), transport
+    )
+    req = conversation_request()
+    result = provider.generate_tool_conversation(req)
+    assert result.error_code is ToolProviderErrorCode.MISSING_CREDENTIAL
+    assert transport.calls == []
+    secret = "SYNTHETIC_CONVERSATION_SECRET"
+    monkeypatch.setenv("TEST_CONVERSATION_KEY", secret)
+    result = provider.generate_tool_conversation(req)
+    assert len(transport.calls) == 1
+    assert transport.calls[0][3] == {"Authorization": f"Bearer {secret}"}
+    assert secret not in json.dumps(transport.calls[0][1])
+    assert secret not in json.dumps(asdict(result))
+    assert result.status is ToolProviderStatus.SUCCEEDED

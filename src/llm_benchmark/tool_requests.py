@@ -1,4 +1,4 @@
-"""Pure request mapping for an initial OpenAI-compatible tool turn."""
+"""Pure request mapping for initial and conversation-based tool turns."""
 
 from __future__ import annotations
 
@@ -7,6 +7,10 @@ import math
 from dataclasses import dataclass, field
 
 from .config import ModelConfig
+from .tool_conversation import (
+    ToolConversation,
+    serialize_conversation,
+)
 from .tool_runtime import ToolRegistration
 
 
@@ -123,22 +127,28 @@ class ToolTurnRequest:
         _validate_registrations(self.registrations)
 
 
-def build_openai_tool_payload(
+@dataclass(frozen=True)
+class ToolConversationRequest:
+    """A provider-ready conversation and explicitly selected tools."""
+
+    conversation: ToolConversation = field(repr=False)
+    registrations: tuple[ToolRegistration, ...] = field(repr=False)
+
+    def __post_init__(self) -> None:
+        if type(self.conversation) is not ToolConversation:
+            raise TypeError("Expected a ToolConversation.")
+
+        _validate_registrations(self.registrations)
+        self.conversation.validate_ready_for_provider()
+
+
+def _build_tool_payload(
     config: ModelConfig,
-    request: ToolTurnRequest,
+    messages: list[dict[str, object]],
+    registrations: tuple[ToolRegistration, ...],
 ) -> dict[str, object]:
-    """Build one non-streaming initial-turn payload without runtime I/O.
-
-    Schema hooks are trusted code; this is not a schema sandbox or an endpoint
-    compatibility check. Returned payloads are independent, not secret-redacted.
-    No message/schema size budget is enforced here.
-    """
-
     if type(config) is not ModelConfig:
         raise TypeError("Expected a ModelConfig.")
-
-    if type(request) is not ToolTurnRequest:
-        raise TypeError("Expected a ToolTurnRequest.")
 
     if config.provider != "openai_compatible":
         raise ValueError("Tool payload mapping requires openai_compatible.")
@@ -158,7 +168,38 @@ def build_openai_tool_payload(
     if config.top_p is not None and not math.isfinite(config.top_p):
         raise ValueError("Top-p must be finite.")
 
-    messages: list[dict[str, str]] = []
+    payload: dict[str, object] = {
+        "model": config.model_id,
+        "messages": messages,
+        "tools": serialize_tool_registrations(registrations),
+        "temperature": config.temperature,
+        "stream": False,
+    }
+
+    if config.max_output_tokens is not None:
+        payload["max_tokens"] = config.max_output_tokens
+
+    if config.top_p is not None:
+        payload["top_p"] = config.top_p
+
+    return payload
+
+
+def build_openai_tool_payload(
+    config: ModelConfig,
+    request: ToolTurnRequest,
+) -> dict[str, object]:
+    """Build one non-streaming initial-turn payload without runtime I/O.
+
+    Schema hooks are trusted code; this is not a schema sandbox or an endpoint
+    compatibility check. Returned payloads are independent, not secret-redacted.
+    No message/schema size budget is enforced here.
+    """
+
+    if type(request) is not ToolTurnRequest:
+        raise TypeError("Expected a ToolTurnRequest.")
+
+    messages: list[dict[str, object]] = []
 
     if request.system_content is not None:
         messages.append(
@@ -175,18 +216,25 @@ def build_openai_tool_payload(
         }
     )
 
-    payload: dict[str, object] = {
-        "model": config.model_id,
-        "messages": messages,
-        "tools": serialize_tool_registrations(request.registrations),
-        "temperature": config.temperature,
-        "stream": False,
-    }
+    return _build_tool_payload(
+        config,
+        messages,
+        request.registrations,
+    )
 
-    if config.max_output_tokens is not None:
-        payload["max_tokens"] = config.max_output_tokens
 
-    if config.top_p is not None:
-        payload["top_p"] = config.top_p
+def build_openai_tool_conversation_payload(
+    config: ModelConfig,
+    request: ToolConversationRequest,
+) -> dict[str, object]:
+    """Map a ready conversation without provider calls or tool execution."""
+    if type(request) is not ToolConversationRequest:
+        raise TypeError("Expected a ToolConversationRequest.")
 
-    return payload
+    messages = serialize_conversation(request.conversation)
+
+    return _build_tool_payload(
+        config,
+        messages,
+        request.registrations,
+    )

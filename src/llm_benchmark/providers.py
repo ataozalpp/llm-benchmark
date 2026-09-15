@@ -18,7 +18,12 @@ from .tool_provider_models import (
     ToolProviderStatus,
     ToolProviderTelemetry,
 )
-from .tool_requests import ToolTurnRequest, build_openai_tool_payload
+from .tool_requests import (
+    ToolConversationRequest,
+    ToolTurnRequest,
+    build_openai_tool_conversation_payload,
+    build_openai_tool_payload,
+)
 
 _MAX_ERROR_BODY_BYTES = 16_384
 _MAX_ERROR_MESSAGE_CHARS = 512
@@ -273,6 +278,23 @@ class OpenAICompatibleProvider:
         Errors expose only closed codes, never provider bodies or credentials.
         """
         payload = build_openai_tool_payload(self.config, request)
+        return self._generate_tool_payload(payload)
+
+
+    def generate_tool_conversation(
+        self,
+        request: ToolConversationRequest,
+    ) -> ToolProviderResult:
+        """Submit ready history once; return the next turn without executing it."""
+        payload = build_openai_tool_conversation_payload(self.config, request)
+        return self._generate_tool_payload(payload)
+
+
+    def _generate_tool_payload(
+        self,
+        payload: dict[str, object],
+    ) -> ToolProviderResult:
+        """Shared credential, transport, telemetry and normalization boundary."""
         try:
             credential = _read_credential(self.config.credential_env_var)
         except _MissingCredentialError:

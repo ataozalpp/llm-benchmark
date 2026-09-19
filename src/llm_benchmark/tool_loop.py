@@ -11,6 +11,7 @@ from .tool_conversation import (
     ToolConversation,
     ToolResultMessage,
 )
+from .tool_execution import ToolExecutor
 from .tool_provider_models import (
     ToolProviderResult,
     ToolProviderStatus,
@@ -126,8 +127,13 @@ def run_tool_loop(
     provider: ConversationProvider,
     request: ToolConversationRequest,
     policy: ToolLoopPolicy,
+    executor: ToolExecutor | None = None,
 ) -> ToolLoopResult:
-    """Execute a bounded, sequential conversation with selected tools."""
+    """Execute a bounded conversation using a trusted tool executor.
+
+    When no executor is supplied, use the existing local ToolRuntime.
+    Selected-tool authorization and call budgets remain loop-owned.
+    """
     if type(request) is not ToolConversationRequest:
         raise TypeError("Expected a ToolConversationRequest.")
 
@@ -136,11 +142,21 @@ def run_tool_loop(
 
     request.conversation.validate_ready_for_provider()
 
-    registry = ToolRegistry()
-    for registration in request.registrations:
-        registry.register(registration)
+    active_executor: ToolExecutor
 
-    runtime = ToolRuntime(registry)
+    if executor is None:
+        registry = ToolRegistry()
+
+        for registration in request.registrations:
+            registry.register(registration)
+
+        active_executor = ToolRuntime(registry)
+    else:
+        if not callable(getattr(executor, "execute", None)):
+            raise TypeError("Executor must support tool execution.")
+
+        active_executor = executor
+
     allowed_names = {
         registration.definition.name
         for registration in request.registrations
@@ -225,7 +241,19 @@ def run_tool_loop(
             return finish(ToolLoopStopReason.PROVIDER_TURN_LIMIT)
 
         for call in turn.tool_calls:
-            tool_result = runtime.execute(call)
+            tool_result = active_executor.execute(call)
+
+            if type(tool_result) is not ToolResult:
+                raise TypeError("Executor returned an invalid result.")
+
+            if (
+                tool_result.call_id != call.call_id
+                or tool_result.tool_name != call.tool_name
+            ):
+                raise ValueError(
+                    "Executor result does not match the requested call."
+                )
+
             tool_results.append(tool_result)
 
             conversation = conversation.append(ToolResultMessage(tool_result))

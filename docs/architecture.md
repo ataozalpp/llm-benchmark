@@ -33,6 +33,10 @@ The implementation currently provides two execution paths:
 | Tool conversation | `src/llm_benchmark/tool_conversation.py` | Immutable ordered messages, conversation-wide call IDs, and matched tool-result messages |
 | Bounded tool loop | `src/llm_benchmark/tool_loop.py` | Sequential provider/tool execution under per-invocation budgets; explicit stop reasons, not task scores |
 | Tool-loop evaluation | `src/llm_benchmark/tool_evaluation.py` | Pure per-invocation comparison against immutable expectations; separate matching flags and call counts |
+| Tool scenarios | `src/llm_benchmark/tool_scenarios.py` | Immutable synthetic inputs, selected tools, loop policy, and evaluation expectations |
+| Scenario request preparation | `src/llm_benchmark/tool_scenario_requests.py` | Resolves selected registrations and creates initial conversations without copying evaluation expectations into requests |
+| Tool suite | `src/llm_benchmark/tool_suite.py` | Sequential scenario execution through injected providers, returning immutable evaluations |
+| Tool reporting | `src/llm_benchmark/tool_reporting.py` | Pure aggregation with explicit denominators, unavailable counts, and stop-reason distribution |
 | Tool-provider results | `src/llm_benchmark/tool_provider_models.py` | Frozen result/status contract and validated nullable telemetry for the separate tool-turn operation |
 | Provider layer | `src/llm_benchmark/providers.py` | Provider protocol, factory, Mock, LM Studio native, and OpenAI-compatible adapters |
 | Parser | `src/llm_benchmark/parser.py` | Strict deterministic parsing against actual allowed labels |
@@ -503,6 +507,32 @@ No runner, API, worker, trace, artifact, config-hash, or database integration is
 added. Scripted-provider validation does not establish real-model tool-call
 interoperability. Tool-call evaluation is a separate boundary described below.
 
+### Tool execution boundary
+
+`tool_execution.py` defines the synchronous `ToolExecutor.execute(call)`
+protocol. `run_tool_loop()` accepts an optional executor; without one, it builds
+the existing `ToolRuntime` from the request's selected registrations. The
+runtime satisfies the protocol directly, without a duplicate adapter. Injected
+execution does not construct an unused local runtime. The suite currently uses
+the default local path and does not expose executor injection.
+
+Selected-tool authorization and provider-turn/tool-call budgets remain in the
+loop and are checked before execution. An injected object must expose a callable
+`execute`; this is not full signature or semantic verification. Returned values
+must be exact `ToolResult` instances whose call ID and tool name match the
+requested call before they enter the result list or conversation.
+
+Executors own argument validation, output limits, and expected error
+normalization. The default runtime retains its existing controls; arbitrary
+injected implementations do not automatically inherit those controls.
+Normalized failures remain conversation results. Invalid executor contracts
+raise fixed-message `TypeError` or `ValueError`; unexpected execution exceptions
+and `BaseException` subclasses propagate. Prior side effects are not rolled back.
+
+This is a trusted extension boundary, not sandboxing, hard cancellation, MCP
+transport, remote discovery, or external JSON Schema registration. Request
+registrations still use the existing local Pydantic/handler contract.
+
 ## Tool-loop evaluation
 
 `evaluate_tool_loop(case=..., result=...)` compares a `ToolEvaluationCase` with
@@ -549,12 +579,67 @@ The evaluator expects coherent loop-produced results; it is not a complete
 auditor for arbitrarily constructed histories. Hidden repr fields are not
 general secret redaction, and case IDs must be chosen appropriately by callers.
 
-There is no combined task-success score, multi-case aggregation, alternative
-valid call-plan matching, semantic judge, or token/latency aggregation here.
+There is no combined task-success score, alternative valid call-plan matching,
+semantic judge, or token/latency aggregation here. Multi-case aggregation is
+provided separately by the suite/reporting boundary below.
 Correct final text and matching arguments can coexist with failed runtime
 calls; consumers must interpret the separate measurements. This boundary adds
 no CLI/runner/API/worker/trace/artifact/database integration and makes no
 real-model quality or interoperability claim.
+
+## Tool-evaluation suites
+
+`ToolScenario` combines non-blank UTF-8 user text, unique selected tool names,
+a `ToolLoopPolicy`, and a `ToolEvaluationCase`. Its case ID comes from the
+evaluation. Expected calls must refer to selected tools, but registration
+membership is checked later. Selection must be non-empty under the current
+request contract, even when the expected call sequence is empty. The fresh
+example factory provides calculator multiplication and a direct-answer case
+where a calculator is available but should not be used.
+
+`build_tool_scenario_request()` resolves only selected registrations, preserving
+their order, and creates a fresh conversation containing the user text. It does
+not execute handlers or providers. Expected calls, gold arguments, and expected
+final text are not copied from evaluation fields into provider requests. This
+is structural separation, not a content filter for caller-supplied user text.
+
+`run_tool_suite()` requires a non-empty tuple of scenarios with unique case IDs.
+It prepares every request before calling the injected provider factory, so a
+missing selected registration in a later case prevents any suite execution.
+This is local request preparation, not full provider configuration, credential,
+or remote-capability preflight. For each scenario, in input order, it calls the
+factory, checks for a callable `generate_tool_conversation`, runs the bounded
+loop, and evaluates the result. The factory is responsible for returning
+appropriately isolated providers; shared handler state is not sandboxed.
+
+Normalized loop failures are evaluated and the next scenario continues.
+Unexpected factory/provider/execution exceptions propagate without returning
+a partial suite. Earlier executions are not rolled back. `ToolSuiteResult`
+retains immutable evaluations, not full conversations; its summary is derived
+from those evaluations rather than stored as separately mutable state.
+
+`aggregate_tool_evaluations()` is pure and rejects empty input and duplicate
+case IDs. Summary measurements remain separate:
+
+| Measurement | Denominator |
+| --- | --- |
+| Completion | All cases |
+| Tool-sequence match | All cases |
+| Argument match | Cases with matching tool sequences |
+| Final-answer match | Completed cases |
+
+Each metric retains numerator and denominator. A zero denominator produces a
+null rate, not zero accuracy. Argument/final unavailable counts preserve
+coverage; requested, executed, and successful call counts retain evaluator
+semantics. Every stop reason appears once, including zero counts, in stable
+value-sorted order. There is no composite score.
+
+These modules do not add CLI, benchmark runner, API, worker, trace, artifact,
+or database integration. They do not enforce shared suite/model-profile
+provenance across independently supplied evaluations, persist suite identity,
+add wall-clock cancellation, or implement MCP. Tests use scripted providers
+and synthetic tools; they do not establish real-model quality. Runtime handler
+execution remains trusted, synchronous, and in-process.
 
 ## Registry API
 

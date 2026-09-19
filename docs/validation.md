@@ -358,9 +358,80 @@ These are prior results, not fresh test runs for this documentation update.
 
 No real model or PostgreSQL connection was validated. This checks measurement
 logic, not actual model quality. Exact ordered plans and exact text are the
-only matching policies; aggregate reports, semantic judging, and benchmark
-pipeline/persistence integration are not implemented. See
+only matching policies; semantic judging and benchmark pipeline/persistence
+integration are not implemented. Standalone aggregation is covered below. See
 [Tool-loop evaluation](architecture.md#tool-loop-evaluation) for field semantics.
+
+## Tool executor validation
+
+`tests/test_tool_execution.py` checks the existing runtime's executor contract,
+default/injected local result parity, and avoidance of unused runtime
+initialization. It verifies invalid executor rejection before provider calls,
+returned result types and call identity, whole-batch authorization and budget
+checks before execution, normalized failures continuing through the conversation,
+and propagation of unexpected exceptions including `KeyboardInterrupt` and
+`SystemExit`. Existing loop import-side-effect tests also run with this boundary.
+
+```powershell
+python -m pytest tests/test_tool_execution.py tests/test_tool_loop.py tests/test_tool_suite.py -q
+```
+
+These tests use scripted providers and local synthetic tools. They do not prove
+that arbitrary injected executors validate arguments, enforce output limits,
+support cancellation, or isolate handler state. MCP interoperability is not
+tested or implemented.
+
+The executor checkpoint on 2026-09-20 passed 272 focused tests across execution,
+loop, suite, reporting, scenarios, scenario requests, and evaluation. The full
+forced-offline suite passed `1217 passed, 7 skipped`: two platform-dependent
+symlink skips and five PostgreSQL skips without a configured test URL. Ruff
+and the working-tree-versus-HEAD whitespace check passed. No real model or
+PostgreSQL interoperability was established by this run.
+
+## Tool scenario, suite, and reporting validation
+
+The standalone suite uses scripted providers and local synthetic handlers.
+Coverage is split across:
+
+- `tests/test_tool_scenarios.py`: immutable definitions, independent factories,
+  strict text/tool/policy contracts, expected-tool selection, and example
+  compatibility with local schemas and loop budgets.
+- `tests/test_tool_scenario_requests.py`: selected registrations only, preserved
+  order, fresh histories, missing tools, payload mutation isolation, and no
+  copying of gold evaluation fields into serialized requests. Request building
+  does not initialize the runtime or execute handlers.
+- `tests/test_tool_suite.py`: end-to-end synthetic execution, all-request
+  preparation before provider creation, duplicate IDs, invalid factory results,
+  normalized failures continuing to the next case, and unexpected exceptions
+  (including `KeyboardInterrupt` and `SystemExit`) propagating without further
+  case execution. Frozen results, derived summaries, repeated execution, and
+  selected-tool stability are also covered.
+- `tests/test_tool_reporting.py`: explicit match denominators, unavailable
+  coverage, null rates, strict counts, immutable summaries, duplicate rejection,
+  stable stop-reason distributions, consistency checks, and real evaluator
+  output flowing into aggregation.
+
+With the forced-offline variables set and the PostgreSQL test URL unset:
+
+```powershell
+python -m pytest tests/test_tool_suite.py tests/test_tool_scenario_requests.py tests/test_tool_scenarios.py tests/test_tool_reporting.py tests/test_tool_evaluation.py tests/test_tool_loop.py -q
+python -m pytest -q
+ruff check .
+git diff --check
+```
+
+The previously reported suite checkpoint was `256 passed` for that focused
+selection and `1201 passed, 7 skipped` for the complete offline suite. Ruff and
+whitespace checks passed. Two skips were platform-dependent symlink tests and
+five were PostgreSQL tests without a configured test URL. These are prior
+results, not tests rerun for this documentation update.
+
+This coverage does not verify a real tool-calling endpoint, MCP transport,
+suite persistence, wall-clock cancellation, or shared model/profile provenance.
+A provider factory is trusted to supply independent providers; local handlers
+are not isolated from process state. Preparation is not remote preflight, and
+an exception aborting a suite does not undo earlier calls. See
+[Tool-evaluation suites](architecture.md#tool-evaluation-suites).
 
 ## Pinned MMLU-Pro MockProvider smoke validation
 

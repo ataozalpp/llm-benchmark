@@ -48,11 +48,18 @@ parameters.
   Scripted-provider tests validate execution, not model quality;
   benchmark-pipeline integration remains future work. See
   [Bounded tool loop](docs/architecture.md#bounded-tool-loop).
+  Tool execution is injectable through a synchronous executor contract; the
+  existing local runtime remains the default. This is not MCP integration.
 - Standalone deterministic tool-loop evaluation compares expected tool order,
   type-sensitive JSON arguments, and exact final text separately, retaining
   completion status and requested/executed/successful call counts. No combined
   score or real-model quality claim is produced. See
   [Tool-loop evaluation](docs/architecture.md#tool-loop-evaluation).
+- Synthetic tool scenarios, selected-tool request preparation, and a standalone
+  sequential evaluation suite with separate match rates, coverage counts, and
+  stop-reason distribution. Expectations stay outside generated provider
+  requests; suite persistence and MCP integration are not implemented. See
+  [Tool-evaluation suites](docs/architecture.md#tool-evaluation-suites).
 - `MockProvider`, LM Studio native, and generic OpenAI-compatible provider
   adapters behind one normalized provider boundary.
 - Append-friendly JSONL results and JSON summary, configuration, manifest, and

@@ -11,6 +11,10 @@ from .tool_conversation import (
     ToolConversation,
     serialize_conversation,
 )
+from .tool_descriptors import (
+    ToolDescriptor,
+    serialize_tool_descriptor,
+)
 from .tool_runtime import ToolRegistration
 
 
@@ -52,6 +56,51 @@ def _validate_registrations(
             raise ValueError("Tool registration names must be unique.")
 
         names.add(name)
+
+
+def _validate_descriptors(
+    descriptors: tuple[ToolDescriptor, ...],
+) -> None:
+    if type(descriptors) is not tuple:
+        raise TypeError("Tool descriptors must be a tuple.")
+
+    if not descriptors:
+        raise ValueError("At least one tool descriptor is required.")
+
+    names: set[str] = set()
+
+    for descriptor in descriptors:
+        if type(descriptor) is not ToolDescriptor:
+            raise TypeError("Expected a ToolDescriptor.")
+
+        name = descriptor.definition.name
+
+        if name in names:
+            raise ValueError("Tool descriptor names must be unique.")
+
+        names.add(name)
+
+
+def _validate_tool_sources(
+    registrations: tuple[ToolRegistration, ...],
+    descriptors: tuple[ToolDescriptor, ...],
+) -> None:
+    if type(registrations) is not tuple:
+        raise TypeError("Tool registrations must be a tuple.")
+
+    if type(descriptors) is not tuple:
+        raise TypeError("Tool descriptors must be a tuple.")
+
+    if registrations and descriptors:
+        raise ValueError("Select exactly one tool source.")
+
+    if not registrations and not descriptors:
+        raise ValueError("At least one tool selection is required.")
+
+    if registrations:
+        _validate_registrations(registrations)
+    else:
+        _validate_descriptors(descriptors)
 
 
 def _schema_snapshot(registration: ToolRegistration) -> dict[str, object]:
@@ -113,32 +162,85 @@ def serialize_tool_registrations(
     return [serialize_tool_registration(registration) for registration in ordered]
 
 
+def serialize_tool_descriptors(
+    descriptors: tuple[ToolDescriptor, ...],
+) -> list[dict[str, object]]:
+    """Map unique descriptors in deterministic tool-name order."""
+
+    _validate_descriptors(descriptors)
+
+    ordered = sorted(
+        descriptors,
+        key=lambda descriptor: descriptor.definition.name,
+    )
+
+    return [serialize_tool_descriptor(descriptor) for descriptor in ordered]
+
+
+def _serialize_selected_tools(
+    registrations: tuple[ToolRegistration, ...],
+    descriptors: tuple[ToolDescriptor, ...],
+) -> list[dict[str, object]]:
+    _validate_tool_sources(registrations, descriptors)
+
+    if registrations:
+        return serialize_tool_registrations(registrations)
+
+    return serialize_tool_descriptors(descriptors)
+
+
 @dataclass(frozen=True)
 class ToolTurnRequest:
-    """Initial text messages and an explicit selection of trusted tools."""
+    """Initial text messages and exactly one non empty tool source."""
 
     user_content: str = field(repr=False)
-    registrations: tuple[ToolRegistration, ...] = field(repr=False)
-    system_content: str | None = field(default=None, repr=False)
+    registrations: tuple[ToolRegistration, ...] = field(
+        default=(),
+        repr=False,
+    )
+    system_content: str | None = field(
+        default=None,
+        repr=False,
+    )
+    descriptors: tuple[ToolDescriptor, ...] = field(
+        default=(),
+        repr=False,
+        kw_only=True,
+    )
 
     def __post_init__(self) -> None:
         _validate_text(self.user_content)
         _validate_text(self.system_content, optional=True)
-        _validate_registrations(self.registrations)
+        _validate_tool_sources(
+            self.registrations,
+            self.descriptors,
+        )
 
 
 @dataclass(frozen=True)
 class ToolConversationRequest:
-    """A provider-ready conversation and explicitly selected tools."""
+    """A provider-ready conversation and one non empty tool source."""
 
     conversation: ToolConversation = field(repr=False)
-    registrations: tuple[ToolRegistration, ...] = field(repr=False)
+    registrations: tuple[ToolRegistration, ...] = field(
+        default=(),
+        repr=False,
+    )
+    descriptors: tuple[ToolDescriptor, ...] = field(
+        default=(),
+        repr=False,
+        kw_only=True,
+    )
 
     def __post_init__(self) -> None:
         if type(self.conversation) is not ToolConversation:
             raise TypeError("Expected a ToolConversation.")
 
-        _validate_registrations(self.registrations)
+        _validate_tool_sources(
+            self.registrations,
+            self.descriptors,
+        )
+
         self.conversation.validate_ready_for_provider()
 
 
@@ -146,6 +248,7 @@ def _build_tool_payload(
     config: ModelConfig,
     messages: list[dict[str, object]],
     registrations: tuple[ToolRegistration, ...],
+    descriptors: tuple[ToolDescriptor, ...],
 ) -> dict[str, object]:
     if type(config) is not ModelConfig:
         raise TypeError("Expected a ModelConfig.")
@@ -171,7 +274,10 @@ def _build_tool_payload(
     payload: dict[str, object] = {
         "model": config.model_id,
         "messages": messages,
-        "tools": serialize_tool_registrations(registrations),
+        "tools": _serialize_selected_tools(
+            registrations,
+            descriptors,
+        ),
         "temperature": config.temperature,
         "stream": False,
     }
@@ -191,9 +297,12 @@ def build_openai_tool_payload(
 ) -> dict[str, object]:
     """Build one non-streaming initial-turn payload without runtime I/O.
 
-    Schema hooks are trusted code; this is not a schema sandbox or an endpoint
-    compatibility check. Returned payloads are independent, not secret-redacted.
-    No message/schema size budget is enforced here.
+    Local schema hooks are trusted code. Descriptor schemas are already
+    snapshotted and bounded by their own contract. This builder does not
+    enforce an aggregate payload or message-size budget.
+
+    Returned payloads are independent, not secret-redacted. This is not an
+    endpoint compatibility check.
     """
 
     if type(request) is not ToolTurnRequest:
@@ -220,6 +329,7 @@ def build_openai_tool_payload(
         config,
         messages,
         request.registrations,
+        request.descriptors,
     )
 
 
@@ -237,4 +347,5 @@ def build_openai_tool_conversation_payload(
         config,
         messages,
         request.registrations,
+        request.descriptors,
     )

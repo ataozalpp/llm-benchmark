@@ -2,6 +2,7 @@ import pytest
 
 from llm_benchmark.tool_calling import NormalizationToolTurn
 from llm_benchmark.tool_conversation import ToolConversation, UserMessage
+from llm_benchmark.tool_descriptors import descriptor_from_registration
 from llm_benchmark.tool_execution import ToolExecutor
 from llm_benchmark.tool_loop import (
     ToolLoopPolicy,
@@ -43,16 +44,18 @@ class RecordingExecutor:
         self.calls.append(call)
         return self.result
 
-def make_request():
+
+def make_request(*, descriptors=False):
     registry = create_example_tool_registry()
     registration = registry.get("calculator")
     assert registration is not None
 
     return ToolConversationRequest(
-        conversation=ToolConversation(
-            messages=(UserMessage("Synthetic task."),)
-        ),
-        registrations=(registration,),
+        conversation=ToolConversation(messages=(UserMessage("Synthetic task."),)),
+        registrations=() if descriptors else (registration,),
+        descriptors=(descriptor_from_registration(registration),)
+        if descriptors
+        else (),
     )
 
 
@@ -122,20 +125,16 @@ def test_default_and_injected_runtime_have_equal_results():
     )
 
     default_result = run_tool_loop(
-        provider=ScriptedProvider(
-            (calls_response(make_call()),final_response())
-        ),
+        provider=ScriptedProvider((calls_response(make_call()), final_response())),
         request=request,
         policy=policy,
     )
 
     injected_result = run_tool_loop(
-        provider=ScriptedProvider(
-            (calls_response(make_call()),final_response())
-        ),
+        provider=ScriptedProvider((calls_response(make_call()), final_response())),
         request=request,
         policy=policy,
-        executor=ToolRuntime(create_example_tool_registry())
+        executor=ToolRuntime(create_example_tool_registry()),
     )
 
     assert injected_result == default_result
@@ -156,9 +155,7 @@ def test_injected_executor_avoids_local_runtime_initialization(
     monkeypatch.setattr(loop_module, "ToolRuntime", reject_runtime)
 
     result = run_tool_loop(
-        provider=ScriptedProvider(
-            (calls_response(call), final_response())
-        ),
+        provider=ScriptedProvider((calls_response(call), final_response())),
         request=request,
         policy=ToolLoopPolicy(2, 1),
         executor=executor,
@@ -173,7 +170,10 @@ def test_injected_executor_avoids_local_runtime_initialization(
 def test_invalid_executor_is_rejected_before_provider(executor):
     provider = ScriptedProvider(())
 
-    with pytest.raises(TypeError, match="Executor must support tool execution.",):
+    with pytest.raises(
+        TypeError,
+        match="Executor must support tool execution.",
+    ):
         run_tool_loop(
             provider=provider,
             request=make_request(),
@@ -204,16 +204,16 @@ def test_invalid_executor_is_rejected_before_provider(executor):
         ),
     ],
 )
+@pytest.mark.parametrize("descriptors", [False, True])
 def test_invalid_executor_results_abort_before_next_provider_turn(
     returned,
     error,
     message,
+    descriptors,
 ):
-    provider = ScriptedProvider(
-        (calls_response(make_call()),final_response())
-    )
+    provider = ScriptedProvider((calls_response(make_call()), final_response()))
     executor = RecordingExecutor(returned)
-    request = make_request()
+    request = make_request(descriptors=descriptors)
 
     with pytest.raises(error, match=message):
         run_tool_loop(
@@ -251,16 +251,18 @@ def test_invalid_executor_results_abort_before_next_provider_turn(
         ),
     ],
 )
+@pytest.mark.parametrize("descriptors", [False, True])
 def test_guards_prevent_executor_calls(
     calls,
     policy,
     expected_reason,
+    descriptors,
 ):
     executor = RecordingExecutor(successful_result())
 
     result = run_tool_loop(
         provider=ScriptedProvider((calls_response(*calls),)),
-        request=make_request(),
+        request=make_request(descriptors=descriptors),
         policy=policy,
         executor=executor,
     )
@@ -270,7 +272,8 @@ def test_guards_prevent_executor_calls(
     assert result.tool_results == ()
 
 
-def test_normalized_executor_failure_is_added_to_conversation():
+@pytest.mark.parametrize("descriptors", [False, True])
+def test_normalized_executor_failure_is_added_to_conversation(descriptors):
     failure = ToolResult(
         call_id="call_1",
         tool_name="calculator",
@@ -278,13 +281,11 @@ def test_normalized_executor_failure_is_added_to_conversation():
         error_code=ToolErrorCode.TOOL_EXECUTION_FAILED,
     )
     executor = RecordingExecutor(failure)
-    provider = ScriptedProvider(
-        (calls_response(make_call()), final_response())
-    )
+    provider = ScriptedProvider((calls_response(make_call()), final_response()))
 
     result = run_tool_loop(
         provider=provider,
-        request=make_request(),
+        request=make_request(descriptors=descriptors),
         policy=ToolLoopPolicy(2, 1),
         executor=executor,
     )
@@ -298,24 +299,67 @@ def test_normalized_executor_failure_is_added_to_conversation():
     "error_type",
     [RuntimeError, KeyboardInterrupt, SystemExit],
 )
-def test_executor_exceptions_propagate(error_type):
+@pytest.mark.parametrize("descriptors", [False, True])
+def test_executor_exceptions_propagate(error_type, descriptors):
     expected_error = error_type("Syntetic executor failure.")
 
     class RaisingExecutor:
         def execute(self, call):
             raise expected_error
 
-    provider = ScriptedProvider(
-        (calls_response(make_call()), final_response())
-    )
+    provider = ScriptedProvider((calls_response(make_call()), final_response()))
 
     with pytest.raises(error_type) as captured:
         run_tool_loop(
             provider=provider,
-            request=make_request(),
+            request=make_request(descriptors=descriptors),
             policy=ToolLoopPolicy(2, 1),
             executor=RaisingExecutor(),
         )
 
     assert captured.value is expected_error
     assert len(provider.requests) == 1
+
+
+def test_descriptor_request_requires_executor_before_runtime_or_provider(monkeypatch):
+    import llm_benchmark.tool_loop as loop_module
+
+    request = make_request(descriptors=True)
+    provider = ScriptedProvider(())
+
+    def reject(*args, **kwargs):
+        raise AssertionError("Runtime must not initialize.")
+
+    monkeypatch.setattr(loop_module, "ToolRegistry", reject)
+    monkeypatch.setattr(loop_module, "ToolRuntime", reject)
+    with pytest.raises(ValueError, match="Descriptor-only execution requires"):
+        run_tool_loop(provider=provider, request=request, policy=ToolLoopPolicy(2, 1))
+    assert provider.requests == []
+
+
+def test_descriptor_loop_preserves_selection_and_uses_only_executor(monkeypatch):
+    import llm_benchmark.tool_loop as loop_module
+
+    request = make_request(descriptors=True)
+    provider = ScriptedProvider((calls_response(make_call()), final_response()))
+    executor = RecordingExecutor(successful_result())
+
+    def reject(*args, **kwargs):
+        raise AssertionError("Local runtime must not initialize.")
+
+    monkeypatch.setattr(loop_module, "ToolRegistry", reject)
+    monkeypatch.setattr(loop_module, "ToolRuntime", reject)
+    result = run_tool_loop(
+        provider=provider,
+        request=request,
+        policy=ToolLoopPolicy(2, 1),
+        executor=executor,
+    )
+    assert result.stop_reason is ToolLoopStopReason.FINAL_RESPONSE
+    assert result.final_text == "391"
+    assert executor.calls == [make_call()]
+    assert len(provider.requests) == 2
+    for sent in provider.requests:
+        assert sent.registrations == ()
+        assert sent.descriptors == request.descriptors
+    assert len(request.conversation.messages) == 1

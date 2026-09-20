@@ -16,6 +16,12 @@ parameters.
 
 ## Current implementation
 
+- Standalone immutable tool descriptors separate schema data from executable
+  handlers. Local registration conversion preserves example-tool payloads;
+  descriptor-only requests and loop execution with an explicit trusted executor
+  are supported. MCP integration is not implemented. See
+  [Tool descriptors](docs/architecture.md#tool-descriptors).
+
 - Strict, immutable Pydantic `schema_version: 1` YAML configuration with CLI
   overrides.
 - Project-owned local JSONL fixture data and a pinned

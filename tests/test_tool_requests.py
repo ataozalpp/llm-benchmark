@@ -21,11 +21,16 @@ from llm_benchmark.tool_conversation import (
     UserMessage,
     serialize_conversation,
 )
+from llm_benchmark.tool_descriptors import (
+    ToolDescriptor,
+    descriptor_from_registration,
+)
 from llm_benchmark.tool_requests import (
     ToolConversationRequest,
     ToolTurnRequest,
     build_openai_tool_conversation_payload,
     build_openai_tool_payload,
+    serialize_tool_descriptors,
     serialize_tool_registration,
     serialize_tool_registrations,
 )
@@ -58,6 +63,10 @@ def registration(name: str = "example") -> ToolRegistration:
         argument_model=ExampleArguments,
         handler=forbidden_handler,
     )
+
+
+def descriptor(name: str = "example") -> ToolDescriptor:
+    return descriptor_from_registration(registration(name))
 
 
 def model_config(**updates: object) -> ModelConfig:
@@ -698,6 +707,18 @@ conversation_request = ToolConversationRequest(
     registrations=(selected,),
 )
 assert build_openai_tool_conversation_payload(config, conversation_request)['stream'] is False
+from llm_benchmark.tool_descriptors import ToolDescriptor
+descriptor = ToolDescriptor(
+    definition=ToolDefinition('external_example', 'Synthetic description.'),
+    parameters={'type': 'object', '$ref': 'https://example.invalid/schema'},
+)
+request = ToolTurnRequest(user_content='Synthetic request.', descriptors=(descriptor,))
+assert build_openai_tool_payload(config, request)['tools'][0]['function']['name'] == 'external_example'
+conversation_request = ToolConversationRequest(
+    conversation=ToolConversation((UserMessage('Synthetic request.'),)),
+    descriptors=(descriptor,),
+)
+assert build_openai_tool_conversation_payload(config, conversation_request)['stream'] is False
 for name in ('providers', 'runner', 'trace', 'api', 'worker', 'db', 'tools'):
     assert 'llm_benchmark.' + name not in sys.modules
 """
@@ -712,3 +733,210 @@ for name in ('providers', 'runner', 'trace', 'api', 'worker', 'db', 'tools'):
     )
     assert completed.returncode == 0, completed.stderr
     assert list(tmp_path.iterdir()) == []
+
+
+def test_descriptor_serialization_is_sorted_without_mutating_input():
+    selected = (
+        descriptor("zeta"),
+        descriptor("alpha"),
+    )
+
+    result = serialize_tool_descriptors(selected)
+
+    assert [item["function"]["name"] for item in result] == ["alpha", "zeta"]
+
+    assert [item.definition.name for item in selected] == ["zeta", "alpha"]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [None, [], [descriptor()], (object(),)],
+)
+def test_descriptor_collection_rejects_invalid_types(value):
+    with pytest.raises(TypeError):
+        serialize_tool_descriptors(value)
+
+
+def test_descriptor_collection_rejects_empty_selection():
+    with pytest.raises(ValueError, match="At least one"):
+        serialize_tool_descriptors(())
+
+
+def test_descriptor_collection_rejects_duplicate_names():
+    with pytest.raises(ValueError, match="unique"):
+        serialize_tool_descriptors(
+            (
+                descriptor("duplicate"),
+                descriptor("duplicate"),
+            )
+        )
+
+
+def descriptor_request(kind, **sources):
+    if kind == "initial":
+        return ToolTurnRequest(user_content="Synthetic task.", **sources)
+    return ToolConversationRequest(
+        conversation=ToolConversation((UserMessage("Synthetic task."),)),
+        **sources,
+    )
+
+
+def descriptor_payload(kind, request, config=None):
+    builder = (
+        build_openai_tool_payload
+        if kind == "initial"
+        else build_openai_tool_conversation_payload
+    )
+    return builder(model_config() if config is None else config, request)
+
+
+@pytest.mark.parametrize("kind", ["initial", "conversation"])
+def test_handler_free_descriptor_payload(kind, monkeypatch):
+    selected = ToolDescriptor(
+        definition=ToolDefinition("external_example", "Synthetic description."),
+        parameters={"type": "object", "properties": {"value": {"type": "integer"}}},
+    )
+
+    def reject(*args, **kwargs):
+        raise AssertionError("Local schema hooks must not run.")
+
+    monkeypatch.setattr(ExampleArguments, "model_json_schema", reject)
+    request = descriptor_request(kind, descriptors=(selected,))
+    payload = descriptor_payload(kind, request)
+    assert request.registrations == ()
+    assert payload["tools"] == serialize_tool_descriptors((selected,))
+    assert payload["messages"] == [{"role": "user", "content": "Synthetic task."}]
+
+
+@pytest.mark.parametrize("kind", ["initial", "conversation"])
+def test_two_nonempty_sources_rejected(kind):
+    with pytest.raises(ValueError, match="exactly one"):
+        descriptor_request(
+            kind, registrations=(registration(),), descriptors=(descriptor(),)
+        )
+
+
+@pytest.mark.parametrize("kind", ["initial", "conversation"])
+def test_missing_tool_sources_rejected(kind):
+    with pytest.raises(ValueError, match="At least one"):
+        descriptor_request(kind)
+
+
+@pytest.mark.parametrize("kind", ["initial", "conversation"])
+@pytest.mark.parametrize("selected", [None, [], [descriptor()], (object(),)])
+def test_invalid_descriptor_request_types(kind, selected):
+    with pytest.raises(TypeError):
+        descriptor_request(kind, descriptors=selected)
+
+
+@pytest.mark.parametrize("kind", ["initial", "conversation"])
+@pytest.mark.parametrize("source", ["registrations", "descriptors"])
+@pytest.mark.parametrize("invalid", [None, []])
+def test_unused_source_still_requires_tuple(kind, source, invalid):
+    sources = (
+        {"registrations": invalid, "descriptors": (descriptor(),)}
+        if source == "registrations"
+        else {"registrations": (registration(),), "descriptors": invalid}
+    )
+    with pytest.raises(TypeError, match="tuple"):
+        descriptor_request(kind, **sources)
+
+
+@pytest.mark.parametrize("kind", ["initial", "conversation"])
+def test_duplicate_request_descriptors_rejected(kind):
+    with pytest.raises(ValueError, match="unique"):
+        descriptor_request(kind, descriptors=(descriptor(), descriptor()))
+
+
+@pytest.mark.parametrize("kind", ["initial", "conversation"])
+def test_descriptor_request_payload_parity(kind):
+    selected = registration()
+    local = descriptor_request(kind, registrations=(selected,))
+    described = descriptor_request(
+        kind, descriptors=(descriptor_from_registration(selected),)
+    )
+    assert descriptor_payload(kind, local) == descriptor_payload(kind, described)
+
+
+@pytest.mark.parametrize("kind", ["initial", "conversation"])
+def test_descriptor_request_snapshot_and_repr(kind):
+    selected = ToolDescriptor(
+        definition=ToolDefinition("example", "PRIVATE_DESCRIPTOR_SENTINEL"),
+        parameters={"type": "object", "properties": {"value": {"type": "integer"}}},
+    )
+    request = descriptor_request(kind, descriptors=(selected,))
+    payload = descriptor_payload(kind, request)
+    payload["tools"][0]["function"]["parameters"]["properties"].clear()
+    payload["messages"][0]["content"] = "changed"
+    fresh = descriptor_payload(kind, request)
+    assert "value" in fresh["tools"][0]["function"]["parameters"]["properties"]
+    assert fresh["messages"][0]["content"] == "Synthetic task."
+    assert "PRIVATE_DESCRIPTOR_SENTINEL" not in repr(request)
+    with pytest.raises(FrozenInstanceError):
+        request.descriptors = ()
+
+
+@pytest.mark.parametrize("terminal", [False, True])
+def test_descriptor_conversation_requires_readiness(terminal):
+    conversation = ToolConversation(completed_conversation().messages[:2])
+    if terminal:
+        conversation = ToolConversation(
+            (
+                UserMessage("Task"),
+                AssistantMessage(
+                    NormalizationToolTurn(
+                        content="Final", tool_calls=(), finish_reason="stop"
+                    )
+                ),
+            )
+        )
+    with pytest.raises(ValueError, match="not ready"):
+        ToolConversationRequest(conversation=conversation, descriptors=(descriptor(),))
+
+
+def test_legacy_positional_constructors_and_keyword_only_descriptors():
+    selected = (registration(),)
+    initial = ToolTurnRequest("Task", selected, "System")
+    conversation = ToolConversation((UserMessage("Task"),))
+    request = ToolConversationRequest(conversation, selected)
+    assert initial.system_content == "System"
+    assert initial.registrations == request.registrations == selected
+    assert initial.descriptors == request.descriptors == ()
+    with pytest.raises(TypeError):
+        ToolTurnRequest("Task", (), None, (descriptor(),))
+    with pytest.raises(TypeError):
+        ToolConversationRequest(conversation, (), (descriptor(),))
+
+
+@pytest.mark.parametrize("kind", ["initial", "conversation"])
+def test_descriptor_generation_settings_unchanged(kind):
+    request = descriptor_request(kind, descriptors=(descriptor(),))
+    payload = descriptor_payload(
+        kind, request, model_config(max_output_tokens=128, temperature=0.5, top_p=0.9)
+    )
+    assert payload["max_tokens"] == 128
+    assert payload["temperature"] == 0.5
+    assert payload["top_p"] == 0.9
+    assert payload["stream"] is False
+    default = descriptor_payload(kind, request)
+    assert "max_tokens" not in default
+    assert "top_p" not in default
+    with pytest.raises(ValueError, match="Unsupported"):
+        descriptor_payload(kind, request, model_config(reasoning="off"))
+
+
+def test_local_schema_path_keeps_existing_size_policy(monkeypatch):
+    selected = registration()
+    schema = {"type": "object", "description": "x" * 65_537}
+    monkeypatch.setattr(
+        selected.argument_model, "model_json_schema", lambda **kwargs: schema
+    )
+    request = ToolTurnRequest("Task", (selected,))
+    assert (
+        build_openai_tool_payload(model_config(), request)["tools"][0]["function"][
+            "parameters"
+        ]
+        == schema
+    )
+    with pytest.raises(ValueError, match="size limit"):
+        descriptor_from_registration(selected)

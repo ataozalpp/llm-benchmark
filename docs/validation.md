@@ -362,6 +362,33 @@ only matching policies; semantic judging and benchmark pipeline/persistence
 integration are not implemented. Standalone aggregation is covered below. See
 [Tool-loop evaluation](architecture.md#tool-loop-evaluation) for field semantics.
 
+## Tool descriptor validation
+
+`tests/test_tool_descriptors.py` covers frozen fields, input/output snapshot
+isolation, deterministic key ordering, strict JSON values, invalid root and
+contract types, UTF-8 keys/values, finite numbers, cyclic inputs, inclusive
+byte/depth boundaries, and multi-byte size accounting. Conversion tests compare
+both example tools with the unchanged request serializer, verify that handlers
+are not executed, and preserve trusted schema-hook exceptions. A subprocess
+guard checks imports and reference serialization without writes, sockets,
+process execution, or runtime initialization. This is regression coverage, not
+a sandbox guarantee.
+
+```powershell
+python -m pytest tests/test_tool_descriptors.py tests/test_tool_requests.py -q
+```
+
+No real endpoint, full JSON Schema validator, descriptor-only request path, or
+MCP transport is validated. Reference strings are only retained as data. The
+byte bound applies after serialization, not to transport or peak memory. See
+[Tool descriptors](architecture.md#tool-descriptors).
+
+The descriptor checkpoint passed 136 focused descriptor/request tests and
+`1264 passed, 7 skipped` in the full forced-offline suite. Two skips were
+platform-dependent symlink tests and five were PostgreSQL tests without a
+configured test URL. Ruff and whitespace checks passed. This does not establish
+real-model or PostgreSQL interoperability for this checkpoint.
+
 ## Tool executor validation
 
 `tests/test_tool_execution.py` checks the existing runtime's executor contract,

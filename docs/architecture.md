@@ -507,6 +507,38 @@ No runner, API, worker, trace, artifact, config-hash, or database integration is
 added. Scripted-provider validation does not establish real-model tool-call
 interoperability. Tool-call evaluation is a separate boundary described below.
 
+### Tool descriptors
+
+`tool_descriptors.py` provides a frozen `ToolDescriptor` containing an existing
+`ToolDefinition` and an independent JSON parameter-schema snapshot. Input schema
+mutation, returned parameter mutation, and serialized payload mutation do not
+change the stored snapshot. Schema data is excluded from repr; definition text
+is not redacted, so this is not a general secret-filtering boundary.
+
+The root must be an exact dictionary with `type="object"`. Nested values must
+be strict JSON values with string keys, finite numbers, and valid UTF-8 text.
+Canonical compact serialization sorts object keys and preserves array order.
+The serialized schema is limited to 65,536 UTF-8 bytes, inclusive. Nesting is
+limited to depth 32, inclusive, with the root at zero and keys/scalar leaves
+included in depth accounting. Cyclic structures reach the depth limit and are
+rejected. These are descriptor policies, not changes to existing request rules.
+
+This validates JSON representation, not JSON Schema semantics or endpoint
+compatibility. References are retained as data and never resolved; there is no
+network access, code generation, or argument validation. Size checking follows
+serialization and does not bound input transport size or peak memory.
+
+`descriptor_from_registration()` uses a trusted Pydantic validation-schema hook
+without executing the handler. Hook exceptions propagate, including
+`BaseException` subclasses. `serialize_tool_descriptor()` creates an independent
+OpenAI-compatible function description. Neither function starts a runtime.
+
+The existing request serializer remains unchanged. Descriptor conversion has
+stricter JSON/depth/size rules, so it is not yet a drop-in replacement for every
+possible existing schema hook. Local example payload parity is tested, but
+descriptor-only request/loop execution, external schema admission, discovery,
+and MCP transport remain future work.
+
 ### Tool execution boundary
 
 `tool_execution.py` defines the synchronous `ToolExecutor.execute(call)`

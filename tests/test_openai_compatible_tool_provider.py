@@ -22,6 +22,7 @@ from llm_benchmark.tool_conversation import (
     UserMessage,
     serialize_conversation,
 )
+from llm_benchmark.tool_descriptors import ToolDescriptor
 from llm_benchmark.tool_provider_models import ToolProviderErrorCode, ToolProviderStatus
 from llm_benchmark.tool_requests import (
     ToolConversationRequest,
@@ -29,8 +30,67 @@ from llm_benchmark.tool_requests import (
     build_openai_tool_conversation_payload,
     build_openai_tool_payload,
 )
-from llm_benchmark.tool_runtime import ToolExecutionStatus, ToolResult, ToolRuntime
+from llm_benchmark.tool_runtime import (
+    ToolDefinition,
+    ToolExecutionStatus,
+    ToolResult,
+    ToolRuntime,
+)
 from llm_benchmark.tools import create_example_tool_registry
+
+
+@pytest.mark.parametrize("conversation", [False, True])
+def test_handler_free_descriptors_use_existing_mock_transport(
+    conversation, monkeypatch
+):
+    descriptor = ToolDescriptor(
+        definition=ToolDefinition("calculator", "Synthetic calculator."),
+        parameters={"type": "object", "properties": {"left": {"type": "integer"}}},
+    )
+    transport = FakeTransport(response())
+    cfg = config()
+    provider = providers.OpenAICompatibleProvider(cfg, transport)
+
+    def reject(*args, **kwargs):
+        raise AssertionError("Provider must not execute a tool.")
+
+    monkeypatch.setattr(ToolRuntime, "execute", reject)
+    if conversation:
+        req = ToolConversationRequest(
+            conversation=ToolConversation((UserMessage("Synthetic request"),)),
+            descriptors=(descriptor,),
+        )
+        result = provider.generate_tool_conversation(req)
+    else:
+        req = ToolTurnRequest(
+            user_content="Synthetic request", descriptors=(descriptor,)
+        )
+        result = provider.generate_tool_turn(req)
+    assert result.status is ToolProviderStatus.SUCCEEDED
+    assert result.turn.tool_calls[0].tool_name == "calculator"
+    assert transport.calls == [
+        (
+            "http://127.0.0.1:1234/v1/chat/completions",
+            {
+                "model": "synthetic",
+                "messages": [{"role": "user", "content": "Synthetic request"}],
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "calculator",
+                            "description": "Synthetic calculator.",
+                            "parameters": descriptor.parameters,
+                        },
+                    }
+                ],
+                "temperature": cfg.temperature,
+                "stream": False,
+            },
+            45,
+            None,
+        )
+    ]
 
 
 class FakeTransport:

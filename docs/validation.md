@@ -378,8 +378,8 @@ a sandbox guarantee.
 python -m pytest tests/test_tool_descriptors.py tests/test_tool_requests.py -q
 ```
 
-No real endpoint, full JSON Schema validator, descriptor-only request path, or
-MCP transport is validated. Reference strings are only retained as data. The
+No real endpoint, full JSON Schema validator, or MCP transport is validated.
+Reference strings are only retained as data. The
 byte bound applies after serialization, not to transport or peak memory. See
 [Tool descriptors](architecture.md#tool-descriptors).
 
@@ -388,6 +388,33 @@ The descriptor checkpoint passed 136 focused descriptor/request tests and
 platform-dependent symlink tests and five were PostgreSQL tests without a
 configured test URL. Ruff and whitespace checks passed. This does not establish
 real-model or PostgreSQL interoperability for this checkpoint.
+
+## Descriptor request and loop integration validation
+
+Request tests cover mutually exclusive sources, strict collection types,
+duplicate names, readiness, frozen snapshots, hidden repr fields, legacy
+positional constructors, payload parity, and unchanged local schema-size policy.
+Descriptor-only serialization is included in subprocess no-I/O checks.
+
+Executor tests cover early rejection without an executor, preservation of
+descriptor selection across turns, no local runtime initialization, and both
+request sources for authorization/budget checks, malformed executor results,
+normalized failures, and exception propagation. Provider tests use an injected
+fake transport to check exact initial/conversation payloads, URL, timeout, and
+omitted authorization without executing tools or making HTTP requests.
+
+```powershell
+python -m pytest tests/test_tool_execution.py tests/test_tool_requests.py tests/test_tool_descriptors.py tests/test_tool_loop.py tests/test_tool_suite.py tests/test_openai_compatible_tool_provider.py -q
+```
+
+The suite still uses local registry-based scenario preparation. MCP transport,
+external-schema semantic validation, executor isolation, and real-model
+interoperability remain outside this slice.
+
+The integration checkpoint passed 334 focused tests and `1319 passed, 7 skipped`
+in the full forced-offline suite. The skips were two platform-dependent symlink
+tests and five PostgreSQL tests without a configured test URL. Ruff and
+whitespace checks passed. All provider transport checks were mocked.
 
 ## Tool executor validation
 

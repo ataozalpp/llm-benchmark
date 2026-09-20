@@ -142,6 +142,9 @@ def run_tool_loop(
 
     request.conversation.validate_ready_for_provider()
 
+    if request.descriptors and executor is None:
+        raise ValueError("Descriptor-only execution requires an executor.")
+
     active_executor: ToolExecutor
 
     if executor is None:
@@ -157,10 +160,8 @@ def run_tool_loop(
 
         active_executor = executor
 
-    allowed_names = {
-        registration.definition.name
-        for registration in request.registrations
-    }
+    selected_tools = request.registrations or request.descriptors
+    allowed_names = {tool.definition.name for tool in selected_tools}
 
     conversation = request.conversation
     provider_results: list[ToolProviderResult] = []
@@ -183,6 +184,7 @@ def run_tool_loop(
         current_request = ToolConversationRequest(
             conversation=conversation,
             registrations=request.registrations,
+            descriptors=request.descriptors,
         )
 
         provider_result = provider.generate_tool_conversation(current_request)

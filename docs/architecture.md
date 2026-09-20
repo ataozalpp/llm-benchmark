@@ -444,7 +444,8 @@ calls is terminal; later messages are rejected. A partial history may contain
 pending calls, but is not ready for another provider request.
 
 `ToolConversationRequest` validates readiness and a non-empty selection of
-registrations. `build_openai_tool_conversation_payload()` serializes messages
+registrations or descriptors, never both non-empty.
+`build_openai_tool_conversation_payload()` serializes messages
 using the same generation-policy checks as the initial builder. Tool messages
 carry a JSON status/output/error-code envelope. `append()` creates a new
 conversation; serialization produces independent payloads. These are not
@@ -454,8 +455,9 @@ secret-redacted representations or a general conversation-size limit.
 
 `run_tool_loop(provider, request, policy)` takes keyword-only arguments and uses
 the `ConversationProvider.generate_tool_conversation()` protocol, not a concrete
-provider import. Each invocation builds a fresh registry from exactly the
-selected registrations and executes tools sequentially through `ToolRuntime`.
+provider import. Default local execution builds a fresh registry from exactly
+the selected registrations and uses `ToolRuntime`. Descriptor-only execution
+requires an explicit executor and does not construct a local registry/runtime.
 Importing the module does not initialize a registry or runtime.
 
 ```text
@@ -485,7 +487,7 @@ not rollback of handler side effects.
 | `invalid_response` | Provider returned `response_invalid` |
 | `invalid_conversation` | Appending an assistant turn violates history rules, such as a reused call ID |
 | `completion_unconfirmed` | A text-only turn lacks the required final finish reason |
-| `tool_not_allowed` | A batch names a tool outside the selected registrations |
+| `tool_not_allowed` | A batch names a tool outside the selected registrations or descriptors |
 | `tool_call_limit` | The whole batch exceeds the remaining tool budget |
 | `provider_turn_limit` | No provider turn remains to continue execution |
 
@@ -533,11 +535,24 @@ without executing the handler. Hook exceptions propagate, including
 `BaseException` subclasses. `serialize_tool_descriptor()` creates an independent
 OpenAI-compatible function description. Neither function starts a runtime.
 
-The existing request serializer remains unchanged. Descriptor conversion has
+The existing local registration serializer remains unchanged. Descriptor conversion has
 stricter JSON/depth/size rules, so it is not yet a drop-in replacement for every
 possible existing schema hook. Local example payload parity is tested, but
-descriptor-only request/loop execution, external schema admission, discovery,
-and MCP transport remain future work.
+external schema admission, discovery, and MCP transport remain future work.
+
+Initial and conversation requests accept exactly one non-empty tuple source:
+local `registrations` or keyword-only `descriptors`. Empty tuples represent an
+unused source; non-tuple sources and duplicate names are rejected. Existing
+positional constructors and the local serializer are preserved. The descriptor
+path serializes immutable schemas in tool-name order without local schema hooks
+or handler execution. Per-descriptor bounds do not limit aggregate payload size.
+
+The loop reads its allowlist from the selected source and preserves that source
+in every provider turn. A descriptor-only request without an executor fails
+before provider or runtime initialization, even for a potential direct answer.
+Both sources share the same authorization, budgets, result-identity checks, and
+exception policy. Mock transport validates both provider operations; it does
+not establish real endpoint interoperability.
 
 ### Tool execution boundary
 
@@ -563,7 +578,8 @@ and `BaseException` subclasses propagate. Prior side effects are not rolled back
 
 This is a trusted extension boundary, not sandboxing, hard cancellation, MCP
 transport, remote discovery, or external JSON Schema registration. Request
-registrations still use the existing local Pydantic/handler contract.
+registrations still use the existing local Pydantic/handler contract, while
+descriptor-only requests carry no executable handler.
 
 ## Tool-loop evaluation
 

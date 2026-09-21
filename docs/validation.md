@@ -407,9 +407,10 @@ omitted authorization without executing tools or making HTTP requests.
 python -m pytest tests/test_tool_execution.py tests/test_tool_requests.py tests/test_tool_descriptors.py tests/test_tool_loop.py tests/test_tool_suite.py tests/test_openai_compatible_tool_provider.py -q
 ```
 
-The suite still uses local registry-based scenario preparation. MCP transport,
-external-schema semantic validation, executor isolation, and real-model
-interoperability remain outside this slice.
+At this integration checkpoint, the suite used local registry-based preparation;
+descriptor-suite coverage is described below. MCP transport, external-schema
+semantic validation, executor isolation, and real-model interoperability remain
+outside this slice.
 
 The integration checkpoint passed 334 focused tests and `1319 passed, 7 skipped`
 in the full forced-offline suite. The skips were two platform-dependent symlink
@@ -450,16 +451,19 @@ Coverage is split across:
 - `tests/test_tool_scenarios.py`: immutable definitions, independent factories,
   strict text/tool/policy contracts, expected-tool selection, and example
   compatibility with local schemas and loop budgets.
-- `tests/test_tool_scenario_requests.py`: selected registrations only, preserved
+- `tests/test_tool_scenario_requests.py`: selected registrations or descriptors, preserved
   order, fresh histories, missing tools, payload mutation isolation, and no
   copying of gold evaluation fields into serialized requests. Request building
-  does not initialize the runtime or execute handlers.
+  does not initialize the runtime or execute handlers. Descriptor collections
+  also reject duplicate unselected names and use safe missing-tool messages.
 - `tests/test_tool_suite.py`: end-to-end synthetic execution, all-request
-  preparation before provider creation, duplicate IDs, invalid factory results,
+  preparation before either factory, duplicate IDs, invalid factory results,
   normalized failures continuing to the next case, and unexpected exceptions
   (including `KeyboardInterrupt` and `SystemExit`) propagating without further
   case execution. Frozen results, derived summaries, repeated execution, and
-  selected-tool stability are also covered.
+  selected-tool stability are also covered. Descriptor/local result parity,
+  executor-before-provider ordering, mutually exclusive sources, and executor
+  factory/execution exceptions are verified with synthetic implementations.
 - `tests/test_tool_reporting.py`: explicit match denominators, unavailable
   coverage, null rates, strict counts, immutable summaries, duplicate rejection,
   stable stop-reason distributions, consistency checks, and real evaluator
@@ -480,10 +484,22 @@ whitespace checks passed. Two skips were platform-dependent symlink tests and
 five were PostgreSQL tests without a configured test URL. These are prior
 results, not tests rerun for this documentation update.
 
+The later descriptor-suite checkpoint passed 284 focused tests with:
+
+```powershell
+python -m pytest tests/test_tool_suite.py tests/test_tool_scenario_requests.py tests/test_tool_requests.py tests/test_tool_execution.py tests/test_tool_loop.py -q
+```
+
+The complete forced-offline result was `1357 passed, 7 skipped`; Ruff and
+whitespace checks passed. The seven skips had the same platform/PostgreSQL
+configuration causes described above. These are previously executed results,
+not a fresh test run for this documentation-only update.
+
 This coverage does not verify a real tool-calling endpoint, MCP transport,
 suite persistence, wall-clock cancellation, or shared model/profile provenance.
-A provider factory is trusted to supply independent providers; local handlers
-are not isolated from process state. Preparation is not remote preflight, and
+Provider/executor factories are trusted to supply independent instances and
+manage acquired resources; the suite does not close them. Local handlers are
+not isolated from process state. Preparation is not remote preflight, and
 an exception aborting a suite does not undo earlier calls. See
 [Tool-evaluation suites](architecture.md#tool-evaluation-suites).
 

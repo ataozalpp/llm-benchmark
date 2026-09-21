@@ -64,7 +64,8 @@ parameters.
 - Synthetic tool scenarios, selected-tool request preparation, and a standalone
   sequential evaluation suite with separate match rates, coverage counts, and
   stop-reason distribution. Expectations stay outside generated provider
-  requests; suite persistence and MCP integration are not implemented. See
+  requests. Suites accept local registrations or descriptors with an explicit
+  executor factory; suite persistence and MCP integration are not implemented. See
   [Tool-evaluation suites](docs/architecture.md#tool-evaluation-suites).
 - `MockProvider`, LM Studio native, and generic OpenAI-compatible provider
   adapters behind one normalized provider boundary.

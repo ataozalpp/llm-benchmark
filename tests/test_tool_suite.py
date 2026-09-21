@@ -3,13 +3,14 @@ from dataclasses import FrozenInstanceError, replace
 import pytest
 
 from llm_benchmark.tool_calling import NormalizationToolTurn
+from llm_benchmark.tool_descriptors import descriptor_from_registration
 from llm_benchmark.tool_provider_models import (
     ToolProviderErrorCode,
     ToolProviderResult,
     ToolProviderStatus,
 )
 from llm_benchmark.tool_reporting import MetricCount
-from llm_benchmark.tool_runtime import ToolCall
+from llm_benchmark.tool_runtime import ToolCall, ToolRegistry, ToolRuntime
 from llm_benchmark.tool_scenarios import (
     create_example_tool_scenarios,
 )
@@ -167,7 +168,7 @@ def test_invalid_dependencies(field) -> None:
         registry=create_example_tool_registry(),
         provider_factory=forbidden,
     )
-    values[field] = None
+    values[field] = object() if field == "registry" else None
     with pytest.raises(TypeError):
         run_tool_suite(**values)
 
@@ -321,3 +322,275 @@ def test_late_registry_additions_do_not_expand_selected_tools() -> None:
         tuple(r.definition.name for r in p.requests[0].registrations) == ("calculator",)
         for p in registrations
     )
+
+
+def example_descriptors():
+    registry = create_example_tool_registry()
+    return tuple(
+        descriptor_from_registration(registry.get(definition.name))
+        for definition in registry.list_definitions()
+    )
+
+
+def local_executor(request):
+    available = create_example_tool_registry()
+    selected = ToolRegistry()
+    for descriptor in request.descriptors:
+        selected.register(available.get(descriptor.definition.name))
+    return ToolRuntime(selected)
+
+
+def calculator_script():
+    return (
+        successful_turn(
+            content=None,
+            finish_reason="tool_calls",
+            calls=(
+                ToolCall(
+                    call_id="calculator_1",
+                    tool_name="calculator",
+                    arguments={"operation": "multiply", "left": 17, "right": 23},
+                ),
+            ),
+        ),
+        successful_turn(content="391"),
+    )
+
+
+def test_descriptor_suite_matches_local_and_isolates_case_requests():
+    scenarios = create_example_tool_scenarios()
+
+    def providers():
+        scripts = iter((calculator_script(), (successful_turn(content="READY"),)))
+        return lambda: ScriptedProvider(next(scripts))
+
+    local = run_tool_suite(
+        scenarios=scenarios,
+        registry=create_example_tool_registry(),
+        provider_factory=providers(),
+    )
+    requests, executors = [], []
+
+    def executor_factory(request):
+        requests.append(request)
+        executor = local_executor(request)
+        executors.append(executor)
+        return executor
+
+    described = run_tool_suite(
+        scenarios=scenarios,
+        descriptors=example_descriptors(),
+        provider_factory=providers(),
+        executor_factory=executor_factory,
+    )
+    assert described == local
+    assert described.summary == local.summary
+    assert len(executors) == 2
+    assert executors[0] is not executors[1]
+    assert requests[0].conversation is not requests[1].conversation
+    assert all(r.registrations == () for r in requests)
+    assert all(
+        tuple(d.definition.name for d in r.descriptors) == ("calculator",)
+        for r in requests
+    )
+
+
+def test_later_missing_descriptor_prevents_both_factories():
+    first, second = create_example_tool_scenarios()
+    second = replace(second, available_tools=("private_missing_name",))
+
+    def forbidden(*args):
+        pytest.fail("No factory may run before preparation completes")
+
+    with pytest.raises(ValueError) as caught:
+        run_tool_suite(
+            scenarios=(first, second),
+            descriptors=example_descriptors(),
+            provider_factory=forbidden,
+            executor_factory=forbidden,
+        )
+    assert str(caught.value) == "A selected scenario tool is not available."
+
+
+def test_repeated_descriptor_suites_preserve_inputs_and_results():
+    scenario = create_example_tool_scenarios()[1]
+    available = example_descriptors()
+    requests = []
+
+    def executor_factory(request):
+        requests.append(request)
+        return local_executor(request)
+
+    def run():
+        return run_tool_suite(
+            scenarios=(scenario,),
+            descriptors=available,
+            executor_factory=executor_factory,
+            provider_factory=lambda: ScriptedProvider((successful_turn(content="READY"),)),
+        )
+
+    first, second = run(), run()
+    assert first == second
+    assert first is not second
+    assert requests[0].conversation is not requests[1].conversation
+    assert available == example_descriptors()
+    assert scenario == create_example_tool_scenarios()[1]
+    with pytest.raises(FrozenInstanceError):
+        first.evaluations = ()
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "no_source",
+        "both",
+        "local_executor",
+        "invalid_descriptors",
+        "invalid_element",
+        "duplicate",
+        "no_executor",
+        "invalid_executor",
+        "duplicate_case",
+    ],
+)
+def test_descriptor_setup_fails_before_factories(mode):
+    def forbidden(*args):
+        pytest.fail("Unexpected factory call")
+
+    values = dict(
+        scenarios=create_example_tool_scenarios(),
+        descriptors=example_descriptors(),
+        executor_factory=forbidden,
+        provider_factory=forbidden,
+    )
+    if mode == "no_source":
+        values["descriptors"] = ()
+    elif mode == "both":
+        values["registry"] = create_example_tool_registry()
+    elif mode == "local_executor":
+        values.update(registry=create_example_tool_registry(), descriptors=())
+    elif mode == "invalid_descriptors":
+        values["descriptors"] = []
+    elif mode == "invalid_element":
+        values["descriptors"] = (object(),)
+    elif mode == "duplicate":
+        values["descriptors"] *= 2
+    elif mode == "duplicate_case":
+        values["scenarios"] = (values["scenarios"][0],) * 2
+    else:
+        values["executor_factory"] = None if mode == "no_executor" else object()
+    with pytest.raises((TypeError, ValueError)):
+        run_tool_suite(**values)
+
+
+@pytest.mark.parametrize(
+    "value", [None, object(), type("InvalidExecutor", (), {"execute": 1})()]
+)
+def test_invalid_executor_precedes_provider_factory(value):
+    attempts = []
+
+    def executor_factory(request):
+        attempts.append(request)
+        return value
+
+    def provider_factory():
+        pytest.fail("Provider must not be created")
+
+    with pytest.raises(TypeError, match="tool execution"):
+        run_tool_suite(
+            scenarios=create_example_tool_scenarios(),
+            descriptors=example_descriptors(),
+            provider_factory=provider_factory,
+            executor_factory=executor_factory,
+        )
+    assert len(attempts) == 1
+
+
+@pytest.mark.parametrize(
+    "source", ["executor_factory", "execute", "provider_factory", "provider"]
+)
+@pytest.mark.parametrize("error_type", [RuntimeError, KeyboardInterrupt, SystemExit])
+def test_descriptor_unexpected_failures_stop_suite(source, error_type):
+    error = error_type("private detail")
+    factories = []
+
+    class Executor:
+        def execute(self, call):
+            raise error
+
+    class Provider:
+        def generate_tool_conversation(self, request):
+            raise error
+
+    def executor_factory(request):
+        factories.append("executor")
+        if source == "executor_factory":
+            raise error
+        return Executor()
+
+    def provider_factory():
+        factories.append("provider")
+        if source == "provider_factory":
+            raise error
+        return (
+            Provider()
+            if source == "provider"
+            else ScriptedProvider(calculator_script())
+        )
+
+    with pytest.raises(error_type) as caught:
+        run_tool_suite(
+            scenarios=create_example_tool_scenarios(),
+            descriptors=example_descriptors(),
+            executor_factory=executor_factory,
+            provider_factory=provider_factory,
+        )
+    assert caught.value is error
+    assert factories == (
+        ["executor"] if source == "executor_factory" else ["executor", "provider"]
+    )
+
+
+@pytest.mark.parametrize("failure_source", ["provider", "tool"])
+def test_descriptor_normalized_failures_continue(failure_source):
+    from llm_benchmark.tool_runtime import (
+        ToolErrorCode,
+        ToolExecutionStatus,
+        ToolResult,
+    )
+
+    first = (
+        (
+            ToolProviderResult(
+                status=ToolProviderStatus.REQUEST_FAILED,
+                error_code=ToolProviderErrorCode.TIMEOUT,
+            ),
+        )
+        if failure_source == "provider"
+        else calculator_script()
+    )
+    scripts = iter((first, (successful_turn(content="READY"),)))
+    attempts = []
+
+    class Executor:
+        def execute(self, call):
+            return ToolResult(
+                call_id=call.call_id,
+                tool_name=call.tool_name,
+                status=ToolExecutionStatus.EXECUTION_FAILED,
+                error_code=ToolErrorCode.TOOL_EXECUTION_FAILED,
+            )
+
+    def factory(request):
+        attempts.append(request)
+        return Executor()
+
+    result = run_tool_suite(
+        scenarios=create_example_tool_scenarios(),
+        descriptors=example_descriptors(),
+        executor_factory=factory,
+        provider_factory=lambda: ScriptedProvider(next(scripts)),
+    )
+    assert len(attempts) == 2
+    assert result.evaluations[1].final_answer_match is True
+    assert result.summary.successful_call_count == 0

@@ -560,8 +560,8 @@ not establish real endpoint interoperability.
 protocol. `run_tool_loop()` accepts an optional executor; without one, it builds
 the existing `ToolRuntime` from the request's selected registrations. The
 runtime satisfies the protocol directly, without a duplicate adapter. Injected
-execution does not construct an unused local runtime. The suite currently uses
-the default local path and does not expose executor injection.
+execution does not construct an unused local runtime. The suite retains the
+default local path and supports an executor factory for descriptor-based runs.
 
 Selected-tool authorization and provider-turn/tool-call budgets remain in the
 loop and are checked before execution. An injected object must expose a callable
@@ -651,14 +651,37 @@ not execute handlers or providers. Expected calls, gold arguments, and expected
 final text are not copied from evaluation fields into provider requests. This
 is structural separation, not a content filter for caller-supplied user text.
 
+`build_descriptor_scenario_request()` performs the equivalent selection from
+an immutable descriptor tuple. It rejects invalid entries and duplicate names
+across the whole collection, including unselected tools. Only scenario-selected
+descriptors enter the fresh request, in selection order. A missing selected
+tool raises a fixed message without echoing its name. No provider, handler, or
+runtime is executed during preparation.
+
 `run_tool_suite()` requires a non-empty tuple of scenarios with unique case IDs.
-It prepares every request before calling the injected provider factory, so a
-missing selected registration in a later case prevents any suite execution.
+It accepts exactly one tool source:
+
+- Local mode: a `ToolRegistry`, empty `descriptors`, and no executor factory.
+  Existing local calls retain the default runtime behavior.
+- Descriptor mode: no registry, a non-empty descriptor tuple, and a callable
+  `executor_factory(request)`. Local registry plus executor factory is rejected
+  at suite level, even though the lower-level loop supports executor injection.
+
+It prepares every request before calling either factory, so a missing selected
+registration or descriptor in a later case prevents any suite execution.
 This is local request preparation, not full provider configuration, credential,
-or remote-capability preflight. For each scenario, in input order, it calls the
-factory, checks for a callable `generate_tool_conversation`, runs the bounded
-loop, and evaluates the result. The factory is responsible for returning
-appropriately isolated providers; shared handler state is not sandboxed.
+or remote-capability preflight. For each descriptor-based scenario, in input
+order, it calls the executor factory with the selected request and checks for a
+callable `execute` before creating the provider. Both modes then create the
+provider, check for a callable `generate_tool_conversation`, run the bounded
+loop, and evaluate its result using the same evaluator and reporting contracts.
+
+Factories are called per scenario but are trusted to supply appropriately
+isolated instances; the suite cannot prevent them from returning shared state.
+Factories/callers own resource lifetimes: the suite does not close connections,
+terminate processes, or clean up a previously acquired executor when provider
+creation fails. This boundary is currently validated with local synthetic
+executors, not resource-owning MCP sessions. Shared handler state is not sandboxed.
 
 Normalized loop failures are evaluated and the next scenario continues.
 Unexpected factory/provider/execution exceptions propagate without returning

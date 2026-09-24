@@ -389,6 +389,40 @@ platform-dependent symlink tests and five were PostgreSQL tests without a
 configured test URL. Ruff and whitespace checks passed. This does not establish
 real-model or PostgreSQL interoperability for this checkpoint.
 
+## External tool admission validation
+
+Focused offline command:
+
+```powershell
+$env:HF_HUB_OFFLINE = "1"
+$env:HF_DATASETS_OFFLINE = "1"
+$env:TRANSFORMERS_OFFLINE = "1"
+python -m pytest tests/test_external_tool_policy.py tests/test_external_tool_suite.py tests/test_tool_suite.py tests/test_tool_scenario_requests.py -q
+```
+
+Policy tests cover strict contract types and positive limits, frozen policy,
+tool-name boundaries, empty and duplicate allowlists, case-sensitive matching,
+whole-catalog rejection, inclusive count/aggregate UTF-8 byte limits (including
+multibyte text), immutable schema snapshots, deterministic sorting, and closed
+error codes with fixed messages. Invalid JSON Schema keyword semantics are
+deliberately not rejected by this gate; references remain data, not retrieval
+instructions.
+
+Suite-boundary tests cover rejected catalogs without provider/executor factory
+calls, including unselected disallowed tools; missing tools in later scenarios
+before any factory call; a scripted calculator execution and evaluation;
+direct-suite result/summary parity; selected-only requests; executor-before-
+provider creation; fresh test-factory instances; repeated-run input preservation;
+and unchanged propagation of runtime errors, `KeyboardInterrupt`, and
+`SystemExit` from factories and execution. Fresh subprocess checks guard import
+against filesystem writes, socket/process activity, and runtime initialization.
+
+Tests use local synthetic tools and scripted providers, not real model or MCP
+requests. They do not establish external JSON Schema validation, arbitrary
+executor safety, resource cleanup, sandboxing, or production interoperability.
+The full-suite offline command and optional PostgreSQL test configuration are
+documented separately; no live PostgreSQL validation is implied by this slice.
+
 ## Descriptor request and loop integration validation
 
 Request tests cover mutually exclusive sources, strict collection types,

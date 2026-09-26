@@ -69,8 +69,9 @@ parameters.
   [Tool-evaluation suites](docs/architecture.md#tool-evaluation-suites).
 - External descriptor catalogs can pass an explicit name allowlist, tool-count
   limit, and aggregate parameter-schema byte budget before suite execution.
-  Rejection prevents provider/executor factory calls through this entry point;
-  this is not semantic schema validation, sandboxing, or MCP transport. See
+  All admitted schemas are checked against a restricted Draft 2020-12 profile
+  before factories run; selected-tool arguments are validated before delegate
+  execution. This is not full JSON Schema support, sandboxing, or MCP transport. See
   [External tool admission](docs/architecture.md#external-tool-admission).
 - `MockProvider`, LM Studio native, and generic OpenAI-compatible provider
   adapters behind one normalized provider boundary.

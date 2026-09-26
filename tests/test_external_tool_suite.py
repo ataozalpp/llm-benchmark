@@ -11,14 +11,24 @@ from llm_benchmark.external_tool_policy import (
     ExternalToolAdmissionError,
     ExternalToolPolicy,
 )
+from llm_benchmark.external_tool_schema import (
+    ExternalToolSchemaCode,
+    ExternalToolSchemaError,
+)
 from llm_benchmark.external_tool_suite import run_external_tool_suite
 from llm_benchmark.tool_calling import NormalizationToolTurn
-from llm_benchmark.tool_descriptors import descriptor_from_registration
+from llm_benchmark.tool_descriptors import ToolDescriptor, descriptor_from_registration
 from llm_benchmark.tool_provider_models import (
     ToolProviderResult,
     ToolProviderStatus,
 )
-from llm_benchmark.tool_runtime import ToolCall, ToolRegistry, ToolRuntime
+from llm_benchmark.tool_runtime import (
+    ToolCall,
+    ToolErrorCode,
+    ToolExecutionStatus,
+    ToolRegistry,
+    ToolRuntime,
+)
 from llm_benchmark.tool_scenarios import create_example_tool_scenarios
 from llm_benchmark.tool_suite import run_tool_suite
 from llm_benchmark.tools import create_example_tool_registry
@@ -156,6 +166,122 @@ def city_descriptor():
     return descriptor_from_registration(registration)
 
 
+@pytest.mark.parametrize("valid", [True, False])
+def test_suite_validates_arguments_before_delegate_and_continues_conversation(valid):
+    requests = []
+    calls = []
+    runtime = ToolRuntime(create_example_tool_registry())
+
+    class Delegate:
+        def execute(self, call):
+            calls.append(call)
+            return runtime.execute(call)
+
+    class Provider:
+        def generate_tool_conversation(self, request):
+            requests.append(request)
+            if len(requests) == 1:
+                turn = NormalizationToolTurn(
+                    content=None,
+                    tool_calls=(
+                        ToolCall(
+                            call_id="call_1",
+                            tool_name="calculator",
+                            arguments={
+                                "operation": "multiply",
+                                "left": 17 if valid else "private-sentinel",
+                                "right": 23,
+                            },
+                        ),
+                    ),
+                    finish_reason="tool_calls",
+                )
+            else:
+                result = request.conversation.messages[-1].result
+                assert result.call_id == "call_1"
+                assert result.tool_name == "calculator"
+                if valid:
+                    assert result.status is ToolExecutionStatus.SUCCEEDED
+                else:
+                    assert result.status is ToolExecutionStatus.INVALID_ARGUMENTS
+                    assert result.error_code is ToolErrorCode.INVALID_ARGUMENTS
+                    assert result.output is None
+                    assert "private-sentinel" not in repr(result)
+                turn = NormalizationToolTurn(
+                    content="391", tool_calls=(), finish_reason="stop"
+                )
+            return ToolProviderResult(status=ToolProviderStatus.SUCCEEDED, turn=turn)
+
+    result = run_external_tool_suite(
+        scenarios=(create_example_tool_scenarios()[0],),
+        descriptors=(calculator_descriptor(),),
+        policy=admission_policy(),
+        provider_factory=Provider,
+        executor_factory=lambda request: Delegate(),
+    )
+    assert len(requests) == 2
+    assert len(calls) == (1 if valid else 0)
+    assert result.summary.completion.rate == 1.0
+    assert result.summary.successful_call_count == (1 if valid else 0)
+    # A normalized rejection is still an attempted loop execution, not a
+    # successful delegate invocation; preserve existing reporting semantics.
+    assert result.summary.executed_call_count == 1
+
+
+@pytest.mark.parametrize("value", [None, object(), 1])
+def test_noncallable_executor_factory_fails_before_provider(value):
+    with pytest.raises(TypeError, match="executor factory"):
+        run_external_tool_suite(
+            scenarios=create_example_tool_scenarios(),
+            descriptors=(calculator_descriptor(),),
+            policy=admission_policy(),
+            provider_factory=forbidden_factory,
+            executor_factory=value,
+        )
+
+
+def test_invalid_delegate_fails_before_provider():
+    with pytest.raises(TypeError, match="Delegate"):
+        run_external_tool_suite(
+            scenarios=create_example_tool_scenarios(),
+            descriptors=(calculator_descriptor(),),
+            policy=admission_policy(),
+            provider_factory=forbidden_factory,
+            executor_factory=lambda request: object(),
+        )
+
+
+@pytest.mark.parametrize("selected", [True, False])
+@pytest.mark.parametrize(
+    "fragment,code",
+    [
+        ({"required": 42}, ExternalToolSchemaCode.INVALID_SCHEMA),
+        (
+            {"$ref": "https://example.invalid/schema"},
+            ExternalToolSchemaCode.UNSUPPORTED_SCHEMA,
+        ),
+    ],
+)
+def test_all_catalog_schemas_validated_before_factories(selected, fragment, code):
+    original = calculator_descriptor() if selected else city_descriptor()
+    invalid = ToolDescriptor(
+        definition=original.definition,
+        parameters={"type": "object", **fragment},
+    )
+    catalog = (invalid,) if selected else (calculator_descriptor(), invalid)
+    with pytest.raises(ExternalToolSchemaError) as caught:
+        run_external_tool_suite(
+            scenarios=create_example_tool_scenarios(),
+            descriptors=catalog,
+            policy=admission_policy(
+                allowed_tool_names=("calculator", "lookup_city_code"), max_tools=2
+            ),
+            provider_factory=forbidden_factory,
+            executor_factory=forbidden_factory,
+        )
+    assert caught.value.code is code
+
+
 @pytest.mark.parametrize(
     "catalog,code",
     [
@@ -210,12 +336,31 @@ def test_missing_tool_in_later_scenario_prevents_all_factories():
         )
 
 
+def test_local_city_pattern_is_not_silently_accepted_as_external_schema():
+    with pytest.raises(ExternalToolSchemaError) as caught:
+        run_external_tool_suite(
+            scenarios=create_example_tool_scenarios(),
+            descriptors=(calculator_descriptor(), city_descriptor()),
+            policy=admission_policy(
+                allowed_tool_names=("calculator", "lookup_city_code"), max_tools=2
+            ),
+            provider_factory=forbidden_factory,
+            executor_factory=forbidden_factory,
+        )
+    assert caught.value.code is ExternalToolSchemaCode.UNSUPPORTED_SCHEMA
+
+
 def test_wrapper_matches_suite_and_preserves_inputs_across_runs():
     scenarios = (create_example_tool_scenarios()[1],)
-    descriptors = (city_descriptor(), calculator_descriptor())
+    calculator = calculator_descriptor()
+    unused = ToolDescriptor(
+        definition=replace(calculator.definition, name="unused_calculator"),
+        parameters=calculator.parameters,
+    )
+    descriptors = (unused, calculator)
     snapshots = tuple(item.parameters for item in descriptors)
     policy = admission_policy(
-        allowed_tool_names=("calculator", "lookup_city_code"), max_tools=2
+        allowed_tool_names=("calculator", "unused_calculator"), max_tools=2
     )
     events = []
     providers = []
@@ -263,10 +408,10 @@ def test_wrapper_matches_suite_and_preserves_inputs_across_runs():
     assert len({id(item) for item in executors}) == 3
     assert tuple(item.parameters for item in descriptors) == snapshots
     assert tuple(item.definition.name for item in descriptors) == (
-        "lookup_city_code",
+        "unused_calculator",
         "calculator",
     )
-    assert policy.allowed_tool_names == ("calculator", "lookup_city_code")
+    assert policy.allowed_tool_names == ("calculator", "unused_calculator")
 
 
 @pytest.mark.parametrize("error_type", [RuntimeError, KeyboardInterrupt, SystemExit])
@@ -349,6 +494,37 @@ ToolRegistry.__init__ = reject
 ToolRuntime.__init__ = reject
 from llm_benchmark.external_tool_suite import run_external_tool_suite
 assert callable(run_external_tool_suite)
+from llm_benchmark.external_tool_schema import (
+    validate_external_tool_schema, validate_external_tool_arguments,
+    ExternalToolSchemaError, ExternalToolSchemaCode,
+)
+from llm_benchmark.tool_descriptors import ToolDescriptor
+from llm_benchmark.tool_runtime import ToolDefinition, ToolCall
+definition = ToolDefinition('example', 'Synthetic tool.')
+descriptor = ToolDescriptor(definition=definition, parameters={'type': 'object'})
+validate_external_tool_schema(descriptor)
+validate_external_tool_arguments(
+    descriptor=descriptor,
+    call=ToolCall(call_id='call_1', tool_name='example', arguments={}),
+)
+from llm_benchmark.external_tool_executor import ValidatingExternalToolExecutor
+from llm_benchmark.tool_runtime import ToolResult, ToolExecutionStatus
+class Delegate:
+    def execute(self, call):
+        return ToolResult(call_id=call.call_id, tool_name=call.tool_name,
+                          status=ToolExecutionStatus.SUCCEEDED)
+wrapper = ValidatingExternalToolExecutor(descriptors=(descriptor,), delegate=Delegate())
+assert wrapper.execute(ToolCall(call_id='call_1', tool_name='example', arguments={})).status is ToolExecutionStatus.SUCCEEDED
+for reference in ('https://example.invalid/schema', 'file:///unavailable-schema'):
+    descriptor = ToolDescriptor(
+        definition=definition, parameters={'type': 'object', '$ref': reference},
+    )
+    try:
+        validate_external_tool_schema(descriptor)
+    except ExternalToolSchemaError as error:
+        assert error.code is ExternalToolSchemaCode.UNSUPPORTED_SCHEMA
+    else:
+        raise AssertionError('Reference must be rejected without retrieval')
 for name in ('providers', 'runner', 'api', 'worker', 'db', 'tools'):
     assert 'llm_benchmark.' + name not in sys.modules
 """

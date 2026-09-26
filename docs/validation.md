@@ -397,7 +397,7 @@ Focused offline command:
 $env:HF_HUB_OFFLINE = "1"
 $env:HF_DATASETS_OFFLINE = "1"
 $env:TRANSFORMERS_OFFLINE = "1"
-python -m pytest tests/test_external_tool_policy.py tests/test_external_tool_suite.py tests/test_tool_suite.py tests/test_tool_scenario_requests.py -q
+python -m pytest tests/test_external_tool_policy.py tests/test_external_tool_schema.py tests/test_external_tool_executor.py tests/test_external_tool_suite.py tests/test_tool_suite.py -q
 ```
 
 Policy tests cover strict contract types and positive limits, frozen policy,
@@ -418,10 +418,28 @@ and unchanged propagation of runtime errors, `KeyboardInterrupt`, and
 against filesystem writes, socket/process activity, and runtime initialization.
 
 Tests use local synthetic tools and scripted providers, not real model or MCP
-requests. They do not establish external JSON Schema validation, arbitrary
-executor safety, resource cleanup, sandboxing, or production interoperability.
+requests. They do not establish full JSON Schema support, arbitrary executor
+safety, resource cleanup, sandboxing, or production interoperability.
 The full-suite offline command and optional PostgreSQL test configuration are
 documented separately; no live PostgreSQL validation is implied by this slice.
+
+Schema tests cover supported and malformed schemas, rejected keywords at every
+supported schema position, boolean nested schemas, object/array constraints,
+numeric boundaries, standard integer semantics, no coercion/default insertion,
+data-versus-schema positions, immutable snapshots, identity checks, and fixed
+safe errors. Suite tests reject invalid selected and unselected schemas before
+factories run. Reference-rejection checks run under subprocess I/O guards.
+The local city schema's regex is explicitly rejected by the external profile;
+local tool behavior is not changed to force external compatibility.
+
+Executor tests cover setup contracts, invalid arguments and unknown tools with
+zero delegate calls, one exact delegate call for valid arguments, unchanged
+normalized delegate failures, invalid result types/identity, and unexpected
+exception/BaseException propagation. Integration tests prove that an argument
+rejection reaches the next provider turn as a tool result without delegate
+execution. Existing execution-attempt counts still include that rejection;
+successful-call counts do not. Import guards also exercise wrapper construction
+and synthetic execution without network, subprocess, or filesystem-write I/O.
 
 ## Descriptor request and loop integration validation
 

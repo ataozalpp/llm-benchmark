@@ -67,6 +67,12 @@ parameters.
   requests. Suites accept local registrations or descriptors with an explicit
   executor factory; suite persistence and MCP integration are not implemented. See
   [Tool-evaluation suites](docs/architecture.md#tool-evaluation-suites).
+- External descriptor catalogs can pass an explicit name allowlist, tool-count
+  limit, and aggregate parameter-schema byte budget before suite execution.
+  All admitted schemas are checked against a restricted Draft 2020-12 profile
+  before factories run; selected-tool arguments are validated before delegate
+  execution. This is not full JSON Schema support, sandboxing, or MCP transport. See
+  [External tool admission](docs/architecture.md#external-tool-admission).
 - `MockProvider`, LM Studio native, and generic OpenAI-compatible provider
   adapters behind one normalized provider boundary.
 - Append-friendly JSONL results and JSON summary, configuration, manifest, and

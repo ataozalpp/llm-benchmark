@@ -511,6 +511,9 @@ interoperability. Tool-call evaluation is a separate boundary described below.
 
 ### Tool descriptors
 
+Catalog admission is described in
+[External tool admission](#external-tool-admission).
+
 `tool_descriptors.py` provides a frozen `ToolDescriptor` containing an existing
 `ToolDefinition` and an independent JSON parameter-schema snapshot. Input schema
 mutation, returned parameter mutation, and serialized payload mutation do not
@@ -538,7 +541,8 @@ OpenAI-compatible function description. Neither function starts a runtime.
 The existing local registration serializer remains unchanged. Descriptor conversion has
 stricter JSON/depth/size rules, so it is not yet a drop-in replacement for every
 possible existing schema hook. Local example payload parity is tested, but
-external schema admission, discovery, and MCP transport remain future work.
+external validation is limited to the profile described below. Discovery and
+MCP transport remain future work; local registration behavior is unchanged.
 
 Initial and conversation requests accept exactly one non-empty tuple source:
 local `registrations` or keyword-only `descriptors`. Empty tuples represent an
@@ -711,6 +715,97 @@ provenance across independently supplied evaluations, persist suite identity,
 add wall-clock cancellation, or implement MCP. Tests use scripted providers
 and synthetic tools; they do not establish real-model quality. Runtime handler
 execution remains trusted, synchronous, and in-process.
+
+## External tool admission
+
+`external_tool_policy.py` defines a frozen `ExternalToolPolicy` with an explicit,
+case-sensitive name allowlist, positive integer `max_tools`, and positive integer
+`max_total_schema_bytes`. Booleans are not accepted as limits; an empty allowlist
+denies all tools. Tool-name syntax is reused from `ToolDefinition`.
+
+`admit_tool_descriptors()` accepts an exact descriptor tuple and rejects the
+whole catalog rather than filtering it. It checks non-emptiness, count, element
+types, duplicate names, allowlist membership, and aggregate schema bytes, then
+returns the original immutable descriptors sorted by name. Even tools not
+selected by a scenario must pass admission. Size is the sum of compact,
+sorted-key, non-ASCII-escaped UTF-8 parameter-schema JSON. Limits are inclusive;
+names, descriptions, message bodies, and request wrappers are not part of this
+byte budget. It is not a transport-input or peak-memory bound.
+
+Expected rejections raise `ExternalToolAdmissionError` with a closed
+`ExternalToolAdmissionCode`: `empty_collection`, `too_many_tools`,
+`duplicate_tool_name`, `tool_not_allowed`, or `schema_budget_exceeded`.
+Messages are fixed and do not interpolate catalog data. Invalid Python contract
+types raise `TypeError`; invalid policy values are setup errors, not benchmark
+outcomes. This is not a general exception or traceback sanitizer.
+
+`external_tool_suite.run_external_tool_suite()` applies admission and validates
+every admitted schema before delegating to the existing descriptor-based
+`run_tool_suite()`. Catalog or schema rejection prevents either execution
+factory from being called, including for unselected tools. After validation, the
+existing suite prepares all scenario requests before creating executors or
+providers; only scenario-selected descriptors enter requests. Evaluation,
+aggregation, normalized outcomes, and unexpected exception propagation remain
+unchanged, including `KeyboardInterrupt` and `SystemExit` propagation. Each
+factory-created delegate is wrapped in `ValidatingExternalToolExecutor` with
+only that scenario's descriptors.
+
+### External schema profile
+
+`external_tool_schema.py` uses `jsonschema` Draft 2020-12 validation after an
+explicit keyword allowlist check. Supported keywords are `type`, `title`,
+`description`, `default`, `examples`, `enum`, `const`, `properties`, `required`,
+`additionalProperties`, `items`, `minItems`, `maxItems`, `minLength`, `maxLength`,
+`minimum`, `maximum`, `exclusiveMinimum`, and `exclusiveMaximum`. Boolean nested
+schemas are supported; the descriptor root must still describe an object.
+Checks recurse through schema positions, not literal values or property names.
+
+Unknown keywords, references (`$ref`/`$dynamicRef`), `$schema`, `$id`, `$defs`,
+composition, regexes, and formats are rejected, not silently ignored. No schema
+reference is fetched. Local city-lookup descriptors contain `pattern` and are
+therefore rejected by this external profile, even when unselected. Their local
+registration/runtime path remains available and unchanged.
+
+Closed `ExternalToolSchemaCode` values distinguish `invalid_schema`,
+`unsupported_schema`, and `invalid_arguments`. Expected validation failures
+use fixed messages with suppressed underlying exception display; this is not
+general-purpose log or traceback sanitization. Arguments are not coerced and
+defaults are not inserted. Standard JSON Schema numeric semantics apply:
+`17.0` satisfies `integer`, while `"17"` and booleans do not. Additional fields
+remain allowed unless the schema restricts them. The existing descriptor byte
+and depth bounds remain in force, but there is no hard validation-time bound;
+schemas are rechecked on argument validation rather than globally cached.
+
+### Validating external executor
+
+`external_tool_executor.py` checks the descriptor tuple, uniqueness, supported
+schemas, and callable delegate at construction without executing the delegate.
+For an exact `ToolCall`, an unknown tool returns `TOOL_NOT_FOUND`; mismatched
+arguments return `INVALID_ARGUMENTS`. Both preserve call identity and have no
+output, and neither invokes the delegate. Setup/schema errors are not converted
+into argument failures. Valid calls reach the delegate exactly once. Exact
+`ToolResult` type and matching call ID/tool name are required; valid success or
+failure results are returned unchanged. Unexpected exceptions and `BaseException`
+subclasses propagate.
+
+The existing loop appends normalized rejections to the conversation and may
+continue within its budgets. Existing evaluation counts are unchanged:
+`executed_call_count` counts results from loop execution attempts, including
+pre-delegate argument rejections; it is not a count of actual delegate calls.
+`successful_call_count` counts only successful tool results. Final-answer match
+and completion are separate from tool success.
+
+This is an opt-in orchestration boundary: direct `run_tool_suite()` callers do
+not acquire this policy automatically. Policy must come from trusted application
+configuration, not an untrusted catalog. The wrapper neither closes resources
+nor prevents callers from acquiring them before invocation. It does not resolve references, sanitize
+tool descriptions, provide hard timeouts or sandboxing, or implement MCP.
+There is no API, worker, database, artifact, or benchmark-runner integration.
+Delegates still own output limits, transport normalization, and resource
+lifetimes; wrapping them does not make arbitrary executors safe. Delegate
+acquisition followed by a factory/provider error does not trigger automatic
+cleanup. Direct executor-wrapper construction does not apply catalog name/count/
+aggregate-byte policy; the external suite entry point composes those checks.
 
 ## Registry API
 

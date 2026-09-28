@@ -11,7 +11,7 @@ from .tool_evaluation import (
     evaluate_tool_loop,
 )
 from .tool_execution import ToolExecutor
-from .tool_loop import ConversationProvider, run_tool_loop
+from .tool_loop import ConversationProvider, ToolLoopResult, run_tool_loop
 from .tool_reporting import (
     ToolEvaluationSummary,
     aggregate_tool_evaluations,
@@ -44,6 +44,8 @@ def run_tool_suite(
     provider_factory: Callable[[], ConversationProvider],
     descriptors: tuple[ToolDescriptor, ...] = (),
     executor_factory: (Callable[[ToolConversationRequest], ToolExecutor] | None) = None,
+    on_case_completed: Callable[[ToolScenario, ToolLoopResult, ToolEvaluationResult], None] | None = None,
+    observer: Callable[[str, str, dict[str, object]], None] | None = None,
 ) -> ToolSuiteResult:
     """Prepare all requests, then execute sequentially.
 
@@ -83,6 +85,9 @@ def run_tool_suite(
 
     if not callable(provider_factory):
         raise TypeError("Provider factory must be callable.")
+    for callback in (on_case_completed, observer):
+        if callback is not None and not callable(callback):
+            raise TypeError("Suite callbacks must be callable.")
 
     case_ids = tuple(scenario.case_id for scenario in scenarios)
 
@@ -136,6 +141,10 @@ def run_tool_suite(
             request=request,
             policy=scenario.policy,
             executor=executor,
+            observer=(
+                (lambda kind, data: observer(scenario.case_id, kind, data))
+                if observer is not None else None
+            ),
         )
 
         evaluation = evaluate_tool_loop(
@@ -144,6 +153,8 @@ def run_tool_suite(
         )
 
         evaluations.append(evaluation)
+        if on_case_completed is not None:
+            on_case_completed(scenario, loop_result, evaluation)
 
     return ToolSuiteResult(
         evaluations=tuple(evaluations),

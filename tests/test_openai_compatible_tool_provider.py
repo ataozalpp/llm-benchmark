@@ -106,6 +106,19 @@ class FakeTransport:
         return self.body
 
 
+@pytest.mark.parametrize(("remaining", "expected"), [(0.5, 0.5), (90, 45)])
+def test_conversation_timeout_is_clamped(remaining, expected):
+    transport = FakeTransport(response("done", calls=False))
+    provider = providers.OpenAICompatibleProvider(config(), transport)
+    req = ToolConversationRequest(
+        conversation=ToolConversation((UserMessage("Synthetic request"),)),
+        registrations=request().registrations,
+    )
+    result = provider.generate_tool_conversation_with_timeout(req, timeout_seconds=remaining)
+    assert result.status is ToolProviderStatus.SUCCEEDED
+    assert transport.calls[0][2] == expected
+
+
 def config(**updates: object) -> ModelConfig:
     values = dict(
         provider="openai_compatible",

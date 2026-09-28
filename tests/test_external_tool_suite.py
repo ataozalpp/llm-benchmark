@@ -17,6 +17,7 @@ from llm_benchmark.external_tool_schema import (
 )
 from llm_benchmark.external_tool_suite import run_external_tool_suite
 from llm_benchmark.tool_calling import NormalizationToolTurn
+from llm_benchmark.tool_demo_provider import DemoToolProvider
 from llm_benchmark.tool_descriptors import ToolDescriptor, descriptor_from_registration
 from llm_benchmark.tool_provider_models import (
     ToolProviderResult,
@@ -49,6 +50,21 @@ def admission_policy(**updates):
     }
     values.update(updates)
     return ExternalToolPolicy(**values)
+
+
+def test_external_suite_forwards_observers_and_completed_cases():
+    observed, completed = [], []
+    result = run_external_tool_suite(
+        scenarios=create_example_tool_scenarios(),
+        descriptors=(calculator_descriptor(),), policy=admission_policy(),
+        provider_factory=DemoToolProvider,
+        executor_factory=lambda request: ToolRuntime(create_example_tool_registry()),
+        observer=lambda case_id, kind, data: observed.append((case_id, kind)),
+        on_case_completed=lambda case, loop, evaluation: completed.append(evaluation),
+    )
+    assert tuple(completed) == result.evaluations
+    assert ("calculator-multiply", "tool_result") in observed
+    assert ("direct-answer", "scenario_completed") in observed
 
 
 def forbidden_factory(*args, **kwargs):

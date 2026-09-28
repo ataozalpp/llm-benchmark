@@ -1,0 +1,14 @@
+# Opt-in: replace model_id with an identifier served by your existing endpoint.
+schema_version: 1
+suite: example-tools-v1
+provider: openai_compatible
+model:
+  provider: openai_compatible
+  endpoint_alias: local-tools
+  model_id: replace-with-your-model-id
+  base_url: http://127.0.0.1:1234/v1
+  temperature: 0
+  max_output_tokens: 512
+  timeout_seconds: 30
+max_wall_time_seconds: 60
+output_dir: outputs/tool

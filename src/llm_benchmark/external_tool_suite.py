@@ -11,8 +11,9 @@ from .external_tool_policy import (
 )
 from .external_tool_schema import validate_external_tool_schema
 from .tool_descriptors import ToolDescriptor
+from .tool_evaluation import ToolEvaluationResult
 from .tool_execution import ToolExecutor
-from .tool_loop import ConversationProvider
+from .tool_loop import ConversationProvider, ToolLoopResult
 from .tool_requests import ToolConversationRequest
 from .tool_scenarios import ToolScenario
 from .tool_suite import ToolSuiteResult, run_tool_suite
@@ -25,6 +26,8 @@ def run_external_tool_suite(
     policy: ExternalToolPolicy,
     provider_factory: Callable[[], ConversationProvider],
     executor_factory: Callable[[ToolConversationRequest], ToolExecutor],
+    on_case_completed: Callable[[ToolScenario, ToolLoopResult, ToolEvaluationResult], None] | None = None,
+    observer: Callable[[str, str, dict[str, object]], None] | None = None,
 ) -> ToolSuiteResult:
     """Admit the catalog before the suite calls execution factories.
 
@@ -56,4 +59,6 @@ def run_external_tool_suite(
         descriptors=admitted,
         provider_factory=provider_factory,
         executor_factory=validated_executor_factory,
+        on_case_completed=on_case_completed,
+        observer=observer,
     )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import socket
@@ -290,9 +291,27 @@ class OpenAICompatibleProvider:
         return self._generate_tool_payload(payload)
 
 
+    def generate_tool_conversation_with_timeout(
+        self,
+        request: ToolConversationRequest,
+        *,
+        timeout_seconds: float,
+    ) -> ToolProviderResult:
+        """Clamp transport timeout to the loop's remaining cooperative budget."""
+        if (
+            type(timeout_seconds) not in (int, float)
+            or not math.isfinite(timeout_seconds)
+            or timeout_seconds <= 0
+        ):
+            raise ValueError("Timeout must be finite and positive.")
+        payload = build_openai_tool_conversation_payload(self.config, request)
+        return self._generate_tool_payload(payload, timeout_seconds=timeout_seconds)
+
     def _generate_tool_payload(
         self,
         payload: dict[str, object],
+        *,
+        timeout_seconds: float | None = None,
     ) -> ToolProviderResult:
         """Shared credential, transport, telemetry and normalization boundary."""
         try:
@@ -309,7 +328,12 @@ class OpenAICompatibleProvider:
         headers = {"Authorization": f"Bearer {credential}"} if credential is not None else None
         started = time.perf_counter()
         try:
-            body = self.transport.post_json(url, payload, self.config.timeout_seconds, headers=headers)
+            body = self.transport.post_json(
+                url, payload,
+                min(self.config.timeout_seconds, timeout_seconds)
+                if timeout_seconds is not None else self.config.timeout_seconds,
+                headers=headers,
+            )
         except (urllib.error.HTTPError, urllib.error.URLError, OSError, ConnectionError,
                 json.JSONDecodeError, UnicodeError) as exc:
             latency_ms = (time.perf_counter() - started) * 1000

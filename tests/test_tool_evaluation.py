@@ -415,6 +415,10 @@ def test_all_nonfinal_outcomes_from_real_loop(execution_setup, reason) -> None:
     policy = ToolLoopPolicy(3, 3)
     requested = 0
     executed = 0
+    clock_values = iter((0.0, 2.0))
+    extra = {}
+    if reason is ToolLoopStopReason.WALL_TIME_LIMIT:
+        extra["clock"] = lambda: next(clock_values)
     if reason is ToolLoopStopReason.PROVIDER_FAILED:
         script = [
             ToolProviderResult(
@@ -455,12 +459,15 @@ def test_all_nonfinal_outcomes_from_real_loop(execution_setup, reason) -> None:
         ]
         policy = ToolLoopPolicy(3, 1)
         requested = 2
+    elif reason is ToolLoopStopReason.WALL_TIME_LIMIT:
+        script = []
+        policy = ToolLoopPolicy(3, 3, max_wall_time_seconds=1.0)
     else:
         script = [provider_calls(call)]
         policy = ToolLoopPolicy(1, 3)
         requested = 1
     result = run_tool_loop(
-        provider=ScriptedProvider(script), request=request, policy=policy
+        provider=ScriptedProvider(script), request=request, policy=policy, **extra
     )
     evaluated = evaluate_tool_loop(
         case=ToolEvaluationCase("nonfinal", (), "done"), result=result

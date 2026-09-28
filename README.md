@@ -16,6 +16,16 @@ parameters.
 
 ## Current implementation
 
+- Local tool suites now have a separate `tool-run` CLI, versioned manifests,
+  incremental metadata-only traces and case results, and explicit conditional
+  versus all-case final accuracy. Scenario wall-time budgets are cooperative;
+  OpenAI-compatible transport timeouts are clamped to the remaining budget.
+  This path does not use the MCQ API/worker or implement MCP.
+
+  ```powershell
+  python -m llm_benchmark tool-run --config configs/tool_mock_smoke.yaml
+  ```
+
 - Standalone immutable tool descriptors separate schema data from executable
   handlers. Local registration conversion preserves example-tool payloads;
   descriptor-only requests and loop execution with an explicit trusted executor
@@ -65,7 +75,8 @@ parameters.
   sequential evaluation suite with separate match rates, coverage counts, and
   stop-reason distribution. Expectations stay outside generated provider
   requests. Suites accept local registrations or descriptors with an explicit
-  executor factory; suite persistence and MCP integration are not implemented. See
+  executor factory; local CLI artifact persistence is available, while suite DB/API
+  persistence and MCP integration are not implemented. See
   [Tool-evaluation suites](docs/architecture.md#tool-evaluation-suites).
 - External descriptor catalogs can pass an explicit name allowlist, tool-count
   limit, and aggregate parameter-schema byte budget before suite execution.
@@ -158,6 +169,11 @@ python -m pip install -e ".[dev,huggingface]"
 ```
 
 ## Offline tests
+
+Latest pre-MCP tool-run checkpoint (2026-09-28): **1596 passed, 7 skipped** on
+Python 3.12.10; Ruff passed. Five PostgreSQL tests require an unconfigured test
+database and two symlink tests were unavailable on this Windows environment.
+See [Validation](docs/validation.md#pre-mcp-tool-run-checkpoint-2026-09-28).
 
 The complete suite can be forced offline:
 

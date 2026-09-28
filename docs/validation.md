@@ -1152,6 +1152,34 @@ Real provider results must be recorded in separate runs with explicit provider,
 endpoint alias, requested and returned model IDs, request parameters, and
 measurement protocol metadata.
 
+## Pre-MCP tool-run checkpoint (2026-09-28)
+
+Validated on Windows with Python 3.12.10 using the existing virtual environment:
+
+- `ruff check .`: passed.
+- Forced-offline `pytest -q`: **1596 passed, 7 skipped**, 44.63 seconds.
+- Five PostgreSQL tests skipped because `LLM_BENCHMARK_TEST_POSTGRES_URL` was
+  not configured; two filesystem symlink tests skipped due to OS support.
+- `python -m llm_benchmark tool-run --config configs/tool_mock_smoke.yaml`:
+  completed both synthetic cases, one successful calculator call, three
+  provider turns and twelve ordered trace events.
+- The generated manifest, summary, results and trace were read back and checked.
+  Runtime artifacts remain ignored by Git.
+
+New coverage checks artifact fingerprint stability and policy sensitivity,
+partial results on unexpected provider failure, omission of exception secrets,
+nullable telemetry, conditional versus all-case final accuracy, normalized
+provider failure as an evaluation outcome, deadline checks after provider/tool
+calls, provider timeout clamping, descriptor-suite callback forwarding and CLI
+execution. Existing regression coverage remains passing.
+
+This checkpoint does not validate a real model endpoint, MCP, Docker execution,
+PostgreSQL integration, hard cancellation, or production recovery. Tool traces
+contain metadata rather than raw conversations. The deadline is cooperative;
+transport-specific cancellation belongs to the future MCP adapter.
+
+See [the Turkish implementation walkthrough](projeyi-anlama-ve-mcp-oncesi.md).
+
 ## Licensing note
 
 No project license has been selected yet. MMLU-Pro attribution and its dataset

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import math
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Protocol
@@ -28,6 +31,7 @@ from .tool_runtime import (
 class ToolLoopPolicy:
     max_provider_turns: int
     max_tool_calls: int
+    max_wall_time_seconds: float | None = None
 
     def __post_init__(self) -> None:
         for value in (
@@ -36,6 +40,11 @@ class ToolLoopPolicy:
         ):
             if type(value) is not int or value <= 0:
                 raise ValueError("Loop budget must be positive integers.")
+        value = self.max_wall_time_seconds
+        if value is not None and (
+            type(value) not in (int, float) or not math.isfinite(value) or value <= 0
+        ):
+            raise ValueError("Wall-time budget must be finite and positive.")
 
 
 class ToolLoopStopReason(StrEnum):
@@ -47,6 +56,7 @@ class ToolLoopStopReason(StrEnum):
     TOOL_NOT_ALLOWED = "tool_not_allowed"
     INVALID_CONVERSATION = "invalid_conversation"
     COMPLETION_UNCONFIRMED = "completion_unconfirmed"
+    WALL_TIME_LIMIT = "wall_time_limit"
 
 
 class ConversationProvider(Protocol):
@@ -128,17 +138,23 @@ def run_tool_loop(
     request: ToolConversationRequest,
     policy: ToolLoopPolicy,
     executor: ToolExecutor | None = None,
+    observer: Callable[[str, dict[str, object]], None] | None = None,
+    clock: Callable[[], float] = time.monotonic,
 ) -> ToolLoopResult:
     """Execute a bounded conversation using a trusted tool executor.
 
     When no executor is supplied, use the existing local ToolRuntime.
     Selected-tool authorization and call budgets remain loop-owned.
+    Wall time is checked between blocking calls, not hard cancellation. Observers
+    are trusted, receive metadata only, and their exceptions propagate.
     """
     if type(request) is not ToolConversationRequest:
         raise TypeError("Expected a ToolConversationRequest.")
 
     if type(policy) is not ToolLoopPolicy:
         raise TypeError("Expected a ToolLoopPolicy.")
+    if observer is not None and not callable(observer):
+        raise TypeError("Loop observer must be callable.")
 
     request.conversation.validate_ready_for_provider()
 
@@ -166,12 +182,24 @@ def run_tool_loop(
     conversation = request.conversation
     provider_results: list[ToolProviderResult] = []
     tool_results: list[ToolResult] = []
+    started = clock()
+
+    def emit(kind: str, **data: object) -> None:
+        if observer is not None:
+            observer(kind, data)
+
+    def expired() -> bool:
+        return (
+            policy.max_wall_time_seconds is not None
+            and clock() - started >= policy.max_wall_time_seconds
+        )
 
     def finish(
         reason:ToolLoopStopReason,
         *,
         final_text: str | None = None,
     ) -> ToolLoopResult:
+        emit("scenario_completed", stop_reason=reason.value)
         return ToolLoopResult(
             stop_reason=reason,
             conversation=conversation,
@@ -180,19 +208,42 @@ def run_tool_loop(
             final_text=final_text,
         )
 
+    emit("scenario_started")
     while len(provider_results) < policy.max_provider_turns:
+        if expired():
+            return finish(ToolLoopStopReason.WALL_TIME_LIMIT)
         current_request = ToolConversationRequest(
             conversation=conversation,
             registrations=request.registrations,
             descriptors=request.descriptors,
         )
 
-        provider_result = provider.generate_tool_conversation(current_request)
+        emit("model_request", turn=len(provider_results) + 1)
+        provider_started = clock()
+        timed_generate = getattr(provider, "generate_tool_conversation_with_timeout", None)
+        if policy.max_wall_time_seconds is not None and callable(timed_generate):
+            remaining = policy.max_wall_time_seconds - (clock() - started)
+            if remaining <= 0:
+                return finish(ToolLoopStopReason.WALL_TIME_LIMIT)
+            provider_result = timed_generate(current_request, timeout_seconds=remaining)
+        else:
+            provider_result = provider.generate_tool_conversation(current_request)
 
         if type(provider_result) is not ToolProviderResult:
             raise TypeError("Provider returned an invalid result.")
 
         provider_results.append(provider_result)
+        emit(
+            "model_response", status=provider_result.status.value,
+            latency_ms=max(0.0, (clock() - provider_started) * 1000),
+            error_code=(provider_result.error_code.value if provider_result.error_code else None),
+            normalization_error_code=(
+                provider_result.normalization_error_code.value
+                if provider_result.normalization_error_code else None
+            ),
+        )
+        if expired():
+            return finish(ToolLoopStopReason.WALL_TIME_LIMIT)
 
         if provider_result.status is ToolProviderStatus.REQUEST_FAILED:
             return finish(ToolLoopStopReason.PROVIDER_FAILED)
@@ -243,6 +294,10 @@ def run_tool_loop(
             return finish(ToolLoopStopReason.PROVIDER_TURN_LIMIT)
 
         for call in turn.tool_calls:
+            if expired():
+                return finish(ToolLoopStopReason.WALL_TIME_LIMIT)
+            emit("tool_call", call_id=call.call_id, tool_name=call.tool_name)
+            tool_started = clock()
             tool_result = active_executor.execute(call)
 
             if type(tool_result) is not ToolResult:
@@ -259,4 +314,12 @@ def run_tool_loop(
             tool_results.append(tool_result)
 
             conversation = conversation.append(ToolResultMessage(tool_result))
+            emit(
+                "tool_result", call_id=call.call_id, tool_name=call.tool_name,
+                status=tool_result.status.value,
+                error_code=tool_result.error_code.value if tool_result.error_code else None,
+                latency_ms=max(0.0, (clock() - tool_started) * 1000),
+            )
+            if expired():
+                return finish(ToolLoopStopReason.WALL_TIME_LIMIT)
     return finish(ToolLoopStopReason.PROVIDER_TURN_LIMIT)

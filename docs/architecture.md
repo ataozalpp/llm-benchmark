@@ -1112,6 +1112,27 @@ features require additional persisted data or a separate product contract.
 
 ## Next architectural increments
 
+The pre-MCP tool CLI now provides `tool-run --config ...` through the separate
+`ToolRunConfig` and `run_tool_benchmark` service. Suite callbacks preserve the
+pure evaluator boundary while writing versioned per-case results and incremental
+metadata-only traces. Atomic manifest/summary replacement and fsynced JSONL
+records retain completed cases after ordinary execution failures; this is not
+process recovery or cross-storage atomicity. Tool artifacts use their own v1
+schema; existing MCQ trace/config artifacts are unchanged.
+
+An optional cooperative scenario deadline produces `wall_time_limit` and prevents
+further calls once observed. The OpenAI-compatible provider accepts the remaining
+budget and clamps its transport timeout. Neither the synchronous loop nor urllib
+provides hard interruption of arbitrary blocking code. MCP transport deadlines,
+cancellation and resource cleanup remain requirements of the next adapter.
+
+The fixture CLI can use a clearly labelled synthetic provider or an explicitly
+configured OpenAI-compatible endpoint. Token totals include measurement coverage;
+conditional final accuracy and all-case final accuracy have separate denominators.
+Tool runs remain outside the MCQ database/API/worker pipeline. See the detailed
+[Turkish walkthrough](projeyi-anlama-ve-mcp-oncesi.md) for file responsibilities,
+commands, boundaries and the MCP handoff.
+
 - Expanded API usage and operational documentation
 - Worker lease, heartbeat, stale-run recovery, and controlled retry design
 - Authentication, authorization, and registry trust-boundary hardening

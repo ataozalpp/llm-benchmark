@@ -16,6 +16,12 @@ parameters.
 
 ## Current implementation
 
+- A project-owned FastMCP calculator server supports local discovery and calls
+  through a separate stdio client, with descriptor/result mapping, admission
+  checks and integration tests. The server uses a separate Python environment;
+  see [MCP setup and validation](docs/mcp.md). MCP is not yet connected to the
+  tool suite execution path, `tool-run`, API or worker.
+
 - Local tool suites now have a separate `tool-run` CLI, versioned manifests,
   incremental metadata-only traces and case results, and explicit conditional
   versus all-case final accuracy. Scenario wall-time budgets are cooperative;
@@ -29,7 +35,7 @@ parameters.
 - Standalone immutable tool descriptors separate schema data from executable
   handlers. Local registration conversion preserves example-tool payloads;
   descriptor-only requests and loop execution with an explicit trusted executor
-  are supported. MCP integration is not implemented. See
+  are supported. MCP discovery/call demos exist; suite integration is pending. See
   [Tool descriptors](docs/architecture.md#tool-descriptors).
 
 - Strict, immutable Pydantic `schema_version: 1` YAML configuration with CLI

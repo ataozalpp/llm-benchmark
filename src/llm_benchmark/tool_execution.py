@@ -19,3 +19,19 @@ class ToolExecutor(Protocol):
 
     def execute(self, call: ToolCall) -> ToolResult:
         ...
+
+
+class ToolExecutionTimeout(RuntimeError):
+    """A tool request exceeded its execution time budget."""
+
+
+class TimedToolExecutor(ToolExecutor, Protocol):
+    """Optional support for a per-call time budget."""
+
+    def execute_with_timeout(
+        self,
+        call: ToolCall,
+        *,
+        timeout_seconds: float,
+    ) -> ToolResult:
+        ...

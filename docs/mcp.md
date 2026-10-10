@@ -1,135 +1,196 @@
-# MCP calculator bağlantısı
+﻿# MCP calculator integration
 
-Bu belge mevcut yerel MCP demosunun kurulmasını ve doğrulanmasını anlatır.
-Amaç, mevcut calculator iş mantığını ayrı bir FastMCP process'i üzerinden
-çağırmak ve cevabı benchmark'ın kendi araç sözleşmesine dönüştürmektir.
+This guide covers setup, execution, and validation of the local calculator MCP
+integration. Existing calculator logic runs in a separate FastMCP process; the
+benchmark discovers the tool and maps its responses into its own tool contracts.
 
-## Mevcut kapsam
+## Current scope
 
-- Tek yerel FastMCP server ve `calculator` aracı.
-- Ayrı Python ortamları arasında stdio iletişimi.
-- Legacy initialization yolu ve tools capability kontrolü.
-- Tek sayfalı, tek araçlı katalog keşfi ve explicit allowlist.
-- Mevcut sınırlı JSON Schema profiliyle input doğrulaması.
-- Structured JSON object sonucunun `ToolResult` dönüşümü.
-- In-process smoke, gerçek stdio smoke ve negatif argüman testleri.
+- One local FastMCP server exposing `calculator` over stdio.
+- Separate Python environments for the benchmark client and server.
+- Legacy initialization and tools-capability checks.
+- A single-page, single-tool catalog with an explicit allowlist.
+- Input validation using the restricted external JSON Schema profile.
+- Structured JSON object responses mapped to `ToolResult`.
+- A synchronous executor backed by an open asynchronous MCP client.
+- Existing tool loop and evaluation integration via `run_calculator_mcp_suite`.
+- Smoke checks, executor tests, lifecycle tests, and local/MCP suite comparison.
 
-Bu demo gerçek LLM çağırmaz. `17 * 23 = 391` sonucu yazılım entegrasyonunu
-doğrular; model kalitesi ölçümü değildir. MCP henüz `tool-run`, agent loop,
-API veya worker çalıştırma yoluna bağlanmamıştır.
+The supplied demos use synthetic behavior and do not call a real LLM. Obtaining
+`17 * 23 = 391` validates software integration, not model quality. MCP runtime
+selection is not yet integrated into the `tool-run` CLI, API, or worker paths.
 
-## Mimari ve dosyalar
+## Architecture and files
 
 ```text
-Benchmark ortamı (.venv)
-    demo_mcp_stdio_smoke
-    → mcp_client: session ve discovery
-    → stdio
-Server ortamı (.venv-mcp)
+Benchmark environment (.venv)
+    demo_mcp_suite
+    -> mcp_tool_suite: session ownership and discovery
+    -> AnyIO worker thread: synchronous external tool suite
+       -> tool loop and argument validation
+       -> mcp_executor: dispatch to the async client event loop
+          -> stdio
+Server environment (.venv-mcp)
     demo_mcp_server: FastMCP
-    → CalculatorArguments
-    → calculator_handler
-    → structured JSON cevap
-Benchmark ortamı
-    → mcp_mapping
-    → ToolResult
+    -> CalculatorArguments -> calculator_handler
+    -> structured JSON response
+Benchmark environment
+    -> mcp_mapping -> ToolResult -> evaluation -> suite summary
 ```
 
-| Dosya | Sorumluluk |
+| File | Responsibility |
 |---|---|
-| `src/llm_benchmark/demo_mcp_server.py` | Calculator'ı FastMCP aracı olarak sunar |
-| `src/llm_benchmark/demo_mcp_smoke.py` | Aynı process içinde server davranışını kontrol eder |
-| `src/llm_benchmark/mcp_client.py` | Güvenilir yerel launch profili, session ve katalog kabulü |
-| `src/llm_benchmark/mcp_mapping.py` | SDK'dan bağımsız descriptor/sonuç dönüşümleri |
-| `src/llm_benchmark/demo_mcp_stdio_smoke.py` | Gerçek subprocess ile uçtan uca smoke |
-| `tests/test_mcp_mapping.py` | Saf dönüşüm ve çıktı bütçesi kontrolleri |
-| `tests/test_mcp_client.py` | Tek sayfalı katalog kabul/ret kontrolleri |
-| `tests/test_mcp_stdio.py` | Gerçek bağlantı ve yanlış girdilerin reddi |
-| `requirements-mcp-server.txt` | Server framework sürümü |
+| `src/llm_benchmark/demo_mcp_server.py` | Exposes the calculator as a FastMCP tool |
+| `src/llm_benchmark/demo_mcp_smoke.py` | Checks server behavior in the same process |
+| `src/llm_benchmark/mcp_client.py` | Trusted local launch profile, session, and catalog admission |
+| `src/llm_benchmark/mcp_mapping.py` | SDK-independent descriptor and result mapping |
+| `src/llm_benchmark/mcp_errors.py` | Tool-request infrastructure exception types |
+| `src/llm_benchmark/mcp_executor.py` | Bridges synchronous execution to an open async client |
+| `src/llm_benchmark/mcp_tool_suite.py` | Owns the session and runs the external tool suite |
+| `src/llm_benchmark/demo_mcp_stdio_smoke.py` | End-to-end smoke check with a real subprocess |
+| `src/llm_benchmark/demo_mcp_suite.py` | Runs synthetic scenarios and prints a JSON summary |
+| `tests/test_mcp_mapping.py` | Pure mapping and output-budget checks |
+| `tests/test_mcp_client.py` | Single-page catalog acceptance and rejection |
+| `tests/test_mcp_executor.py` | Execution, timeout, error mapping, and input-contract checks |
+| `tests/test_mcp_tool_suite.py` | Context exit on success and discovery/provider/executor failures |
+| `tests/test_tool_loop_time_budget.py` | Remaining-budget forwarding, expired scenarios, early timeouts, and legacy executor compatibility |
+| `tests/test_mcp_stdio.py` | Real connection, invalid inputs, tool errors, and suite comparison |
+| `tests/fixtures/mcp_disconnect_server.py` | Test-only server that exits during a tool request |
+| `requirements-mcp-server.txt` | Pins the server framework version |
 
-## Ortamlar neden ayrı?
+## Why separate environments?
 
-Mevcut backend FastAPI bağımlılıkları ile seçilen FastMCP 4.0.4 server
-bağımlılıklarının Starlette aralıkları uyuşmadığı için iki ortam kullanılır.
-Backend'in MCP SDK client'ı `.venv`, FastMCP server `.venv-mcp` içinde çalışır.
-İletişim Python nesnelerini paylaşarak değil stdio üzerinden gerçekleşir.
-Server requirements dosyası framework sürümünü sabitler; tam transitif lock değildir.
+The backend FastAPI dependencies and the selected FastMCP 4.0.4 server stack
+require incompatible Starlette version ranges. The MCP SDK client runs in
+`.venv`; the FastMCP server runs in `.venv-mcp`. They communicate through stdio
+rather than sharing Python objects.
 
-## Kurulum — Windows PowerShell
+Keep FastMCP out of the backend environment. The server requirements file pins
+the framework version; it is not a complete transitive dependency lock.
 
-Komutları depo kökünde çalıştır. Proje Python 3.12 gerektirir. Mevcut `.venv`
-yoksa önce oluştur:
+## Setup: Windows PowerShell
+
+Run commands from the repository root. The project requires Python 3.12.
+If the backend environment does not exist, create it:
 
 ```powershell
 py -3.12 -m venv .venv
 ```
 
-Backend test ve client bağımlılıkları:
+Install the backend, test tools, and MCP client dependencies:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e ".[dev,mcp]"
 ```
 
-Server ortamı yoksa oluştur ve bağımlılığını kur:
+Create the server environment if it does not exist, then install its dependencies:
 
 ```powershell
 .\.venv\Scripts\python.exe -m venv .venv-mcp
 .\.venv-mcp\Scripts\python.exe -m pip install -r requirements-mcp-server.txt
 ```
 
-FastMCP'yi backend ortamına kurma. Server ortamına bütün backend'i kurmak da
-gerekmez; aşağıdaki komutlar kaynak kodunu `PYTHONPATH` üzerinden bulur.
-Paket kurulumları ağ gerektirebilir; demo bir model servisi gerektirmez.
+The full backend does not need to be installed in the server environment: the
+commands below make project sources available through `PYTHONPATH`. Dependency
+installation may require network access; the demos do not require a model service.
 
-## 1. In-process smoke
+Check the environments independently:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip check
+.\.venv-mcp\Scripts\python.exe -m pip check
+```
+
+## 1. In-process smoke check
 
 ```powershell
 $env:PYTHONPATH = (Resolve-Path .\src).Path
 .\.venv-mcp\Scripts\python.exe -m llm_benchmark.demo_mcp_smoke
 ```
 
-Beklenen mesaj: `FastMCP calculator smoke passed.`
+Expected message: `FastMCP calculator smoke passed.`
 
-Bu kontrol araç kaydı ve çağrısını doğrular. Ayrı process veya stdio bağlantısını
-doğrulamaz. `PYTHONPATH` bu terminal oturumunda ayarlanır.
+This checks tool registration and invocation, not a separate process or stdio
+transport. `PYTHONPATH` is set for the current terminal session.
 
-## 2. Gerçek stdio smoke
+## 2. Real stdio smoke check
 
 ```powershell
 .\.venv\Scripts\python.exe -m llm_benchmark.demo_mcp_stdio_smoke --server-python .\.venv-mcp\Scripts\python.exe
 ```
 
-Client server'ı kendisi başlatır; önceden ayrı terminalde server açmak gerekmez.
-Komutun başındaki Python backend'e, `--server-python` server ortamına aittir.
-Client subprocess için `cwd`, `PYTHONPATH` ve `PYTHONUNBUFFERED` ayarlar.
+The client starts the server; do not launch it manually in another terminal.
+The first executable is the backend Python; `--server-python` selects the
+server Python. The client sets the subprocess working directory, `PYTHONPATH`,
+and `PYTHONUNBUFFERED`.
 
-Başarılı mesaj şu biçimdedir:
+Expected message format:
 
 ```text
 MCP stdio smoke passed. Protocol: <negotiated-version>; result: 391.
 ```
 
-Başka dizinden çalıştırılıyorsa `--project-root` ile depo kökünü açıkça ver.
-Server'ı doğrudan başlatmak stdin'den protokol mesajı beklemesine yol açar;
-bu modda tarayıcı adresi veya HTTP endpoint oluşmaz.
+When running from another directory, pass the repository root with
+`--project-root` and use appropriate executable paths. Starting the server
+directly makes it wait for protocol messages on stdin; it does not create an
+HTTP endpoint or browser URL.
 
-## Testler
+## 3. Synthetic MCP suite
+
+```powershell
+.\.venv\Scripts\python.exe -m llm_benchmark.demo_mcp_suite --server-python .\.venv-mcp\Scripts\python.exe
+```
+
+This runs the existing scenarios through `DemoToolProvider`: calculator
+multiplication and a direct `READY` response without tool use. It exercises
+the tool loop, external argument validation, MCP executor, and evaluation.
+The command also accepts `--project-root`.
+
+The JSON output contains `synthetic: true`, `runtime: "mcp_stdio"`, and the
+complete suite summary. On success, key summary fields are:
+
+| Field | Expected value |
+|---|---|
+| `case_count` | `2` |
+| `requested_call_count` | `1` |
+| `executed_call_count` | `1` |
+| `successful_call_count` | `1` |
+| `final_answer_match` | `numerator: 2`, `denominator: 2` |
+
+This demo prints a summary; it does not write `manifest.json`, `results.jsonl`,
+or `trace.jsonl`. Those artifacts belong to the future `tool-run` integration.
+
+## Tests and validation
+
+Configure the server executable so the subprocess tests actually run:
 
 ```powershell
 $env:LLM_BENCHMARK_MCP_PYTHON = (Resolve-Path .\.venv-mcp\Scripts\python.exe).Path
-.\.venv\Scripts\python.exe -m pytest -q tests/test_mcp_mapping.py tests/test_mcp_client.py tests/test_mcp_stdio.py
+.\.venv\Scripts\python.exe -m pytest -q tests/test_mcp_mapping.py tests/test_mcp_client.py tests/test_mcp_executor.py tests/test_mcp_tool_suite.py tests/test_mcp_stdio.py
 ```
 
-`LLM_BENCHMARK_MCP_PYTHON` yoksa stdio testleri skip olur. Yol tanımlı ama dosya
-yoksa test fail olur. MCP paketi yoksa SDK gerektiren testler skip olabilir.
-PR doğrulamasında stdio testlerinin gerçekten çalıştığını kontrol et.
+Without `LLM_BENCHMARK_MCP_PYTHON`, stdio tests are skipped. A configured path
+that does not point to a file fails the tests. SDK-dependent tests may skip if
+the MCP package is missing. Confirm that subprocess tests ran when recording
+PR validation.
 
-Negatif argüman testleri string sayı, boolean, sınır dışı sayı, bilinmeyen işlem
-ve fazladan alanı server'a doğrudan gönderir. Böylece yalnızca client wrapper'ın
-değil server'ın da yanlış girdiyi reddettiği sınanır. Beklenen ret tool error
-veya invalid-params protokol hatasıdır; timeout/bağlantı hatası başarı sayılmaz.
+Invalid-input tests send numeric strings, booleans, out-of-range values, unknown
+operations, and extra fields directly to the server. They check server-side
+rejection in addition to client validation. A tool error or invalid-params
+protocol error is accepted; a timeout or connection failure is not.
 
-Merge öncesi genel kontrol:
+Suite lifecycle tests check context exit on success and discovery, provider,
+and executor failures. They do not prove that a real operating-system child
+process has terminated. Stdio tests separately cover real calls, division-by-zero
+tool errors, and local/MCP evaluation equivalence.
+
+The server-exit test launches a separate test-only FastMCP process. Its
+`disconnect` tool exits that process during a request; the executor must report
+`MCPTransportFailure`. A generic request timeout does not satisfy the assertion.
+This is distinct from proving cleanup of an unresponsive process that stays
+alive. The production calculator server does not expose this test tool.
+
+Before merging, run general checks:
 
 ```powershell
 $env:HF_HUB_OFFLINE = "1"
@@ -140,45 +201,101 @@ $env:TRANSFORMERS_OFFLINE = "1"
 git diff --check
 ```
 
-Bu environment değişkenleri Hugging Face offline davranışını ayarlar; işletim
-sistemi seviyesinde bütün ağ erişimini engellemez. PostgreSQL ve OS bağımlı
-skip'leri ayrıca raporla. Test sayısını burada sabit başarı iddiası olarak
-tutmak yerine çalıştırılan commit'in sonucunu PR'a kaydet.
+The Hugging Face variables enable offline behavior in those libraries, not
+OS-level network isolation. Report PostgreSQL and platform-dependent skips
+separately. Record results for the actual commit in the PR rather than treating
+a fixed test count in this guide as proof of current validation.
 
-## Sınırlar ve davranışlar
+## Execution and error behavior
 
-- Catalog yalnızca `calculator` kabul eder; başka araç veya devam sayfası reddedilir.
-- `next_cursor=None` başka sayfa olmadığını gösterir ve kabul edilir.
-- Schema byte bütçesi 65.536; desteklenen keyword kümesi sınırlıdır.
-- Mapping yalnızca structured JSON object çıktısını destekler.
-- Varsayılan sonuç bütçesi 65.536 UTF-8 byte'tır; decode sonrası uygulanır,
-  transport mesajının veya peak memory kullanımının sınırı değildir.
-- Modelin `call_id` değeri `ToolResult` üzerinde korunur.
-- Ham hata payload'u başarısız `ToolResult` çıktısına kopyalanmaz.
-- Launch yolları güvenilir yerel geliştirici girdisidir; API komut arayüzü değildir.
-- Server stdout'una debug `print()` eklenmemeli; stdio protokolüne ayrılmıştır.
-- Smoke'ta 30 saniyelik dış bütçe ve 10 saniyelik istek timeout'ları vardır.
-  Bunlar production process recovery veya keyfî Python kodunu zorla durdurma garantisi değildir.
+`mcp_tool_suite.py` owns the session. It runs the synchronous external suite in
+an AnyIO worker thread; `mcp_executor.py` dispatches calls back to the open async
+client. The validation wrapper checks selected-tool arguments before delegating
+execution. The current calculator suite runs sequentially and shares one session.
 
-## Sorun giderme
-
-| Belirti | Kontrol |
+| Condition during a tool request | Behavior |
 |---|---|
-| `No module named fastmcp` | Server `.venv-mcp` Python'ıyla başlatılıyor mu? |
-| Proje modülü bulunamıyor | In-process smoke için `PYTHONPATH`, stdio için `--project-root` doğru mu? |
-| `single page catalog` | `next_cursor is not None` koşulu doğru mu; server gerçekten devam sayfası mı sunuyor? |
-| Schema reddediliyor | Server'ın keşfedilen input schema'sı desteklenen profile uyuyor mu? |
-| `ExceptionGroup` | En içteki exception'ı oku; dış task-group katmanları kök nedeni sarmalıyor olabilir |
-| Testler skip | Server Python environment değişkeni ve backend MCP extra kurulmuş mu? |
+| Server returns a tool-error response | Failed `ToolResult` |
+| Missing or unsupported structured output | `invalid_output` result |
+| Output exceeds the configured budget | `output_too_large` result |
+| Request timeout | `McpExecutionTimeout` |
+| Known connection or stream failure | `MCPTransportFailure` |
+| Other MCP protocol error | `MCPProtocolFailure`, retaining the error code |
+| Unexpected implementation exception | Propagates |
 
-## Sonraki teslimler
+Infrastructure exceptions normally stop the suite instead of producing a completed
+`ToolSuiteResult`; they are not scored as a model's incorrect answer. Session
+startup and discovery errors are not all covered by the executor's request-error
+classification. Async context managers may wrap errors in an `ExceptionGroup`.
 
-1. Bu bağlantı temelini mapping, discovery, server ve stdio testleriyle PR olarak kapat.
-2. Ayrı PR'da senkron `ToolExecutor` / async MCP session köprüsünü kur.
-   Session sahibi üst orchestration olsun; her çağrıda yeni session açılmasın.
-3. Timeout, transport ve protocol hatalarını ayır; kapanış ve server çökmesi
-   senaryolarını test et. Yerel/MCP suite değerlendirmelerini karşılaştır.
-4. Sonraki PR'da runtime seçimini `tool_run_config.py` ve `tool_run_service.py`
-   üzerinden artifact/provenance akışına bağla.
+### Scenario time budgets
 
-İlk PR, MCP'nin benchmark'a tamamen entegre olduğu iddiasını taşımamalıdır.
+When `ToolLoopPolicy.max_wall_time_seconds` is configured, the loop passes the
+remaining duration to executors exposing `execute_with_timeout`. The external
+validation wrapper subtracts argument-validation time before delegation. The
+MCP executor uses the smaller of its configured request timeout and the supplied
+budget. The original `execute(call)` path remains available.
+
+`McpExecutionTimeout` also inherits the framework-independent
+`ToolExecutionTimeout`. If the loop catches this exception after the scenario
+deadline has expired, it returns `WALL_TIME_LIMIT`; otherwise the exception
+propagates as an infrastructure failure. No fabricated successful tool result
+is appended for a timed-out request.
+
+This support is conditional on a configured scenario budget. The example
+scenarios used by `demo_mcp_suite` do not themselves configure one. Executors
+without timed execution retain cooperative checks between calls. Relative
+duration handoffs, event-loop scheduling, cancellation, and cleanup can add
+overhead; this is not a hard process-termination deadline.
+
+Run the budget-specific checks with:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q tests/test_tool_loop_time_budget.py tests/test_external_tool_executor.py tests/test_mcp_executor.py
+```
+
+## Limits and assumptions
+
+- Only the `calculator` catalog is accepted; additional tools or continuation
+  pages are rejected. `next_cursor=None` means there is no next page and is accepted.
+- The catalog schema budget is 65,536 bytes; supported schema keywords are restricted.
+- Result mapping supports structured JSON objects, not arbitrary text or media.
+- The default output budget is 65,536 UTF-8 bytes, enforced after decoding. It
+  does not cap transport message size or peak memory usage.
+- The original `call_id` is preserved in `ToolResult`.
+- Raw server tool-error payloads are not copied into failed result output.
+- Launch paths are trusted local developer configuration, not model-provided commands.
+- Server stdout is reserved for the stdio protocol; do not add debug `print()` calls.
+- The stdio smoke has a 30-second outer budget and 10-second request timeouts.
+  The executor defaults to a 10-second call timeout. These are not guarantees of
+  forced termination of arbitrary Python code or production process recovery.
+- With a configured scenario budget, timed execution receives the remaining
+  duration; scheduling and cleanup overhead are not a hard wall-time guarantee.
+
+## Troubleshooting
+
+| Symptom | Check |
+|---|---|
+| `No module named fastmcp` | Use the `.venv-mcp` Python for the server and install its requirements. |
+| Project module not found | Check `PYTHONPATH` for the in-process smoke and `--project-root` for stdio/suite demos. |
+| `single page catalog` error | Confirm the check is `next_cursor is not None` and whether the server returned a continuation cursor. |
+| Schema rejected | Compare the discovered input schema with the supported external schema profile. |
+| `ExceptionGroup` | Inspect nested exceptions for the underlying failure. |
+| Stdio tests skipped | Check the server Python environment variable and the backend MCP extra. |
+| FastAPI/Starlette errors in backend tests | Run backend `pip check`; keep FastMCP server dependencies in the separate environment. |
+| Suite prints JSON but no artifact directory appears | Expected for `demo_mcp_suite`; MCP `tool-run` integration is pending. |
+
+## Remaining work
+
+1. Verify cleanup of an unresponsive child process separately from the
+   server-exit detection test. Do not claim hard process-termination guarantees.
+2. Add runtime selection through `tool_run_config.py` and `tool_run_service.py`,
+   preserving artifact callbacks and recording runtime/protocol provenance.
+3. Document and test the resulting `tool-run` command separately from these demos.
+
+Deadline-boundary tests now cover both early request timeouts that propagate and
+timeouts after scenario expiry that produce `WALL_TIME_LIMIT`, without appending
+a fabricated tool result.
+
+The current integration supports MCP-backed suite execution, not complete CLI,
+API, or worker runtime integration.

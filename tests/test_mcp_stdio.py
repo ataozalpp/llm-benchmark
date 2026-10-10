@@ -95,3 +95,117 @@ def test_server_rejects_invalid_arguments(server_python):
                         assert response.is_error is True
 
     asyncio.run(check())
+
+
+def test_mcp_suite_matches_local_suite(server_python):
+    pytest.importorskip("mcp")
+
+    from llm_benchmark.mcp_tool_suite import run_calculator_mcp_suite
+    from llm_benchmark.tool_demo_provider import DemoToolProvider
+    from llm_benchmark.tool_scenarios import create_example_tool_scenarios
+    from llm_benchmark.tool_suite import run_tool_suite
+    from llm_benchmark.tools import create_example_tool_registry
+
+    scenarios = create_example_tool_scenarios()
+
+    local_result = run_tool_suite(
+        scenarios=scenarios,
+        registry=create_example_tool_registry(),
+        provider_factory=DemoToolProvider,
+    )
+
+    mcp_result = asyncio.run(
+        run_calculator_mcp_suite(
+            scenarios=scenarios,
+            provider_factory=DemoToolProvider,
+            server_python=server_python,
+            project_root=Path(__file__).resolve().parents[1],
+        )
+    )
+
+    assert len(mcp_result.evaluations) == len(scenarios)
+    assert mcp_result.evaluations == local_result.evaluations
+    assert mcp_result.summary == local_result.summary
+
+
+def test_executor_maps_real_tool_error(server_python):
+    pytest.importorskip("mcp")
+
+    import anyio
+
+    from llm_benchmark.mcp_client import connect_calculator
+    from llm_benchmark.mcp_executor import MCPToolExecutor
+    from llm_benchmark.tool_runtime import (
+        ToolCall,
+        ToolErrorCode,
+        ToolExecutionStatus,
+    )
+
+    async def check():
+        async with connect_calculator(
+            server_python=server_python,
+            project_root=Path(__file__).resolve().parents[1],
+        ) as client:
+            executor = MCPToolExecutor(client=client)
+            call = ToolCall(
+                call_id="division-error-1",
+                tool_name="calculator",
+                arguments={
+                    "operation": "divide",
+                    "left": 17,
+                    "right": 0,
+                },
+            )
+
+            result = await anyio.to_thread.run_sync(
+                executor.execute,
+                call,
+            )
+
+            assert result.status is ToolExecutionStatus.EXECUTION_FAILED
+            assert result.error_code is ToolErrorCode.TOOL_EXECUTION_FAILED
+            assert result.call_id == call.call_id
+            assert result.output is None
+    asyncio.run(check())
+
+
+def test_server_exit_during_call_is_transport_failure(server_python):
+    pytest.importorskip("mcp")
+
+    import anyio
+    from mcp import Client, StdioServerParameters
+
+    from llm_benchmark.mcp_errors import MCPTransportFailure
+    from llm_benchmark.mcp_executor import MCPToolExecutor
+    from llm_benchmark.tool_runtime import ToolCall
+
+    project_root = Path(__file__).resolve().parents[1]
+    server_script = (
+        project_root / "tests" / "fixtures" / "mcp_disconnect_server.py"
+    )
+
+    parameters = StdioServerParameters(
+        command=str(server_python),
+        args=[str(server_script)],
+        cwd=str(project_root),
+        env={"PYTHONUNBUFFERED": "1"},
+    )
+
+    async def check():
+        with anyio.fail_after(30):
+            async with Client(
+                parameters,
+                mode="legacy",
+                read_timeout_seconds=10.0,
+            ) as client:
+                executor = MCPToolExecutor(client=client, timeout_seconds=10.0)
+                invocation = ToolCall(
+                    call_id="disconnect-test-1",
+                    tool_name="disconnect",
+                    arguments={},
+                )
+
+                with pytest.raises(MCPTransportFailure):
+                    await anyio.to_thread.run_sync(executor.execute, invocation)
+
+    asyncio.run(check())

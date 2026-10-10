@@ -4,6 +4,49 @@ This document summarizes completed software and local operational validation.
 The real-model results are small diagnostic smoke runs, not statistically
 sufficient model benchmarks.
 
+## MCP scenario-budget checkpoint (2026-10-10)
+
+### Follow-up: deadline and real server-exit coverage
+
+After completing the deadline-boundary test and adding the test-only disconnect
+server, full regression passed: **1649 passed, 7 skipped in 59.95 seconds**.
+The five PostgreSQL and two filesystem-symlink skips have the same environment
+causes described below. `LLM_BENCHMARK_MCP_PYTHON` was configured; the real
+server-exit test ran and passed. Ruff and the whole-tree `git diff --check`
+also passed (Git emitted only line-ending conversion warnings).
+
+The review corrected fixture import spacing, a disconnect call-ID typo, and
+the legacy executor test name. The explicit post-deadline timeout test verifies
+`WALL_TIME_LIMIT` without a fabricated tool result. The server-exit test requires
+`MCPTransportFailure`; a generic timeout cannot satisfy it. Cleanup of a live,
+unresponsive child process remains outside this evidence, and MCP `tool-run`
+runtime selection remains unimplemented. These results supersede the earlier
+open test/whitespace items below; the earlier record is retained as history.
+
+### Earlier working-tree validation
+
+Validation was run against the working tree containing the scenario-budget
+changes, not only the last committed revision. The server Python environment
+variable was configured so real MCP stdio tests ran.
+
+- Full regression: **1647 passed, 7 skipped** in 102.61 seconds.
+- Skips: five PostgreSQL tests without `LLM_BENCHMARK_TEST_POSTGRES_URL` and
+  two filesystem-symlink tests unavailable in the Windows environment.
+- `python -m ruff check .`: passed.
+- Documentation diff check: passed. The whole-tree `git diff --check` still
+  reports trailing whitespace in `external_tool_executor.py` and
+  `tool_execution.py`, plus an extra blank line at the end of the latter.
+
+Coverage includes remaining-budget forwarding, validation-time subtraction,
+expired-budget rejection before delegation, early-timeout propagation, and
+legacy executor compatibility. An explicit loop test for a tool timeout after
+scenario expiry is still missing. Real server-disconnection/process-cleanup
+coverage and MCP `tool-run` runtime selection remain pending. See
+[MCP integration](mcp.md) for the current behavior and limits.
+
+These results validate synthetic software behavior, not model quality or a
+hard process-termination deadline.
+
 > [!WARNING]
 > `MockProvider` values are synthetic pipeline metrics. LM Studio values are
 > real local-run telemetry for the stated model/runtime/configuration only and

@@ -51,6 +51,46 @@ class RecordingExecutor:
         return self.result
 
 
+class RecordingTimedExecutor(RecordingExecutor):
+    def __init__(self):
+        super().__init__()
+        self.budgets = []
+
+    def execute_with_timeout(self, value, *, timeout_seconds):
+        self.budgets.append(timeout_seconds)
+        return super().execute(value)
+
+
+def test_invalid_timed_arguments_never_reach_delegate():
+    delegate = RecordingTimedExecutor()
+    wrapper = ValidatingExternalToolExecutor(
+        descriptors=(descriptor(),),
+        delegate=delegate,
+    )
+
+    result = wrapper.execute_with_timeout(
+        call({"left": "invalid"}),
+        timeout_seconds=2.0,
+    )
+
+    assert result.status is ToolExecutionStatus.INVALID_ARGUMENTS
+    assert delegate.calls == []
+    assert delegate.budgets == []
+
+
+def test_timed_wrapper_supports_legacy_delegate():
+    delegate = RecordingExecutor()
+    wrapper = ValidatingExternalToolExecutor(
+        descriptors=(descriptor(),),
+        delegate=delegate,
+    )
+
+    result = wrapper.execute_with_timeout(call(), timeout_seconds=2.0)
+
+    assert result is delegate.result
+    assert len(delegate.calls) == 1
+
+
 def test_valid_call_delegated_once_with_exact_call_and_result():
     delegate = RecordingExecutor()
     selected = descriptor()
@@ -242,3 +282,60 @@ def test_setup_errors_not_normalized_as_argument_failures(monkeypatch, code):
         wrapper.execute(call())
     assert caught.value is error
     assert delegate.calls == []
+
+
+def test_timed_call_forwards_remaining_budget():
+    delegate = RecordingTimedExecutor()
+    wrapper = ValidatingExternalToolExecutor(
+        descriptors=(descriptor(),),
+        delegate=delegate,
+    )
+    invocation = call()
+
+    result = wrapper.execute_with_timeout(
+        invocation,
+        timeout_seconds=2.0,
+    )
+
+    assert result is delegate.result
+    assert delegate.calls == [invocation]
+    assert len(delegate.budgets) == 1
+    assert 0 < delegate.budgets[0] <= 2.0
+
+
+def test_validation_time_is_subtracted_from_budget(monkeypatch):
+    delegate = RecordingTimedExecutor()
+    wrapper = ValidatingExternalToolExecutor(
+        descriptors=(descriptor(),),
+        delegate=delegate,
+    )
+
+    ticks = iter([100.0, 100.5])
+    monkeypatch.setattr(executor_module.time, "monotonic", lambda: next(ticks))
+
+    result = wrapper.execute_with_timeout(call(), timeout_seconds=2.0)
+
+    assert result is delegate.result
+    assert delegate.budgets == [pytest.approx(1.5)]
+
+
+def test_expired_validation_budget_never_reaches_delegate(monkeypatch):
+    from llm_benchmark.tool_execution import ToolExecutionTimeout
+
+    delegate = RecordingTimedExecutor()
+    wrapper = ValidatingExternalToolExecutor(
+        descriptors=(descriptor(),),
+        delegate=delegate,
+    )
+
+    ticks = iter([100.0, 102.0])
+    monkeypatch.setattr(executor_module.time, "monotonic", lambda: next(ticks))
+
+    with pytest.raises(ToolExecutionTimeout):
+        wrapper.execute_with_timeout(
+            call(),
+            timeout_seconds=2.0,
+        )
+
+    assert delegate.calls == []
+    assert delegate.budgets == []

@@ -53,7 +53,9 @@ Benchmark environment
 | `tests/test_mcp_client.py` | Single-page catalog acceptance and rejection |
 | `tests/test_mcp_executor.py` | Execution, timeout, error mapping, and input-contract checks |
 | `tests/test_mcp_tool_suite.py` | Context exit on success and discovery/provider/executor failures |
+| `tests/test_tool_loop_time_budget.py` | Remaining-budget forwarding, expired scenarios, early timeouts, and legacy executor compatibility |
 | `tests/test_mcp_stdio.py` | Real connection, invalid inputs, tool errors, and suite comparison |
+| `tests/fixtures/mcp_disconnect_server.py` | Test-only server that exits during a tool request |
 | `requirements-mcp-server.txt` | Pins the server framework version |
 
 ## Why separate environments?
@@ -182,6 +184,12 @@ and executor failures. They do not prove that a real operating-system child
 process has terminated. Stdio tests separately cover real calls, division-by-zero
 tool errors, and local/MCP evaluation equivalence.
 
+The server-exit test launches a separate test-only FastMCP process. Its
+`disconnect` tool exits that process during a request; the executor must report
+`MCPTransportFailure`. A generic request timeout does not satisfy the assertion.
+This is distinct from proving cleanup of an unresponsive process that stays
+alive. The production calculator server does not expose this test tool.
+
 Before merging, run general checks:
 
 ```powershell
@@ -215,10 +223,36 @@ execution. The current calculator suite runs sequentially and shares one session
 | Other MCP protocol error | `MCPProtocolFailure`, retaining the error code |
 | Unexpected implementation exception | Propagates |
 
-Infrastructure exceptions stop the suite instead of producing a completed
+Infrastructure exceptions normally stop the suite instead of producing a completed
 `ToolSuiteResult`; they are not scored as a model's incorrect answer. Session
 startup and discovery errors are not all covered by the executor's request-error
 classification. Async context managers may wrap errors in an `ExceptionGroup`.
+
+### Scenario time budgets
+
+When `ToolLoopPolicy.max_wall_time_seconds` is configured, the loop passes the
+remaining duration to executors exposing `execute_with_timeout`. The external
+validation wrapper subtracts argument-validation time before delegation. The
+MCP executor uses the smaller of its configured request timeout and the supplied
+budget. The original `execute(call)` path remains available.
+
+`McpExecutionTimeout` also inherits the framework-independent
+`ToolExecutionTimeout`. If the loop catches this exception after the scenario
+deadline has expired, it returns `WALL_TIME_LIMIT`; otherwise the exception
+propagates as an infrastructure failure. No fabricated successful tool result
+is appended for a timed-out request.
+
+This support is conditional on a configured scenario budget. The example
+scenarios used by `demo_mcp_suite` do not themselves configure one. Executors
+without timed execution retain cooperative checks between calls. Relative
+duration handoffs, event-loop scheduling, cancellation, and cleanup can add
+overhead; this is not a hard process-termination deadline.
+
+Run the budget-specific checks with:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q tests/test_tool_loop_time_budget.py tests/test_external_tool_executor.py tests/test_mcp_executor.py
+```
 
 ## Limits and assumptions
 
@@ -235,7 +269,8 @@ classification. Async context managers may wrap errors in an `ExceptionGroup`.
 - The stdio smoke has a 30-second outer budget and 10-second request timeouts.
   The executor defaults to a 10-second call timeout. These are not guarantees of
   forced termination of arbitrary Python code or production process recovery.
-- The executor timeout is not yet limited by the scenario's remaining wall-time budget.
+- With a configured scenario budget, timed execution receives the remaining
+  duration; scheduling and cleanup overhead are not a hard wall-time guarantee.
 
 ## Troubleshooting
 
@@ -252,14 +287,15 @@ classification. Async context managers may wrap errors in an `ExceptionGroup`.
 
 ## Remaining work
 
-1. Test real server disconnection and verify child-process cleanup; do not treat
-   a generic timeout as proof that a disconnection was handled.
-2. Pass the remaining scenario budget through the tool loop and validation wrapper
-   to the executor. Distinguish scenario deadline exhaustion from an independent
-   request timeout.
-3. Add runtime selection through `tool_run_config.py` and `tool_run_service.py`,
+1. Verify cleanup of an unresponsive child process separately from the
+   server-exit detection test. Do not claim hard process-termination guarantees.
+2. Add runtime selection through `tool_run_config.py` and `tool_run_service.py`,
    preserving artifact callbacks and recording runtime/protocol provenance.
-4. Document and test the resulting `tool-run` command separately from these demos.
+3. Document and test the resulting `tool-run` command separately from these demos.
+
+Deadline-boundary tests now cover both early request timeouts that propagate and
+timeouts after scenario expiry that produce `WALL_TIME_LIMIT`, without appending
+a fabricated tool result.
 
 The current integration supports MCP-backed suite execution, not complete CLI,
 API, or worker runtime integration.

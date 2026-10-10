@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import math
+import time
+
 from .external_tool_schema import (
     ExternalToolSchemaCode,
     ExternalToolSchemaError,
@@ -9,7 +12,7 @@ from .external_tool_schema import (
     validate_external_tool_schema,
 )
 from .tool_descriptors import ToolDescriptor
-from .tool_execution import ToolExecutor
+from .tool_execution import ToolExecutionTimeout, ToolExecutor
 from .tool_runtime import (
     ToolCall,
     ToolErrorCode,
@@ -54,6 +57,26 @@ class ValidatingExternalToolExecutor:
         self._delegate = delegate
 
     def execute(self, call: ToolCall) -> ToolResult:
+        return self._execute(call, deadline=None)
+
+    def execute_with_timeout(
+        self,
+        call: ToolCall,
+        *,
+        timeout_seconds: float,
+    ) -> ToolResult:
+        if (
+            type(timeout_seconds) not in (int, float)
+            or not math.isfinite(timeout_seconds)
+            or timeout_seconds <= 0
+        ):
+            raise ValueError("Timeout must be a finite positive number.")
+
+        deadline = time.monotonic() + float(timeout_seconds)
+
+        return self._execute(call, deadline=deadline)
+
+    def _execute(self, call: ToolCall, *, deadline: float | None) -> ToolResult:
         if type(call) is not ToolCall:
             raise TypeError("Expected a ToolCall.")
 
@@ -83,7 +106,20 @@ class ValidatingExternalToolExecutor:
                 error_code=ToolErrorCode.INVALID_ARGUMENTS,
             )
 
-        result = self._delegate.execute(call)
+        if deadline is None:
+            result = self._delegate.execute(call)
+        else:
+            remaining = deadline - time.monotonic()
+
+            if remaining <= 0:
+                raise ToolExecutionTimeout("Tool budget expired during argument validation.")
+
+            timed_execute = getattr(self._delegate, "execute_with_timeout", None)
+
+            if callable(timed_execute):
+                result = timed_execute(call, timeout_seconds=remaining)
+            else:
+                result = self._delegate.execute(call)
 
         if type(result) is not ToolResult:
             raise TypeError("Delegate returned an invalid result.")

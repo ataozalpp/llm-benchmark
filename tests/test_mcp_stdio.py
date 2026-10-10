@@ -167,3 +167,45 @@ def test_executor_maps_real_tool_error(server_python):
             assert result.call_id == call.call_id
             assert result.output is None
     asyncio.run(check())
+
+
+def test_server_exit_during_call_is_transport_failure(server_python):
+    pytest.importorskip("mcp")
+
+    import anyio
+    from mcp import Client, StdioServerParameters
+
+    from llm_benchmark.mcp_errors import MCPTransportFailure
+    from llm_benchmark.mcp_executor import MCPToolExecutor
+    from llm_benchmark.tool_runtime import ToolCall
+
+    project_root = Path(__file__).resolve().parents[1]
+    server_script = (
+        project_root / "tests" / "fixtures" / "mcp_disconnect_server.py"
+    )
+
+    parameters = StdioServerParameters(
+        command=str(server_python),
+        args=[str(server_script)],
+        cwd=str(project_root),
+        env={"PYTHONUNBUFFERED": "1"},
+    )
+
+    async def check():
+        with anyio.fail_after(30):
+            async with Client(
+                parameters,
+                mode="legacy",
+                read_timeout_seconds=10.0,
+            ) as client:
+                executor = MCPToolExecutor(client=client, timeout_seconds=10.0)
+                invocation = ToolCall(
+                    call_id="disconnect-test-1",
+                    tool_name="disconnect",
+                    arguments={},
+                )
+
+                with pytest.raises(MCPTransportFailure):
+                    await anyio.to_thread.run_sync(executor.execute, invocation)
+
+    asyncio.run(check())

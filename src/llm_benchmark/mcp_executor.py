@@ -45,18 +45,42 @@ class MCPToolExecutor:
         self._max_output_bytes = max_output_bytes
 
     def execute(self, call: ToolCall) -> ToolResult:
+        return self.execute_with_timeout(
+            call,
+            timeout_seconds=self._timeout_seconds,
+        )
+
+    def execute_with_timeout(
+        self,
+        call: ToolCall,
+        *,
+        timeout_seconds: float,
+    ) -> ToolResult:
         if type(call) is not ToolCall:
             raise TypeError("Expected a ToolCall.")
 
-        return anyio.from_thread.run(self._execute_async, call)
+        if (
+            type(timeout_seconds) not in (int, float)
+            or not math.isfinite(timeout_seconds)
+            or timeout_seconds <= 0
+        ):
+            raise ValueError("Timeout must be finite positive number.")
 
-    async def _execute_async(self, call: ToolCall) -> ToolResult:
+        effective_timeout = min(self._timeout_seconds, float(timeout_seconds))
+
+        return anyio.from_thread.run(
+            self._execute_async,
+            call,
+            effective_timeout,
+        )
+
+    async def _execute_async(self, call: ToolCall, timeout_seconds: float) -> ToolResult:
         try:
-            with anyio.fail_after(self._timeout_seconds):
+            with anyio.fail_after(timeout_seconds):
                 response = await self._client.call_tool(
                     call.tool_name,
                     call.arguments,
-                    read_timeout_seconds=self._timeout_seconds,
+                    read_timeout_seconds=timeout_seconds,
                 )
 
         except TimeoutError:

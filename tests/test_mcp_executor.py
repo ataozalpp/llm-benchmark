@@ -232,3 +232,42 @@ def test_invalid_call_is_rejected_before_client_use(mcp_dependencies):
     with pytest.raises(TypeError, match="Expected a ToolCall"):
         executor.execute({"tool_name": "calculator"})
     assert client.calls == []
+
+
+@pytest.mark.parametrize(
+    ("budget", "expected"),
+    [(2.0, 2.0), (30.0, 10.0)],
+)
+def test_per_call_timeout_is_clamped(
+    mcp_dependencies,
+    call,
+    budget,
+    expected,
+):
+    from functools import partial
+
+    deps = mcp_dependencies
+    client = FakeClient(
+        response=SimpleNamespace(
+            is_error=False,
+            structured_content={"result": 391},
+        )
+    )
+    executor = deps.executor(
+        client=client,
+        timeout_seconds=10.0,
+    )
+
+    async def run():
+        return await deps.anyio.to_thread.run_sync(
+            partial(
+                executor.execute_with_timeout,
+                call,
+                timeout_seconds=budget,
+            )
+        )
+
+    result = asyncio.run(run())
+
+    assert result.output == {"result": 391}
+    assert client.calls == [("calculator", call.arguments, expected),]

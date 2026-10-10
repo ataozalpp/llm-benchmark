@@ -14,7 +14,7 @@ from .tool_conversation import (
     ToolConversation,
     ToolResultMessage,
 )
-from .tool_execution import ToolExecutor
+from .tool_execution import ToolExecutionTimeout, ToolExecutor
 from .tool_provider_models import (
     ToolProviderResult,
     ToolProviderStatus,
@@ -298,7 +298,26 @@ def run_tool_loop(
                 return finish(ToolLoopStopReason.WALL_TIME_LIMIT)
             emit("tool_call", call_id=call.call_id, tool_name=call.tool_name)
             tool_started = clock()
-            tool_result = active_executor.execute(call)
+            timed_execute = getattr(active_executor, "execute_with_timeout", None)
+
+            try:
+                if (
+                    policy.max_wall_time_seconds is not None
+                    and callable(timed_execute)
+                ):
+                    remaining = policy.max_wall_time_seconds - (clock() - started)
+
+                    if remaining <= 0:
+                        return finish(ToolLoopStopReason.WALL_TIME_LIMIT)
+
+                    tool_result = timed_execute(call, timeout_seconds=remaining)
+                else:
+                    tool_result = active_executor.execute(call)
+
+            except ToolExecutionTimeout:
+                if expired():
+                    return finish(ToolLoopStopReason.WALL_TIME_LIMIT)
+                raise
 
             if type(tool_result) is not ToolResult:
                 raise TypeError("Executor returned an invalid result.")

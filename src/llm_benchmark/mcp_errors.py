@@ -1,11 +1,16 @@
 """Infrastructure failures during MCP tool execution."""
 
+from .tool_execution import ToolExecutionTimeout
+
 
 class MCPExecutionError(RuntimeError):
     """Base class for MCP execution infrastructure failures."""
 
 
-class McpExecutionTimeout(MCPExecutionError):
+class McpExecutionTimeout(
+    MCPExecutionError,
+    ToolExecutionTimeout,
+):
     """The MCP tool request exceeded its time budget."""
 
 

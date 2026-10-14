@@ -1,8 +1,10 @@
-"""Local tool-run orchestration; transport integration stays outside the loop."""
+"""Local and MCP runtime preparation with shared artifact orchestration."""
 
+import asyncio
 import platform
 import time
-from dataclasses import asdict, replace
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -11,14 +13,63 @@ from .providers import OpenAICompatibleProvider
 from .tool_artifacts import ToolArtifactWriter, fingerprint
 from .tool_demo_provider import DemoToolProvider
 from .tool_evaluation import ToolEvaluationResult
-from .tool_loop import ToolLoopResult
+from .tool_loop import ConversationProvider, ToolLoopResult
 from .tool_run_config import ToolRunConfig
 from .tool_scenarios import ToolScenario, create_example_tool_scenarios
-from .tool_suite import run_tool_suite
+from .tool_suite import ToolSuiteResult, run_tool_suite
 from .tools import create_example_tool_registry
 
+type ToolRunObserver = Callable[
+    [str, str, dict[str, object]],
+    None,
+]
 
-def run_tool_benchmark(config: ToolRunConfig) -> tuple[Path, dict[str, object]]:
+type ToolRunCaseCallback = Callable[
+    [ToolScenario, ToolLoopResult, ToolEvaluationResult],
+    None,
+]
+
+type ToolRunProviderFactory = Callable[
+    [],
+    ConversationProvider,
+]
+
+type ToolSuiteRunner = Callable[
+    [
+        ToolRunProviderFactory,
+        ToolRunObserver,
+        ToolRunCaseCallback,
+    ],
+    ToolSuiteResult,
+]
+
+
+@dataclass
+class _ToolRunCompletion:
+    writer: ToolArtifactWriter
+    manifest: dict[str, object]
+
+    def complete(self) -> None:
+        self.manifest.update(
+            status="completed",
+            completed_at=datetime.now(timezone.utc).isoformat(),
+        )
+        self.writer.write_json("manifest.json", self.manifest)
+
+    def fail(self) -> None:
+        self.manifest.update(
+            status="failed",
+            error_code="tool_run_failed",
+            completed_at=datetime.now(timezone.utc).isoformat(),
+        )
+        self.writer.write_json("manifest.json", self.manifest)
+
+
+def run_tool_benchmark(
+    config: ToolRunConfig,
+    *,
+    project_root: Path | None = None,
+) -> tuple[Path, dict[str, object]]:
     scenarios = tuple(
         replace(
             case,
@@ -28,6 +79,19 @@ def run_tool_benchmark(config: ToolRunConfig) -> tuple[Path, dict[str, object]]:
         )
         for case in create_example_tool_scenarios()
     )
+
+    if config.runtime == "mcp_stdio":
+        return asyncio.run(
+            _run_mcp_tool_benchmark(
+                config=config,
+                scenarios=scenarios,
+                project_root=(
+                    Path.cwd()
+                    if project_root is None
+                    else project_root
+                ),
+            )
+        )
     registry = create_example_tool_registry()
     # Include exactly the exposed tools, not unrelated registry entries.
     selected = sorted({name for case in scenarios for name in case.available_tools})
@@ -42,6 +106,47 @@ def run_tool_benchmark(config: ToolRunConfig) -> tuple[Path, dict[str, object]]:
                 "parameters": registration.argument_model.model_json_schema(),
             }
         )
+
+    def execute_suite(
+        provider_factory: ToolRunProviderFactory,
+        observer: ToolRunObserver,
+        on_case_completed: ToolRunCaseCallback,
+    ) -> ToolSuiteResult:
+        return run_tool_suite(
+            scenarios=scenarios,
+            registry=registry,
+            provider_factory=provider_factory,
+            observer=observer,
+            on_case_completed=on_case_completed,
+        )
+
+    return _run_tool_benchmark_with_artifacts(
+        config=config,
+        scenarios=scenarios,
+        catalog=catalog,
+        runtime_type="local",
+        runtime_version="local-tool-v1",
+        execute_suite=execute_suite,
+    )
+
+
+def _run_tool_benchmark_with_artifacts(
+    *,
+    config: ToolRunConfig,
+    scenarios: tuple[ToolScenario, ...],
+    catalog: list[dict[str, object]],
+    runtime_type: str,
+    runtime_version: str,
+    execute_suite: ToolSuiteRunner,
+    runtime_metadata: dict[str, object] | None = None,
+    defer_completion: bool = False,
+    on_run_created: Callable[[_ToolRunCompletion], None] | None = None,
+) -> tuple[Path, dict[str, object]]:
+    """Persist suite artifacts, optionally deferring final completion.
+
+    Local execution completes immediately. Async runtimes may finalize only
+    after their session has closed successfully.
+    """
     suite_snapshot = [
         {
             "case_id": case.case_id,
@@ -56,15 +161,22 @@ def run_tool_benchmark(config: ToolRunConfig) -> tuple[Path, dict[str, object]]:
         }
         for case in scenarios
     ]
-    config_snapshot = config.model_dump(mode="json", exclude={"output_dir"})
+    excluded_fields = {"output_dir"}
+
+    if config.runtime == "local":
+        excluded_fields.update({"runtime", "mcp_profile"})
+
+    config_snapshot = config.model_dump(mode="json", exclude=excluded_fields)
     identity = {
         "suite_hash": fingerprint(suite_snapshot),
         "tool_catalog_hash": fingerprint(catalog),
         "config_hash": fingerprint(config_snapshot),
         "evaluator_version": "tool-exact-v1",
-        "runtime_version": "local-tool-v1",
+        "runtime_version": runtime_version,
         "artifact_schema_version": 1,
     }
+    if runtime_metadata is not None:
+        identity["runtime_metadata_hash"] = fingerprint(runtime_metadata)
     run_id = uuid4().hex
     writer = ToolArtifactWriter(config.output_dir / run_id)
     manifest = {
@@ -73,7 +185,7 @@ def run_tool_benchmark(config: ToolRunConfig) -> tuple[Path, dict[str, object]]:
         "run_fingerprint": fingerprint(identity),
         "suite": config.suite,
         "provider": config.provider,
-        "runtime_type": "local",
+        "runtime_type": runtime_type,
         "synthetic": config.provider == "synthetic",
         "python_version": platform.python_version(),
         "scenario_ids": [case.case_id for case in scenarios],
@@ -82,7 +194,13 @@ def run_tool_benchmark(config: ToolRunConfig) -> tuple[Path, dict[str, object]]:
         "loop_policies": [asdict(case.policy) for case in scenarios],
     }
     # Config is hashed, not persisted: URLs may carry credentials or local paths.
+    if runtime_metadata is not None:
+        manifest["runtime_metadata"] = runtime_metadata
+
+    completion = _ToolRunCompletion(writer=writer, manifest=manifest)
     writer.write_json("manifest.json", manifest)
+    if on_run_created is not None:
+        on_run_created(completion)
     started = time.monotonic()
     sequence = 0
     completed_cases = 0
@@ -170,13 +288,7 @@ def run_tool_benchmark(config: ToolRunConfig) -> tuple[Path, dict[str, object]]:
         return OpenAICompatibleProvider(config.model)
 
     try:
-        result = run_tool_suite(
-            scenarios=scenarios,
-            registry=registry,
-            provider_factory=provider_factory,
-            observer=observe,
-            on_case_completed=save_case,
-        )
+        result = execute_suite(provider_factory, observe, save_case)
         metrics = result.summary
         summary = asdict(metrics)
         for name in (
@@ -205,22 +317,109 @@ def run_tool_benchmark(config: ToolRunConfig) -> tuple[Path, dict[str, object]]:
             for name, values in token_measurements.items()
         }
         writer.write_json("summary.json", summary)
-        manifest.update(
-            status="completed",
-            completed_case_count=completed_cases,
-            completed_at=datetime.now(timezone.utc).isoformat(),
-        )
-        writer.write_json("manifest.json", manifest)
+        manifest["completed_case_count"] = completed_cases
+
+        if defer_completion:
+            writer.write_json("manifest.json", manifest)
+        else:
+            completion.complete()
     except Exception:
         # Never persist exception strings: a provider may include credentials.
-        manifest.update(
-            status="failed",
-            completed_case_count=completed_cases,
-            error_code="tool_run_failed",
-            completed_at=datetime.now(timezone.utc).isoformat(),
-        )
-        writer.write_json("manifest.json", manifest)
+        manifest["completed_case_count"] = completed_cases
+        completion.fail()
+
         raise RuntimeError(
             f"Tool run failed; inspect artifacts for run {run_id}."
         ) from None
     return writer.directory, summary
+
+
+async def _run_mcp_tool_benchmark(
+    *,
+    config: ToolRunConfig,
+    scenarios: tuple[ToolScenario, ...],
+    project_root: Path,
+) -> tuple[Path, dict[str, object]]:
+    from functools import partial
+
+    from .mcp_launch import resolve_calculator_launch
+
+    launch = resolve_calculator_launch(project_root=project_root)
+
+    try:
+        import anyio
+
+        from .mcp_runtime import prepare_calculator_runtime
+    except ImportError:
+        raise RuntimeError(
+            "MCP runtime dependencies are unavailable; install the mcp extra."
+        ) from None
+
+    from .external_tool_policy import ExternalToolPolicy
+    from .external_tool_suite import run_external_tool_suite
+
+    completions: list[_ToolRunCompletion] = []
+
+    try:
+        async with prepare_calculator_runtime(
+            server_python=launch.server_python,
+            project_root=launch.project_root,
+        ) as runtime:
+
+            def execute_suite(
+                provider_factory: ToolRunProviderFactory,
+                observer: ToolRunObserver,
+                on_case_completed: ToolRunCaseCallback,
+            ) -> ToolSuiteResult:
+                return run_external_tool_suite(
+                    scenarios=scenarios,
+                    descriptors=runtime.descriptors,
+                    policy=ExternalToolPolicy(
+                        allowed_tool_names=("calculator",),
+                        max_tools=1,
+                        max_total_schema_bytes=65_536,
+                    ),
+                    provider_factory=provider_factory,
+                    executor_factory=lambda request: runtime.executor,
+                    observer=observer,
+                    on_case_completed=on_case_completed,
+                )
+
+            run_with_artifacts = partial(
+                _run_tool_benchmark_with_artifacts,
+                config=config,
+                scenarios=scenarios,
+                catalog=runtime.catalog_snapshot(),
+                runtime_type="mcp_stdio",
+                runtime_version="mcp-calculator-v1",
+                execute_suite=execute_suite,
+                runtime_metadata={
+                    "profile": "calculator",
+                    "protocol_version": runtime.protocol_version,
+                },
+                defer_completion=True,
+                on_run_created=completions.append,
+            )
+
+            result = await anyio.to_thread.run_sync(run_with_artifacts)
+
+        # The session has closed successfully at this point.
+        completion = completions[0]
+        completion.complete()
+        return result
+
+    except Exception:
+        if completions:
+            completion = completions[0]
+
+            if completion.manifest["status"] != "failed":
+                completion.fail()
+
+            run_id = completion.manifest["run_id"]
+            raise RuntimeError(
+                f"MCP tool run failed; inspect artifacts for run {run_id}."
+            ) from None
+
+        raise RuntimeError(
+            "MCP runtime preparation failed before artifact creation."
+        ) from None

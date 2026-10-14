@@ -205,3 +205,148 @@ def test_deadline_after_tool_retains_result_and_prevents_next_turn():
     assert result.stop_reason is ToolLoopStopReason.WALL_TIME_LIMIT
     assert result.provider_turn_count == 1
     assert len(result.tool_results) == 1
+
+
+def test_runtime_defaults_to_local():
+    config = ToolRunConfig()
+
+    assert config.runtime == "local"
+    assert config.mcp_profile is None
+
+
+def test_calculator_mcp_profile_is_accepted():
+    config = ToolRunConfig(
+        runtime="mcp_stdio",
+        mcp_profile="calculator",
+    )
+
+    assert config.runtime == "mcp_stdio"
+    assert config.mcp_profile == "calculator"
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"runtime": "local", "mcp_profile": "calculator"},
+        {"runtime": "mcp_stdio"},
+        {"runtime": "mcp_stdio", "mcp_profile": "unknown"},
+        {"runtime": "unknown"},
+    ],
+)
+def test_invalid_runtime_config_is_rejected(values):
+    with pytest.raises(ValueError):
+        ToolRunConfig(**values)
+
+
+def test_local_config_snapshot_preserves_legacy_fields():
+    config = ToolRunConfig()
+
+    snapshot = config.model_dump(mode="json", exclude={"output_dir", "runtime", "mcp_profile"})
+
+    assert set(snapshot) == {
+        "schema_version",
+        "suite",
+        "provider",
+        "model",
+        "max_wall_time_seconds",
+    }
+
+
+def test_local_manifest_keeps_legacy_config_hash(tmp_path):
+    from llm_benchmark.tool_artifacts import fingerprint
+
+    config = ToolRunConfig(output_dir=tmp_path)
+    legacy_snapshot = {
+        "schema_version": 1,
+        "suite": "example-tools-v1",
+        "provider": "synthetic",
+        "model": None,
+        "max_wall_time_seconds": 60.0,
+    }
+    directory, _ = run_tool_benchmark(config)
+    manifest = read_json(directory / "manifest.json")
+
+    assert manifest["config_hash"] == fingerprint(legacy_snapshot)
+    assert manifest["runtime_type"] == "local"
+
+
+def test_mcp_missing_launch_setting_creates_no_artifacts(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.delenv("LLM_BENCHMARK_MCP_PYTHON", raising=False)
+
+    config = ToolRunConfig(
+        runtime="mcp_stdio",
+        mcp_profile="calculator",
+        output_dir=tmp_path / "runs",
+    )
+
+    with pytest.raises(ValueError, match="LLM_BENCHMARK_MCP_PYTHON"):
+        run_tool_benchmark(config, project_root=tmp_path)
+
+    assert not config.output_dir.exists()
+
+
+def test_mcp_yaml_loads():
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "configs" / "tool_mcp_smoke.yaml"
+    config = load_tool_run_config(path)
+
+    assert config.runtime == "mcp_stdio"
+    assert config.mcp_profile == "calculator"
+    assert config.provider == "synthetic"
+
+
+def test_local_run_does_not_import_mcp(monkeypatch, tmp_path):
+    import builtins
+
+    original_import = builtins.__import__
+
+    def guarded_import(name, *args, **kwargs):
+        if name.split(".")[0] in {"mcp", "mcp_types", "fastmcp"}:
+            raise AssertionError("Local execution must not import MCP packages.")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+    directory, _ = run_tool_benchmark(ToolRunConfig(output_dir=tmp_path))
+    assert read_json(directory / "manifest.json")["status"] == "completed"
+
+
+def test_shared_artifact_runner_uses_supplied_runtime_and_callbacks(tmp_path):
+    from llm_benchmark.tool_artifacts import fingerprint
+    from llm_benchmark.tool_run_service import _run_tool_benchmark_with_artifacts
+
+    scenarios = create_example_tool_scenarios()
+    invocations = []
+    catalog = [{"name": "calculator", "source": "test-runtime"}]
+
+    def execute_suite(provider_factory, observer, on_case_completed):
+        invocations.append(True)
+        return run_tool_suite(
+            scenarios=scenarios,
+            registry=create_example_tool_registry(),
+            provider_factory=provider_factory,
+            observer=observer,
+            on_case_completed=on_case_completed,
+        )
+
+    directory, summary = _run_tool_benchmark_with_artifacts(
+        config=ToolRunConfig(output_dir=tmp_path),
+        scenarios=scenarios,
+        catalog=catalog,
+        runtime_type="test-runtime",
+        runtime_version="test-runtime-v1",
+        execute_suite=execute_suite,
+    )
+
+    manifest = read_json(directory / "manifest.json")
+    assert invocations == [True]
+    assert manifest["runtime_type"] == "test-runtime"
+    assert manifest["runtime_version"] == "test-runtime-v1"
+    assert manifest["tool_catalog_hash"] == fingerprint(catalog)
+    assert manifest["status"] == "completed"
+    assert summary["case_count"] == 2
+    assert len(read_lines(directory / "results.jsonl")) == 2
+    assert read_lines(directory / "trace.jsonl")

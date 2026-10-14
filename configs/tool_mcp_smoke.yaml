@@ -1,0 +1,9 @@
+schema_version: 1
+suite: example-tools-v1
+provider: synthetic
+
+runtime: mcp_stdio
+mcp_profile: calculator
+
+max_wall_time_seconds: 60
+output_dir: outputs/tool

@@ -9,7 +9,7 @@ import pytest
 def test_suite_exits_connection(monkeypatch, failure_stage):
     pytest.importorskip("mcp")
 
-    from llm_benchmark import mcp_tool_suite
+    from llm_benchmark import mcp_runtime, mcp_tool_suite
     from llm_benchmark.mcp_errors import MCPTransportFailure
     from llm_benchmark.mcp_mapping import descriptor_from_mcp_fields
     from llm_benchmark.tool_demo_provider import DemoToolProvider
@@ -22,7 +22,9 @@ def test_suite_exits_connection(monkeypatch, failure_stage):
         if failure_stage == "executor"
         else ValueError("test discovery or provider failure")
     )
-    fake_client = object()
+    from types import SimpleNamespace
+
+    fake_client = SimpleNamespace(protocol_version="test-protocol")
 
     descriptor = descriptor_from_mcp_fields(
         name="calculator",
@@ -75,17 +77,20 @@ def test_suite_exits_connection(monkeypatch, failure_stage):
             raise original
 
     monkeypatch.setattr(
-        mcp_tool_suite,
+        mcp_runtime,
         "connect_calculator",
         fake_connect,
     )
     monkeypatch.setattr(
-        mcp_tool_suite,
+        mcp_runtime,
         "discover_calculator",
         fake_discover,
     )
-
-    monkeypatch.setattr(mcp_tool_suite, "MCPToolExecutor", FakeExecutor)
+    monkeypatch.setattr(
+        mcp_runtime,
+        "MCPToolExecutor",
+        FakeExecutor,
+    )
 
     async def run():
         return await mcp_tool_suite.run_calculator_mcp_suite(

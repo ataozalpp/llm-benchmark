@@ -19,23 +19,32 @@ parameters.
 - A project-owned FastMCP calculator server supports local discovery and calls
   through a separate stdio client, with descriptor/result mapping, admission
   checks and integration tests. The server uses a separate Python environment;
-  see [MCP setup and validation](docs/mcp.md). MCP is not yet connected to the
-  tool suite execution path, `tool-run`, API or worker.
+  see [MCP setup and validation](docs/mcp.md). MCP is connected to the tool suite
+  and `tool-run`, with discovered-catalog provenance and completion after session
+  closure. API and worker integration remain outside this path.
 
-- Local tool suites now have a separate `tool-run` CLI, versioned manifests,
+- Local and calculator MCP tool suites have a separate `tool-run` CLI, versioned manifests,
   incremental metadata-only traces and case results, and explicit conditional
   versus all-case final accuracy. Scenario wall-time budgets are cooperative;
   OpenAI-compatible transport timeouts are clamped to the remaining budget.
-  This path does not use the MCQ API/worker or implement MCP.
+  This path does not use the MCQ API/worker.
 
   ```powershell
   python -m llm_benchmark tool-run --config configs/tool_mock_smoke.yaml
   ```
 
+  After setting up the separate server environment, run the synthetic MCP profile
+  from the repository root:
+
+  ```powershell
+  $env:LLM_BENCHMARK_MCP_PYTHON = (Resolve-Path .\.venv-mcp\Scripts\python.exe).Path
+  .\.venv\Scripts\python.exe -m llm_benchmark tool-run --config configs/tool_mcp_smoke.yaml
+  ```
+
 - Standalone immutable tool descriptors separate schema data from executable
   handlers. Local registration conversion preserves example-tool payloads;
   descriptor-only requests and loop execution with an explicit trusted executor
-  are supported. MCP discovery/call demos exist; suite integration is pending. See
+  are supported. The calculator MCP runtime uses this suite boundary. See
   [Tool descriptors](docs/architecture.md#tool-descriptors).
 
 - Strict, immutable Pydantic `schema_version: 1` YAML configuration with CLI

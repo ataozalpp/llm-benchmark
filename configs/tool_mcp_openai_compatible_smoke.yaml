@@ -1,0 +1,19 @@
+# Opt-in: replace model_id with a model served by your local endpoint.
+schema_version: 1
+suite: example-tools-v1
+
+provider: openai_compatible
+model:
+  provider: openai_compatible
+  endpoint_alias: local-mcp-tools
+  model_id: qwen3.5-0.8b
+  base_url: http://127.0.0.1:1234/v1
+  temperature: 0
+  max_output_tokens: 2048
+  timeout_seconds: 120
+
+runtime: mcp_stdio
+mcp_profile: calculator
+
+max_wall_time_seconds: 300
+output_dir: outputs/tool

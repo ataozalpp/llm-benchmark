@@ -206,6 +206,29 @@ not include MCP launch/discovery and final session cleanup. Scenario budgets are
 applied to tool-loop execution, not the complete startup/shutdown lifecycle.
 The supplied config remains synthetic and does not measure a real model.
 
+## Real-model MCP smoke
+
+`configs/tool_mcp_openai_compatible_smoke.yaml` selects the local LM Studio
+model identifier `qwen3.5-0.8b`. Verify that your endpoint exposes this ID,
+load the model, and start the API server before running:
+
+```powershell
+$env:LLM_BENCHMARK_MCP_PYTHON = (Resolve-Path .\.venv-mcp\Scripts\python.exe).Path
+.\.venv\Scripts\python.exe -m llm_benchmark tool-run --config configs/tool_mcp_openai_compatible_smoke.yaml
+```
+
+This is an opt-in real-model request, separate from offline pytest checks.
+The benchmark manages the calculator subprocess; do not register that server
+in LM Studio for this path. The config test checks parsing, not endpoint access.
+
+A completed manifest does not imply that every scenario passed. In three
+reviewed Qwen runs, calculator execution and the final answer passed, while
+the direct-answer scenario requested an unnecessary tool. Its one-turn policy
+produced `provider_turn_limit` before tool execution. Keep this policy unchanged
+when reproducing the result. Read conditional final-answer accuracy together
+with completion and all-case accuracy. See the [validation record](validation.md)
+for run IDs, metrics, and provenance limitations.
+
 ## Tests and validation
 
 Configure the server executable so the subprocess tests actually run:
@@ -342,8 +365,8 @@ Run the budget-specific checks with:
 
 1. Verify cleanup of an unresponsive child process separately from the
    server-exit detection test. Do not claim hard process-termination guarantees.
-2. Validate real-model tool behavior separately from the synthetic calculator
-   smoke before interpreting results as model-quality measurements.
+2. Expand real-model validation beyond the three diagnostic Qwen repeats;
+   broader suites and recorded serving settings are needed for quality claims.
 3. Treat additional server profiles and API/worker integration as separate work.
 
 Deadline-boundary tests now cover both early request timeouts that propagate and

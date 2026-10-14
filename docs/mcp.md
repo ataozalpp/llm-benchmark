@@ -18,7 +18,8 @@ benchmark discovers the tool and maps its responses into its own tool contracts.
 
 The supplied demos use synthetic behavior and do not call a real LLM. Obtaining
 `17 * 23 = 391` validates software integration, not model quality. MCP runtime
-selection is not yet integrated into the `tool-run` CLI, API, or worker paths.
+selection is supported by the `tool-run` CLI. API and worker integration remain
+outside this path.
 
 ## Architecture and files
 
@@ -43,6 +44,8 @@ Benchmark environment
 | `src/llm_benchmark/demo_mcp_server.py` | Exposes the calculator as a FastMCP tool |
 | `src/llm_benchmark/demo_mcp_smoke.py` | Checks server behavior in the same process |
 | `src/llm_benchmark/mcp_client.py` | Trusted local launch profile, session, and catalog admission |
+| `src/llm_benchmark/mcp_launch.py` | Resolves trusted local server Python and project-root settings |
+| `src/llm_benchmark/mcp_runtime.py` | Prepares an open session, executor, catalog snapshot, and protocol metadata |
 | `src/llm_benchmark/mcp_mapping.py` | SDK-independent descriptor and result mapping |
 | `src/llm_benchmark/mcp_errors.py` | Tool-request infrastructure exception types |
 | `src/llm_benchmark/mcp_executor.py` | Bridges synchronous execution to an open async client |
@@ -53,6 +56,7 @@ Benchmark environment
 | `tests/test_mcp_client.py` | Single-page catalog acceptance and rejection |
 | `tests/test_mcp_executor.py` | Execution, timeout, error mapping, and input-contract checks |
 | `tests/test_mcp_tool_suite.py` | Context exit on success and discovery/provider/executor failures |
+| `tests/test_mcp_tool_run_lifecycle.py` | Manifest completion after session closure and sanitized preparation/execution failures |
 | `tests/test_tool_loop_time_budget.py` | Remaining-budget forwarding, expired scenarios, early timeouts, and legacy executor compatibility |
 | `tests/test_mcp_stdio.py` | Real connection, invalid inputs, tool errors, and suite comparison |
 | `tests/fixtures/mcp_disconnect_server.py` | Test-only server that exits during a tool request |
@@ -158,7 +162,49 @@ complete suite summary. On success, key summary fields are:
 | `final_answer_match` | `numerator: 2`, `denominator: 2` |
 
 This demo prints a summary; it does not write `manifest.json`, `results.jsonl`,
-or `trace.jsonl`. Those artifacts belong to the future `tool-run` integration.
+or `trace.jsonl`. Use the `tool-run` command below to produce those artifacts.
+
+## 4. MCP tool-run with artifacts
+
+From the repository root, after installing both environments:
+
+```powershell
+$env:LLM_BENCHMARK_MCP_PYTHON = (Resolve-Path .\.venv-mcp\Scripts\python.exe).Path
+.\.venv\Scripts\python.exe -m llm_benchmark tool-run --config configs/tool_mcp_smoke.yaml
+```
+
+The YAML selects `runtime: mcp_stdio` and `mcp_profile: calculator`. The server
+executable is trusted local environment configuration, not a model-supplied
+command. This source-checkout launch profile resolves the server module relative
+to the current project root. The Python service also accepts `project_root`.
+
+The command prints a run ID and output directory. Each run contains
+`manifest.json`, `summary.json`, `results.jsonl`, and `trace.jsonl`. The manifest
+records `runtime_type: mcp_stdio`, `runtime_version: mcp-calculator-v1`, and
+`runtime_metadata` containing the calculator profile and negotiated protocol.
+The discovered catalog and runtime metadata contribute to the run fingerprint.
+Existing local config hashes exclude the new default runtime fields to preserve
+compatibility. Local runs do not import the MCP SDK.
+
+Artifact lifecycle:
+
+1. Resolve launch settings and prepare the MCP session/catalog.
+2. Create the run artifacts and a `running` manifest.
+3. Run the suite through the existing result and trace callbacks.
+4. Write the summary while leaving the manifest `running`.
+5. Close the MCP session, then mark the manifest `completed`.
+
+A session-close failure marks the manifest `failed`, even if a summary was
+already written. Consumers must use manifest status, not summary existence,
+to determine success. Execution failures retain available partial artifacts
+without persisting raw exception messages. Preparation/discovery failures before
+artifact creation produce no run directory. Filesystem write failures or forced
+process termination cannot guarantee a final manifest update.
+
+`summary.wall_time_ms` measures the shared artifact execution interval; it does
+not include MCP launch/discovery and final session cleanup. Scenario budgets are
+applied to tool-loop execution, not the complete startup/shutdown lifecycle.
+The supplied config remains synthetic and does not measure a real model.
 
 ## Tests and validation
 
@@ -167,6 +213,12 @@ Configure the server executable so the subprocess tests actually run:
 ```powershell
 $env:LLM_BENCHMARK_MCP_PYTHON = (Resolve-Path .\.venv-mcp\Scripts\python.exe).Path
 .\.venv\Scripts\python.exe -m pytest -q tests/test_mcp_mapping.py tests/test_mcp_client.py tests/test_mcp_executor.py tests/test_mcp_tool_suite.py tests/test_mcp_stdio.py
+```
+
+Service and launch coverage:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q tests/test_mcp_launch.py tests/test_mcp_tool_run_lifecycle.py tests/test_tool_run_service.py
 ```
 
 Without `LLM_BENCHMARK_MCP_PYTHON`, stdio tests are skipped. A configured path
@@ -283,19 +335,20 @@ Run the budget-specific checks with:
 | `ExceptionGroup` | Inspect nested exceptions for the underlying failure. |
 | Stdio tests skipped | Check the server Python environment variable and the backend MCP extra. |
 | FastAPI/Starlette errors in backend tests | Run backend `pip check`; keep FastMCP server dependencies in the separate environment. |
-| Suite prints JSON but no artifact directory appears | Expected for `demo_mcp_suite`; MCP `tool-run` integration is pending. |
+| Suite prints JSON but no artifact directory appears | Expected for `demo_mcp_suite`; use `tool-run` for artifact output. |
+| Runtime preparation failed before artifact creation | Check the server Python setting, dependencies, project root, and server startup; no run directory is expected. |
 
 ## Remaining work
 
 1. Verify cleanup of an unresponsive child process separately from the
    server-exit detection test. Do not claim hard process-termination guarantees.
-2. Add runtime selection through `tool_run_config.py` and `tool_run_service.py`,
-   preserving artifact callbacks and recording runtime/protocol provenance.
-3. Document and test the resulting `tool-run` command separately from these demos.
+2. Validate real-model tool behavior separately from the synthetic calculator
+   smoke before interpreting results as model-quality measurements.
+3. Treat additional server profiles and API/worker integration as separate work.
 
 Deadline-boundary tests now cover both early request timeouts that propagate and
 timeouts after scenario expiry that produce `WALL_TIME_LIMIT`, without appending
 a fabricated tool result.
 
-The current integration supports MCP-backed suite execution, not complete CLI,
-API, or worker runtime integration.
+The current integration supports MCP-backed suite execution and CLI artifacts;
+API and worker runtime integration are not included.

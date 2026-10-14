@@ -8,9 +8,9 @@ import anyio
 
 from .external_tool_policy import ExternalToolPolicy
 from .external_tool_suite import run_external_tool_suite
-from .mcp_client import connect_calculator, discover_calculator
-from .mcp_executor import MCPToolExecutor
+from .mcp_runtime import prepare_calculator_runtime
 from .tool_evaluation import ToolEvaluationResult
+from .tool_execution import ToolExecutor
 from .tool_loop import ConversationProvider, ToolLoopResult
 from .tool_requests import ToolConversationRequest
 from .tool_scenarios import ToolScenario
@@ -28,23 +28,19 @@ async def run_calculator_mcp_suite(
     ) = None,
     observer: Callable[[str, str, dict[str, object]], None] | None = None,
 ) -> ToolSuiteResult:
-    async with connect_calculator(
+    async with prepare_calculator_runtime(
         server_python=server_python,
         project_root=project_root,
-    ) as client:
-        descriptors = await discover_calculator(client)
-
-        executor = MCPToolExecutor(client=client)
-
+    ) as runtime:
         def executor_factory(
             request: ToolConversationRequest,
-        ) -> MCPToolExecutor:
-            return executor
+        ) -> ToolExecutor:
+            return runtime.executor
 
         run_suite = partial(
             run_external_tool_suite,
             scenarios=scenarios,
-            descriptors=descriptors,
+            descriptors=runtime.descriptors,
             policy=ExternalToolPolicy(
                 allowed_tool_names=("calculator",),
                 max_tools=1,

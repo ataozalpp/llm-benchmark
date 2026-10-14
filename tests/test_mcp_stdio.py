@@ -209,3 +209,73 @@ def test_server_exit_during_call_is_transport_failure(server_python):
                     await anyio.to_thread.run_sync(executor.execute, invocation)
 
     asyncio.run(check())
+
+
+def test_prepared_runtime_exposes_discovered_catalog(server_python):
+    pytest.importorskip("mcp")
+
+    from llm_benchmark.mcp_runtime import prepare_calculator_runtime
+
+    async def check():
+        async with prepare_calculator_runtime(
+            server_python=server_python,
+            project_root=Path(__file__).resolve().parents[1],
+        ) as runtime:
+            snapshot = runtime.catalog_snapshot()
+
+            assert len(snapshot) == 1
+            assert snapshot[0]["name"] == "calculator"
+            assert snapshot[0]["parameters"] == (runtime.descriptors[0].parameters)
+            assert isinstance(runtime.protocol_version, str)
+            assert runtime.protocol_version
+
+    asyncio.run(check())
+
+
+def test_mcp_tool_run_writes_artifacts(
+    server_python,
+    monkeypatch,
+    tmp_path,
+):
+    pytest.importorskip("mcp")
+
+    import json
+
+    from llm_benchmark.tool_run_config import ToolRunConfig
+    from llm_benchmark.tool_run_service import run_tool_benchmark
+
+    monkeypatch.setenv("LLM_BENCHMARK_MCP_PYTHON", str(server_python))
+
+    config = ToolRunConfig(
+        runtime="mcp_stdio",
+        mcp_profile="calculator",
+        output_dir=tmp_path / "runs",
+    )
+
+    directory, summary = run_tool_benchmark(
+        config,
+        project_root=Path(__file__).resolve().parents[1],
+    )
+
+    manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
+    results = [
+        json.loads(line)
+        for line in (
+            directory / "results.jsonl"
+        ).read_text(encoding="utf-8").splitlines()
+    ]
+    trace = [
+        json.loads(line)
+        for line in (
+            directory / "trace.jsonl"
+        ).read_text(encoding="utf-8").splitlines()
+    ]
+
+    assert manifest["status"] == "completed"
+    assert manifest["runtime_type"] == "mcp_stdio"
+    assert manifest["runtime_version"] == "mcp-calculator-v1"
+    assert manifest["runtime_metadata"]["profile"] == "calculator"
+    assert manifest["runtime_metadata"]["protocol_version"]
+    assert summary["completion"]["rate"] == 1.0
+    assert len(results) == 2
+    assert [event["sequence"] for event in trace] == list(range(1, len(trace) + 1))

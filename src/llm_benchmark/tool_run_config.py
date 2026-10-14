@@ -18,6 +18,8 @@ class ToolRunConfig(BaseModel):
     model: ModelConfig | None = None
     max_wall_time_seconds: float = Field(default=60, gt=0, le=3600, allow_inf_nan=False)
     output_dir: Path = Path("outputs/tool")
+    runtime: Literal["local", "mcp_stdio"] = "local"
+    mcp_profile: Literal["calculator"] | None = None
 
     @model_validator(mode="after")
     def validate_provider(self) -> "ToolRunConfig":
@@ -34,6 +36,15 @@ class ToolRunConfig(BaseModel):
                 )
         return self
 
+    @model_validator(mode="after")
+    def validate_runtime(self) -> "ToolRunConfig":
+        if self.runtime == "local":
+            if self.mcp_profile is not None:
+                raise ValueError("Local runs must not include an MCP profile.")
+        elif self.mcp_profile != "calculator":
+            raise ValueError("MCP stdio runs require the calculator profile.")
+
+        return self
 
 def load_tool_run_config(path: Path) -> ToolRunConfig:
     try:

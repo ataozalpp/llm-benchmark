@@ -15,7 +15,7 @@ def build_parser() -> argparse.ArgumentParser:
     run = subparsers.add_parser("run", help="run a benchmark")
     run.add_argument("--config", type=Path, required=True)
     run.add_argument("--set", action="append", default=[], metavar="KEY=VALUE", help="override a config value")
-    tool_run = subparsers.add_parser("tool-run", help="run the versioned local tool suite")
+    tool_run = subparsers.add_parser("tool-run", help="run the versioned tool suite")
     tool_run.add_argument("--config", type=Path, required=True)
     return parser
 

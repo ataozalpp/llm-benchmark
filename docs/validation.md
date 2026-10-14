@@ -4,6 +4,44 @@ This document summarizes completed software and local operational validation.
 The real-model results are small diagnostic smoke runs, not statistically
 sufficient model benchmarks.
 
+## MCP tool-run artifact checkpoint (2026-10-13)
+
+The current working tree was validated with the real server Python configured:
+**1671 passed, 7 skipped in 72.32 seconds**. Five skips require the PostgreSQL
+test URL; two require filesystem symlink support. Ruff passed. The final
+`git diff --check` passed with only Git line-ending conversion warnings.
+
+The initial two lifecycle failures were reproduced. The fake runtime exposed
+`catalog_snaphsot` instead of `catalog_snapshot`, so preparation failed before
+manifest creation. Correcting it restored both lifecycle paths. The runtime
+version typo was also aligned to `mcp-calculator-v1`, and sanitized local-run
+exceptions again suppress the original traceback context.
+
+Additional regressions cover preparation failures without run artifacts,
+execution failures with a failed manifest, omission of raw failure details,
+and local execution without MCP imports. Existing lifecycle assertions verify
+that the manifest remains running during session closure and becomes completed
+only after successful closure; cleanup failure instead produces failed status.
+
+The actual CLI command was also executed:
+
+```powershell
+$env:LLM_BENCHMARK_MCP_PYTHON = (Resolve-Path .\.venv-mcp\Scripts\python.exe).Path
+.\.venv\Scripts\python.exe -m llm_benchmark tool-run --config configs/tool_mcp_smoke.yaml
+```
+
+Local diagnostic run `5b2d5bacf7b14944b76eccaae6b8f382` completed two synthetic
+scenarios, one successful tool call, two result records, and twelve trace
+records. Its manifest recorded `mcp_stdio`, `mcp-calculator-v1`, and negotiated
+protocol `2025-11-25`. Artifacts were generated under `outputs/tool/` and are
+not source files to commit. This is software validation, not model quality.
+
+Preparation/discovery failures before run creation have no manifest. A summary
+can exist for a run whose session cleanup failed, so consumers must check
+manifest status. `wall_time_ms` excludes launch/discovery and final session
+cleanup. Forced termination and cleanup of a live, unresponsive child remain
+outside this validation.
+
 ## MCP scenario-budget checkpoint (2026-10-10)
 
 ### Follow-up: deadline and real server-exit coverage

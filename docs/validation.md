@@ -4,6 +4,51 @@ This document summarizes completed software and local operational validation.
 The real-model results are small diagnostic smoke runs, not statistically
 sufficient model benchmarks.
 
+## Real-model MCP diagnostic repeats (2026-10-15)
+
+Three user-executed LM Studio runs were reviewed from their manifests, summaries,
+and per-case results. Dates below use Europe/Istanbul; artifact timestamps use
+UTC and fall on 2026-10-14. The current checkout is based on `91156d7`; the
+artifacts do not record a Git revision, so this is not independently verified
+run provenance.
+
+The supplied configuration selects `qwen3.5-0.8b`, OpenAI-compatible inference,
+temperature 0, a 2,048-token output budget, a 120-second provider timeout, and a
+300-second scenario budget. All three artifacts share the same config, suite,
+catalog, runtime-metadata, and run fingerprints. These fingerprints do not
+capture LM Studio version, model-file revision/quantization, context length, or
+server-side thinking settings; those settings were not independently verified.
+
+| Run ID | Manifest | Calculator | Direct answer | Execution interval |
+| --- | --- | --- | --- | ---: |
+| `8191967720614742bef9287115ca159b` | completed | passed | provider_turn_limit | 16.359 s |
+| `839345e5eb564afd86dc4fb5d6a50b00` | completed | passed | provider_turn_limit | 9.218 s |
+| `4dc76b95fd8e450185cb895d8798a683` | completed | passed | provider_turn_limit | 8.297 s |
+
+Every run used `mcp_stdio`, `mcp-calculator-v1`, and negotiated protocol
+`2025-11-25`, with `synthetic: false`. The calculator case made one successful
+MCP call and produced the expected final answer on the second model turn.
+The direct-answer case requested a tool despite the instruction to return
+`READY` without tools. Its single provider turn was exhausted, so the loop
+stopped before executing that request. This is an evaluated behavior failure,
+not a failed MCP transport or incomplete run lifecycle.
+
+Each run recorded completion 1/2, tool-sequence match 1/2, conditional argument
+match 1/1, conditional final-answer match 1/1, and all-case final-answer accuracy
+1/2. Requested/executed/successful tool-call counts were 2/1/1. Token coverage
+was 3/3 model turns: 1,225 input, 118 output, and 1,343 total tokens per run.
+The endpoint reported zero reasoning tokens for every turn; this does not
+independently establish the server's reasoning configuration.
+
+The execution interval excludes MCP preparation and final session cleanup.
+Timing differences do not establish a cold-start cause. Raw arguments for the
+unexecuted call are absent from the artifacts. Three repeats of two scenarios
+are diagnostic evidence, not a statistically sufficient model-quality study.
+The repeated failure is specific to this model/server/configuration setup;
+it does not isolate model weights from chat-template or serving behavior.
+Run artifacts remain ignored by Git. No scenario limits or expected outcomes
+were relaxed to make the model pass.
+
 ## MCP tool-run artifact checkpoint (2026-10-13)
 
 The current working tree was validated with the real server Python configured:

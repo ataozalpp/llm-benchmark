@@ -2,11 +2,11 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from llm_benchmark.tool_calling import (
+from llm_benchmark.tool_use.calling import (
     NormalizationToolTurn,
     ToolCallNormalizationErrorCode,
 )
-from llm_benchmark.tool_provider_models import (
+from llm_benchmark.tool_use.provider_models import (
     ToolProviderErrorCode,
     ToolProviderResult,
     ToolProviderStatus,

@@ -12,12 +12,12 @@ def mcp_dependencies():
     from mcp.shared.exceptions import MCPError
     from mcp_types import CONNECTION_CLOSED, REQUEST_TIMEOUT
 
-    from llm_benchmark.mcp_errors import (
+    from llm_benchmark.mcp_integration.errors import (
         McpExecutionTimeout,
         MCPProtocolFailure,
         MCPTransportFailure,
     )
-    from llm_benchmark.mcp_executor import MCPToolExecutor
+    from llm_benchmark.mcp_integration.executor import MCPToolExecutor
 
     return SimpleNamespace(
         anyio=anyio,
@@ -33,7 +33,7 @@ def mcp_dependencies():
 
 @pytest.fixture
 def call():
-    from llm_benchmark.tool_runtime import ToolCall
+    from llm_benchmark.tool_use.runtime import ToolCall
 
     return ToolCall(
         call_id="executor-test-1",
@@ -81,7 +81,7 @@ def test_success_preserves_identity_and_arguments(
     mcp_dependencies,
     call,
 ):
-    from llm_benchmark.tool_runtime import ToolExecutionStatus
+    from llm_benchmark.tool_use.runtime import ToolExecutionStatus
 
     deps = mcp_dependencies
     client = FakeClient(

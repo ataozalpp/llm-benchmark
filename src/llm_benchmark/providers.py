@@ -12,14 +12,14 @@ from typing import Any, Protocol
 
 from .config import ModelConfig
 from .models import DatasetExample, ProviderResponse
-from .tool_calling import ToolCallNormalizationError, normalize_openai_tool_response
-from .tool_provider_models import (
+from .tool_use.calling import ToolCallNormalizationError, normalize_openai_tool_response
+from .tool_use.provider_models import (
     ToolProviderErrorCode,
     ToolProviderResult,
     ToolProviderStatus,
     ToolProviderTelemetry,
 )
-from .tool_requests import (
+from .tool_use.requests import (
     ToolConversationRequest,
     ToolTurnRequest,
     build_openai_tool_conversation_payload,

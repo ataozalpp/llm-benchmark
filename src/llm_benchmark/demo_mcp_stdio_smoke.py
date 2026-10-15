@@ -6,10 +6,10 @@ from pathlib import Path
 
 import anyio
 
-from .external_tool_schema import validate_external_tool_arguments
-from .mcp_client import connect_calculator, discover_calculator
-from .mcp_mapping import result_from_mcp_fields
-from .tool_runtime import ToolCall, ToolExecutionStatus
+from .mcp_integration.client import connect_calculator, discover_calculator
+from .mcp_integration.mapping import result_from_mcp_fields
+from .tool_use.external.schema import validate_external_tool_arguments
+from .tool_use.runtime import ToolCall, ToolExecutionStatus
 
 
 async def run_smoke(

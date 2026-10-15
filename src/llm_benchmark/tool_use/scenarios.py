@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .tool_evaluation import ExpectedToolCall, ToolEvaluationCase
-from .tool_loop import ToolLoopPolicy
-from .tool_runtime import ToolDefinition
+from llm_benchmark.tool_use.evaluation import ExpectedToolCall, ToolEvaluationCase
+from llm_benchmark.tool_use.loop import ToolLoopPolicy
+from llm_benchmark.tool_use.runtime import ToolDefinition
 
 
 @dataclass(frozen=True)

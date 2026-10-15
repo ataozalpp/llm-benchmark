@@ -7,13 +7,13 @@ from mcp import Client
 from mcp.shared.exceptions import MCPError
 from mcp_types import CONNECTION_CLOSED, REQUEST_TIMEOUT
 
-from .mcp_errors import (
+from llm_benchmark.mcp_integration.errors import (
     McpExecutionTimeout,
     MCPProtocolFailure,
     MCPTransportFailure,
 )
-from .mcp_mapping import result_from_mcp_fields
-from .tool_runtime import ToolCall, ToolResult
+from llm_benchmark.mcp_integration.mapping import result_from_mcp_fields
+from llm_benchmark.tool_use.runtime import ToolCall, ToolResult
 
 
 class MCPToolExecutor:

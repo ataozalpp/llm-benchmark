@@ -6,9 +6,9 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
-from .mcp_tool_suite import run_calculator_mcp_suite
-from .tool_demo_provider import DemoToolProvider
-from .tool_scenarios import create_example_tool_scenarios
+from .mcp_integration.suite import run_calculator_mcp_suite
+from .tool_use.demo_provider import DemoToolProvider
+from .tool_use.scenarios import create_example_tool_scenarios
 
 
 def main() -> None:

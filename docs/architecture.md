@@ -27,17 +27,17 @@ The implementation currently provides two execution paths:
 | Prompt layer | `src/llm_benchmark/prompting.py` | Versioned multiple-choice prompt and template hash |
 | Task adapter | `src/llm_benchmark/task_adapters.py` | Own task-specific prompt construction and normalized-response evaluation; currently implements multiple choice only |
 | Execution trace | `src/llm_benchmark/trace.py` | Immutable typed lifecycle events, fresh per-execution recorders, safe identifier handling, and deterministic event ordering |
-| Tool runtime | `src/llm_benchmark/tool_runtime.py` | Standalone registration, strict argument validation, synchronous handler execution, and normalized immutable results; not wired into the benchmark pipeline |
-| Tool-call normalization | `src/llm_benchmark/tool_calling.py` | Validate supplied response data into immutable text, ordered ToolCall snapshots, and finish reason; no HTTP or tool execution |
-| Tool requests | `src/llm_benchmark/tool_requests.py` | Map explicitly selected registrations and initial or conversation messages into independent request payloads |
-| Tool conversation | `src/llm_benchmark/tool_conversation.py` | Immutable ordered messages, conversation-wide call IDs, and matched tool-result messages |
-| Bounded tool loop | `src/llm_benchmark/tool_loop.py` | Sequential provider/tool execution under per-invocation budgets; explicit stop reasons, not task scores |
-| Tool-loop evaluation | `src/llm_benchmark/tool_evaluation.py` | Pure per-invocation comparison against immutable expectations; separate matching flags and call counts |
-| Tool scenarios | `src/llm_benchmark/tool_scenarios.py` | Immutable synthetic inputs, selected tools, loop policy, and evaluation expectations |
-| Scenario request preparation | `src/llm_benchmark/tool_scenario_requests.py` | Resolves selected registrations and creates initial conversations without copying evaluation expectations into requests |
-| Tool suite | `src/llm_benchmark/tool_suite.py` | Sequential scenario execution through injected providers, returning immutable evaluations |
-| Tool reporting | `src/llm_benchmark/tool_reporting.py` | Pure aggregation with explicit denominators, unavailable counts, and stop-reason distribution |
-| Tool-provider results | `src/llm_benchmark/tool_provider_models.py` | Frozen result/status contract and validated nullable telemetry for the separate tool-turn operation |
+| Tool runtime | `src/llm_benchmark/tool_use/runtime.py` | Standalone registration, strict argument validation, synchronous handler execution, and normalized immutable results; not wired into the benchmark pipeline |
+| Tool-call normalization | `src/llm_benchmark/tool_use/calling.py` | Validate supplied response data into immutable text, ordered ToolCall snapshots, and finish reason; no HTTP or tool execution |
+| Tool requests | `src/llm_benchmark/tool_use/requests.py` | Map explicitly selected registrations and initial or conversation messages into independent request payloads |
+| Tool conversation | `src/llm_benchmark/tool_use/conversation.py` | Immutable ordered messages, conversation-wide call IDs, and matched tool-result messages |
+| Bounded tool loop | `src/llm_benchmark/tool_use/loop.py` | Sequential provider/tool execution under per-invocation budgets; explicit stop reasons, not task scores |
+| Tool-loop evaluation | `src/llm_benchmark/tool_use/evaluation.py` | Pure per-invocation comparison against immutable expectations; separate matching flags and call counts |
+| Tool scenarios | `src/llm_benchmark/tool_use/scenarios.py` | Immutable synthetic inputs, selected tools, loop policy, and evaluation expectations |
+| Scenario request preparation | `src/llm_benchmark/tool_use/scenario_requests.py` | Resolves selected registrations and creates initial conversations without copying evaluation expectations into requests |
+| Tool suite | `src/llm_benchmark/tool_use/suite.py` | Sequential scenario execution through injected providers, returning immutable evaluations |
+| Tool reporting | `src/llm_benchmark/tool_use/reporting.py` | Pure aggregation with explicit denominators, unavailable counts, and stop-reason distribution |
+| Tool-provider results | `src/llm_benchmark/tool_use/provider_models.py` | Frozen result/status contract and validated nullable telemetry for the separate tool-turn operation |
 | Provider layer | `src/llm_benchmark/providers.py` | Provider protocol, factory, Mock, LM Studio native, and OpenAI-compatible adapters |
 | Parser | `src/llm_benchmark/parser.py` | Strict deterministic parsing against actual allowed labels |
 | Runner | `src/llm_benchmark/runner.py` | Orchestrate provider execution, timing and telemetry, write artifacts, and aggregate metrics |
@@ -186,7 +186,7 @@ streaming recorder, tool integration, RAG, MCP, or agent loop.
 
 ## Tool runtime boundary
 
-`tool_runtime.py` is a standalone synchronous module using only the standard
+`tool_use/runtime.py` is a standalone synchronous module using only the standard
 library and Pydantic. It has no provider, runner, trace, API, worker, or database
 dependency and performs no filesystem or network operations itself. Importing
 it does not initialize runtime storage or a database.
@@ -254,7 +254,7 @@ records and is not connected to the existing benchmark execution paths.
 
 ### Deterministic example tools
 
-`tools.py` supplies `create_example_tool_registry()`, which creates a fresh
+`tool_use/builtin_tools.py` supplies `create_example_tool_registry()`, which creates a fresh
 registry containing `calculator` and `lookup_city_code`. Registries have
 independent membership and share the argument-model classes and handler
 functions. Importing the module defines models, functions, and a read-only
@@ -282,11 +282,11 @@ or tool-selection evaluation.
 
 ## Tool-call response normalization
 
-`tool_calling.py` exposes `normalize_openai_tool_response(body, *,
+`tool_use/calling.py` exposes `normalize_openai_tool_response(body, *,
 max_arguments_bytes=65_536, max_total_arguments_bytes=262_144)`. It consumes
 already-decoded response data, not an HTTP response or JSON response-body text.
 It imports only standard-library modules and the existing `ToolCall` contract
-and JSON-validation error from `tool_runtime.py`.
+and JSON-validation error from `tool_use/runtime.py`.
 
 The returned frozen `NormalizationToolTurn` keeps `content`, a tuple of ordered
 `tool_calls`, and `finish_reason` separate. Text and finish reason are preserved
@@ -357,7 +357,7 @@ loops, and tool-call evaluation are outside this boundary.
 
 ## Initial tool-turn provider boundary
 
-`tool_requests.py` prepares an initial request without HTTP, credential reads,
+`tool_use/requests.py` prepares an initial request without HTTP, credential reads,
 or handler execution. The frozen `ToolTurnRequest` accepts non-blank UTF-8 user
 text, optional non-blank system text, and a non-empty tuple of explicitly
 selected `ToolRegistration` objects. Duplicate tool names are rejected. Tools
@@ -514,7 +514,7 @@ interoperability. Tool-call evaluation is a separate boundary described below.
 Catalog admission is described in
 [External tool admission](#external-tool-admission).
 
-`tool_descriptors.py` provides a frozen `ToolDescriptor` containing an existing
+`tool_use/descriptors.py` provides a frozen `ToolDescriptor` containing an existing
 `ToolDefinition` and an independent JSON parameter-schema snapshot. Input schema
 mutation, returned parameter mutation, and serialized payload mutation do not
 change the stored snapshot. Schema data is excluded from repr; definition text
@@ -560,7 +560,7 @@ not establish real endpoint interoperability.
 
 ### Tool execution boundary
 
-`tool_execution.py` defines the synchronous `ToolExecutor.execute(call)`
+`tool_use/execution.py` defines the synchronous `ToolExecutor.execute(call)`
 protocol. `run_tool_loop()` accepts an optional executor; without one, it builds
 the existing `ToolRuntime` from the request's selected registrations. The
 runtime satisfies the protocol directly, without a duplicate adapter. Injected
@@ -718,7 +718,7 @@ execution remains trusted, synchronous, and in-process.
 
 ## External tool admission
 
-`external_tool_policy.py` defines a frozen `ExternalToolPolicy` with an explicit,
+`tool_use/external/policy.py` defines a frozen `ExternalToolPolicy` with an explicit,
 case-sensitive name allowlist, positive integer `max_tools`, and positive integer
 `max_total_schema_bytes`. Booleans are not accepted as limits; an empty allowlist
 denies all tools. Tool-name syntax is reused from `ToolDefinition`.
@@ -739,7 +739,7 @@ Messages are fixed and do not interpolate catalog data. Invalid Python contract
 types raise `TypeError`; invalid policy values are setup errors, not benchmark
 outcomes. This is not a general exception or traceback sanitizer.
 
-`external_tool_suite.run_external_tool_suite()` applies admission and validates
+`tool_use.external.suite.run_external_tool_suite()` applies admission and validates
 every admitted schema before delegating to the existing descriptor-based
 `run_tool_suite()`. Catalog or schema rejection prevents either execution
 factory from being called, including for unselected tools. After validation, the
@@ -752,7 +752,7 @@ only that scenario's descriptors.
 
 ### External schema profile
 
-`external_tool_schema.py` uses `jsonschema` Draft 2020-12 validation after an
+`tool_use/external/schema.py` uses `jsonschema` Draft 2020-12 validation after an
 explicit keyword allowlist check. Supported keywords are `type`, `title`,
 `description`, `default`, `examples`, `enum`, `const`, `properties`, `required`,
 `additionalProperties`, `items`, `minItems`, `maxItems`, `minLength`, `maxLength`,
@@ -778,7 +778,7 @@ schemas are rechecked on argument validation rather than globally cached.
 
 ### Validating external executor
 
-`external_tool_executor.py` checks the descriptor tuple, uniqueness, supported
+`tool_use/external/executor.py` checks the descriptor tuple, uniqueness, supported
 schemas, and callable delegate at construction without executing the delegate.
 For an exact `ToolCall`, an unknown tool returns `TOOL_NOT_FOUND`; mismatched
 arguments return `INVALID_ARGUMENTS`. Both preserve call identity and have no
@@ -1138,3 +1138,34 @@ commands, boundaries and the MCP handoff.
 - Authentication, authorization, and registry trust-boundary hardening
 - Safe Comparison API, retry/resume, pricing, and additional task families
 - Frontend only after stable backend contracts and operational boundaries
+
+## Package organization
+
+Tool evaluation and MCP integration have separate package boundaries:
+
+```text
+src/llm_benchmark/
+  tool_use/             # Contracts, conversation, bounded loop, evaluation,
+                        # reporting, config, and artifact orchestration
+    external/           # External schema admission and validating execution
+  mcp_integration/      # MCP client, mapping, executor, and session lifecycle
+  api/                  # Existing HTTP API
+  db/                   # Existing persistence layer
+  demo_mcp_*.py         # Stable executable demo entry points
+```
+
+Core tool contracts and evaluation do not import the MCP SDK. The run service
+loads the optional MCP integration only when the MCP runtime is selected.
+Package initializers do not eagerly import submodules or optional dependencies.
+The FastMCP server still runs in its separate environment.
+
+Python imports now use `llm_benchmark.tool_use.*`,
+`llm_benchmark.tool_use.external.*`, and `llm_benchmark.mcp_integration.*`.
+The old flat Python module paths are not retained as compatibility aliases.
+CLI commands, demo module entry points, YAML configuration, runtime/evaluator
+versions, and artifact schemas are unchanged. Tests retain their existing file
+names and import the new package paths.
+
+Future retrieval development should start in `llm_benchmark.retrieval`, with
+model-independent contracts and metrics. No retrieval implementation is included
+in this package-layout refactor.

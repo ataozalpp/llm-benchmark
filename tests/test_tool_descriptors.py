@@ -7,16 +7,16 @@ from pathlib import Path
 
 import pytest
 
-from llm_benchmark.tool_descriptors import (
+from llm_benchmark.tool_use.builtin_tools import create_example_tool_registry
+from llm_benchmark.tool_use.descriptors import (
     MAX_TOOL_SCHEMA_BYTES,
     MAX_TOOL_SCHEMA_DEPTH,
     ToolDescriptor,
     descriptor_from_registration,
     serialize_tool_descriptor,
 )
-from llm_benchmark.tool_requests import serialize_tool_registration
-from llm_benchmark.tool_runtime import ToolDefinition, ToolRegistration
-from llm_benchmark.tools import create_example_tool_registry
+from llm_benchmark.tool_use.requests import serialize_tool_registration
+from llm_benchmark.tool_use.runtime import ToolDefinition, ToolRegistration
 
 
 def make_descriptor(parameters=None):
@@ -269,12 +269,12 @@ def guard(event, args):
         ):
             raise AssertionError('Unexpected write')
 sys.addaudithook(guard)
-from llm_benchmark.tool_runtime import ToolDefinition, ToolRegistry, ToolRuntime
+from llm_benchmark.tool_use.runtime import ToolDefinition, ToolRegistry, ToolRuntime
 def reject(*args, **kwargs):
     raise AssertionError('Unexpected runtime initialization')
 ToolRegistry.__init__ = reject
 ToolRuntime.__init__ = reject
-from llm_benchmark.tool_descriptors import ToolDescriptor, serialize_tool_descriptor
+from llm_benchmark.tool_use.descriptors import ToolDescriptor, serialize_tool_descriptor
 descriptor = ToolDescriptor(
     definition=ToolDefinition('example', 'Example.'),
     parameters={'type': 'object', '$ref': 'https://example.invalid/schema'},

@@ -2,9 +2,9 @@ from dataclasses import FrozenInstanceError, replace
 
 import pytest
 
-from llm_benchmark.tool_evaluation import ToolEvaluationResult
-from llm_benchmark.tool_loop import ToolLoopStopReason
-from llm_benchmark.tool_reporting import (
+from llm_benchmark.tool_use.evaluation import ToolEvaluationResult
+from llm_benchmark.tool_use.loop import ToolLoopStopReason
+from llm_benchmark.tool_use.reporting import (
     MetricCount,
     StopReasonCount,
     aggregate_tool_evaluations,
@@ -348,15 +348,15 @@ def test_every_stop_reason_and_failed_runtime_counts() -> None:
 
 
 def test_real_evaluator_output_flows_into_reporting() -> None:
-    from llm_benchmark.tool_calling import NormalizationToolTurn
-    from llm_benchmark.tool_conversation import (
+    from llm_benchmark.tool_use.calling import NormalizationToolTurn
+    from llm_benchmark.tool_use.conversation import (
         AssistantMessage,
         ToolConversation,
         UserMessage,
     )
-    from llm_benchmark.tool_evaluation import ToolEvaluationCase, evaluate_tool_loop
-    from llm_benchmark.tool_loop import ToolLoopResult
-    from llm_benchmark.tool_provider_models import (
+    from llm_benchmark.tool_use.evaluation import ToolEvaluationCase, evaluate_tool_loop
+    from llm_benchmark.tool_use.loop import ToolLoopResult
+    from llm_benchmark.tool_use.provider_models import (
         ToolProviderResult,
         ToolProviderStatus,
     )

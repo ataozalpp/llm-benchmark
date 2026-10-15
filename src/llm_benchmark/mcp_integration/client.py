@@ -6,12 +6,12 @@ from pathlib import Path
 
 from mcp import Client, StdioServerParameters
 
-from .external_tool_policy import (
+from llm_benchmark.mcp_integration.mapping import descriptor_from_mcp_fields
+from llm_benchmark.tool_use.descriptors import ToolDescriptor
+from llm_benchmark.tool_use.external.policy import (
     ExternalToolPolicy,
     admit_tool_descriptors,
 )
-from .mcp_mapping import descriptor_from_mcp_fields
-from .tool_descriptors import ToolDescriptor
 
 
 def calculator_server_parameters(

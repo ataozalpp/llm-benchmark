@@ -1,19 +1,19 @@
 import pytest
 
-from llm_benchmark.tool_conversation import (
+from llm_benchmark.tool_use.conversation import (
     ToolConversation,
     UserMessage,
 )
-from llm_benchmark.tool_demo_provider import DemoToolProvider
-from llm_benchmark.tool_descriptors import ToolDescriptor
-from llm_benchmark.tool_execution import ToolExecutionTimeout
-from llm_benchmark.tool_loop import (
+from llm_benchmark.tool_use.demo_provider import DemoToolProvider
+from llm_benchmark.tool_use.descriptors import ToolDescriptor
+from llm_benchmark.tool_use.execution import ToolExecutionTimeout
+from llm_benchmark.tool_use.loop import (
     ToolLoopPolicy,
     ToolLoopStopReason,
     run_tool_loop,
 )
-from llm_benchmark.tool_requests import ToolConversationRequest
-from llm_benchmark.tool_runtime import (
+from llm_benchmark.tool_use.requests import ToolConversationRequest
+from llm_benchmark.tool_use.runtime import (
     ToolDefinition,
     ToolExecutionStatus,
     ToolResult,

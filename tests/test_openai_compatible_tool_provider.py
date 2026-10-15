@@ -11,32 +11,35 @@ import pytest
 import llm_benchmark.providers as providers
 from llm_benchmark.config import ModelConfig
 from llm_benchmark.models import DatasetExample
-from llm_benchmark.tool_calling import (
+from llm_benchmark.tool_use.builtin_tools import create_example_tool_registry
+from llm_benchmark.tool_use.calling import (
     ToolCallNormalizationErrorCode,
     normalize_openai_tool_response,
 )
-from llm_benchmark.tool_conversation import (
+from llm_benchmark.tool_use.conversation import (
     AssistantMessage,
     ToolConversation,
     ToolResultMessage,
     UserMessage,
     serialize_conversation,
 )
-from llm_benchmark.tool_descriptors import ToolDescriptor
-from llm_benchmark.tool_provider_models import ToolProviderErrorCode, ToolProviderStatus
-from llm_benchmark.tool_requests import (
+from llm_benchmark.tool_use.descriptors import ToolDescriptor
+from llm_benchmark.tool_use.provider_models import (
+    ToolProviderErrorCode,
+    ToolProviderStatus,
+)
+from llm_benchmark.tool_use.requests import (
     ToolConversationRequest,
     ToolTurnRequest,
     build_openai_tool_conversation_payload,
     build_openai_tool_payload,
 )
-from llm_benchmark.tool_runtime import (
+from llm_benchmark.tool_use.runtime import (
     ToolDefinition,
     ToolExecutionStatus,
     ToolResult,
     ToolRuntime,
 )
-from llm_benchmark.tools import create_example_tool_registry
 
 
 @pytest.mark.parametrize("conversation", [False, True])

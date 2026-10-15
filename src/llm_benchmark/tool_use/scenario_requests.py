@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from .tool_conversation import ToolConversation, UserMessage
-from .tool_descriptors import ToolDescriptor
-from .tool_requests import ToolConversationRequest
-from .tool_runtime import ToolRegistration, ToolRegistry
-from .tool_scenarios import ToolScenario
+from llm_benchmark.tool_use.conversation import ToolConversation, UserMessage
+from llm_benchmark.tool_use.descriptors import ToolDescriptor
+from llm_benchmark.tool_use.requests import ToolConversationRequest
+from llm_benchmark.tool_use.runtime import ToolRegistration, ToolRegistry
+from llm_benchmark.tool_use.scenarios import ToolScenario
 
 
 def build_tool_scenario_request(

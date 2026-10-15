@@ -5,24 +5,28 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from .tool_descriptors import ToolDescriptor
-from .tool_evaluation import (
+from llm_benchmark.tool_use.descriptors import ToolDescriptor
+from llm_benchmark.tool_use.evaluation import (
     ToolEvaluationResult,
     evaluate_tool_loop,
 )
-from .tool_execution import ToolExecutor
-from .tool_loop import ConversationProvider, ToolLoopResult, run_tool_loop
-from .tool_reporting import (
+from llm_benchmark.tool_use.execution import ToolExecutor
+from llm_benchmark.tool_use.loop import (
+    ConversationProvider,
+    ToolLoopResult,
+    run_tool_loop,
+)
+from llm_benchmark.tool_use.reporting import (
     ToolEvaluationSummary,
     aggregate_tool_evaluations,
 )
-from .tool_requests import ToolConversationRequest
-from .tool_runtime import ToolRegistry
-from .tool_scenario_requests import (
+from llm_benchmark.tool_use.requests import ToolConversationRequest
+from llm_benchmark.tool_use.runtime import ToolRegistry
+from llm_benchmark.tool_use.scenario_requests import (
     build_descriptor_scenario_request,
     build_tool_scenario_request,
 )
-from .tool_scenarios import ToolScenario
+from llm_benchmark.tool_use.scenarios import ToolScenario
 
 
 @dataclass(frozen=True)

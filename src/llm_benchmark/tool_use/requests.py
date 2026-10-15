@@ -6,16 +6,16 @@ import json
 import math
 from dataclasses import dataclass, field
 
-from .config import ModelConfig
-from .tool_conversation import (
+from llm_benchmark.config import ModelConfig
+from llm_benchmark.tool_use.conversation import (
     ToolConversation,
     serialize_conversation,
 )
-from .tool_descriptors import (
+from llm_benchmark.tool_use.descriptors import (
     ToolDescriptor,
     serialize_tool_descriptor,
 )
-from .tool_runtime import ToolRegistration
+from llm_benchmark.tool_use.runtime import ToolRegistration
 
 
 def _validate_text(value: object, *, optional: bool = False) -> None:

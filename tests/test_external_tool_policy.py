@@ -6,14 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from llm_benchmark.external_tool_policy import (
+from llm_benchmark.tool_use.descriptors import ToolDescriptor
+from llm_benchmark.tool_use.external.policy import (
     ExternalToolAdmissionCode,
     ExternalToolAdmissionError,
     ExternalToolPolicy,
     admit_tool_descriptors,
 )
-from llm_benchmark.tool_descriptors import ToolDescriptor
-from llm_benchmark.tool_runtime import ToolDefinition
+from llm_benchmark.tool_use.runtime import ToolDefinition
 
 
 def descriptor(name="calculator"):
@@ -318,13 +318,13 @@ def guard(event, args):
         ):
             raise AssertionError('Unexpected write')
 sys.addaudithook(guard)
-from llm_benchmark.tool_runtime import ToolDefinition, ToolRegistry, ToolRuntime
+from llm_benchmark.tool_use.runtime import ToolDefinition, ToolRegistry, ToolRuntime
 def reject(*args, **kwargs):
     raise AssertionError('Unexpected runtime initialization')
 ToolRegistry.__init__ = reject
 ToolRuntime.__init__ = reject
-from llm_benchmark.external_tool_policy import ExternalToolPolicy, admit_tool_descriptors
-from llm_benchmark.tool_descriptors import ToolDescriptor
+from llm_benchmark.tool_use.external.policy import ExternalToolPolicy, admit_tool_descriptors
+from llm_benchmark.tool_use.descriptors import ToolDescriptor
 descriptor = ToolDescriptor(
     definition=ToolDefinition('example', 'Example.'),
     parameters={'type': 'object', '$ref': 'https://example.invalid/schema'},

@@ -2,14 +2,14 @@ import traceback
 
 import pytest
 
-from llm_benchmark.external_tool_schema import (
+from llm_benchmark.tool_use.descriptors import ToolDescriptor
+from llm_benchmark.tool_use.external.schema import (
     ExternalToolSchemaCode,
     ExternalToolSchemaError,
     validate_external_tool_arguments,
     validate_external_tool_schema,
 )
-from llm_benchmark.tool_descriptors import ToolDescriptor
-from llm_benchmark.tool_runtime import ToolCall, ToolDefinition
+from llm_benchmark.tool_use.runtime import ToolCall, ToolDefinition
 
 
 def make_descriptor():

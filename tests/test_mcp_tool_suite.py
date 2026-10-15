@@ -9,12 +9,13 @@ import pytest
 def test_suite_exits_connection(monkeypatch, failure_stage):
     pytest.importorskip("mcp")
 
-    from llm_benchmark import mcp_runtime, mcp_tool_suite
-    from llm_benchmark.mcp_errors import MCPTransportFailure
-    from llm_benchmark.mcp_mapping import descriptor_from_mcp_fields
-    from llm_benchmark.tool_demo_provider import DemoToolProvider
-    from llm_benchmark.tool_runtime import ToolExecutionStatus, ToolResult
-    from llm_benchmark.tool_scenarios import create_example_tool_scenarios
+    from llm_benchmark.mcp_integration import runtime as mcp_runtime
+    from llm_benchmark.mcp_integration import suite as mcp_tool_suite
+    from llm_benchmark.mcp_integration.errors import MCPTransportFailure
+    from llm_benchmark.mcp_integration.mapping import descriptor_from_mcp_fields
+    from llm_benchmark.tool_use.demo_provider import DemoToolProvider
+    from llm_benchmark.tool_use.runtime import ToolExecutionStatus, ToolResult
+    from llm_benchmark.tool_use.scenarios import create_example_tool_scenarios
 
     events = []
     original = (

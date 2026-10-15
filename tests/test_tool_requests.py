@@ -12,8 +12,9 @@ import pytest
 from pydantic import BaseModel, ConfigDict, Field
 
 from llm_benchmark.config import ModelConfig
-from llm_benchmark.tool_calling import NormalizationToolTurn
-from llm_benchmark.tool_conversation import (
+from llm_benchmark.tool_use.builtin_tools import create_example_tool_registry
+from llm_benchmark.tool_use.calling import NormalizationToolTurn
+from llm_benchmark.tool_use.conversation import (
     AssistantMessage,
     SystemMessage,
     ToolConversation,
@@ -21,11 +22,11 @@ from llm_benchmark.tool_conversation import (
     UserMessage,
     serialize_conversation,
 )
-from llm_benchmark.tool_descriptors import (
+from llm_benchmark.tool_use.descriptors import (
     ToolDescriptor,
     descriptor_from_registration,
 )
-from llm_benchmark.tool_requests import (
+from llm_benchmark.tool_use.requests import (
     ToolConversationRequest,
     ToolTurnRequest,
     build_openai_tool_conversation_payload,
@@ -34,14 +35,13 @@ from llm_benchmark.tool_requests import (
     serialize_tool_registration,
     serialize_tool_registrations,
 )
-from llm_benchmark.tool_runtime import (
+from llm_benchmark.tool_use.runtime import (
     ToolCall,
     ToolDefinition,
     ToolExecutionStatus,
     ToolRegistration,
     ToolResult,
 )
-from llm_benchmark.tools import create_example_tool_registry
 
 
 class ExampleArguments(BaseModel):
@@ -681,13 +681,13 @@ def reject_io(event, args):
         ):
             raise AssertionError('Unexpected file write')
 sys.addaudithook(reject_io)
-from llm_benchmark.tool_requests import (
+from llm_benchmark.tool_use.requests import (
     ToolTurnRequest, build_openai_tool_payload,
     ToolConversationRequest, build_openai_tool_conversation_payload,
 )
-from llm_benchmark.tool_conversation import ToolConversation, UserMessage
+from llm_benchmark.tool_use.conversation import ToolConversation, UserMessage
 from llm_benchmark.config import ModelConfig
-from llm_benchmark.tool_runtime import ToolDefinition, ToolRegistration, ToolRegistry, ToolRuntime
+from llm_benchmark.tool_use.runtime import ToolDefinition, ToolRegistration, ToolRegistry, ToolRuntime
 from pydantic import BaseModel, ConfigDict
 def fail(*args, **kwargs):
     raise AssertionError('Unexpected tool runtime operation')
@@ -707,7 +707,7 @@ conversation_request = ToolConversationRequest(
     registrations=(selected,),
 )
 assert build_openai_tool_conversation_payload(config, conversation_request)['stream'] is False
-from llm_benchmark.tool_descriptors import ToolDescriptor
+from llm_benchmark.tool_use.descriptors import ToolDescriptor
 descriptor = ToolDescriptor(
     definition=ToolDefinition('external_example', 'Synthetic description.'),
     parameters={'type': 'object', '$ref': 'https://example.invalid/schema'},

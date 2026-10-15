@@ -12,8 +12,8 @@ from enum import StrEnum
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError, ValidationError
 
-from .tool_descriptors import ToolDescriptor
-from .tool_runtime import ToolCall
+from llm_benchmark.tool_use.descriptors import ToolDescriptor
+from llm_benchmark.tool_use.runtime import ToolCall
 
 
 class ExternalToolSchemaCode(StrEnum):

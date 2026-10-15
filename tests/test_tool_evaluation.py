@@ -7,35 +7,35 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel, ConfigDict
 
-from llm_benchmark.tool_calling import (
+from llm_benchmark.tool_use.calling import (
     NormalizationToolTurn,
     ToolCallNormalizationErrorCode,
 )
-from llm_benchmark.tool_conversation import (
+from llm_benchmark.tool_use.conversation import (
     AssistantMessage,
     ToolConversation,
     ToolResultMessage,
     UserMessage,
 )
-from llm_benchmark.tool_evaluation import (
+from llm_benchmark.tool_use.evaluation import (
     ExpectedToolCall,
     ToolEvaluationCase,
     ToolEvaluationResult,
     evaluate_tool_loop,
 )
-from llm_benchmark.tool_loop import (
+from llm_benchmark.tool_use.loop import (
     ToolLoopPolicy,
     ToolLoopResult,
     ToolLoopStopReason,
     run_tool_loop,
 )
-from llm_benchmark.tool_provider_models import (
+from llm_benchmark.tool_use.provider_models import (
     ToolProviderErrorCode,
     ToolProviderResult,
     ToolProviderStatus,
 )
-from llm_benchmark.tool_requests import ToolConversationRequest
-from llm_benchmark.tool_runtime import (
+from llm_benchmark.tool_use.requests import ToolConversationRequest
+from llm_benchmark.tool_use.runtime import (
     ToolCall,
     ToolDefinition,
     ToolRegistration,
@@ -525,15 +525,15 @@ def guard(event, args):
         ):
             raise AssertionError('Unexpected write')
 sys.addaudithook(guard)
-from llm_benchmark.tool_runtime import ToolRegistry, ToolRuntime
+from llm_benchmark.tool_use.runtime import ToolRegistry, ToolRuntime
 def fail(*args, **kwargs):
     raise AssertionError('Unexpected runtime execution')
 ToolRegistry.__init__ = fail
 ToolRuntime.__init__ = fail
 ToolRuntime.execute = fail
-from llm_benchmark.tool_evaluation import ToolEvaluationCase, evaluate_tool_loop
-from llm_benchmark.tool_loop import ToolLoopResult, ToolLoopStopReason
-from llm_benchmark.tool_conversation import ToolConversation, UserMessage
+from llm_benchmark.tool_use.evaluation import ToolEvaluationCase, evaluate_tool_loop
+from llm_benchmark.tool_use.loop import ToolLoopResult, ToolLoopStopReason
+from llm_benchmark.tool_use.conversation import ToolConversation, UserMessage
 result = ToolLoopResult(ToolLoopStopReason.PROVIDER_TURN_LIMIT, ToolConversation((UserMessage('Synthetic'),)), (), ())
 assert evaluate_tool_loop(case=ToolEvaluationCase('case', (), 'done'), result=result).completed is False
 for name in ('providers', 'runner', 'trace', 'api', 'worker', 'db', 'tools'):

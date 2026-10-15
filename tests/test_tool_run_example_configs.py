@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from llm_benchmark.tool_run_config import load_tool_run_config
+from llm_benchmark.tool_use.run_config import load_tool_run_config
 
 
 def test_mcp_openai_example_config():

@@ -12,14 +12,14 @@ from pathlib import Path
 
 import pytest
 
-import llm_benchmark.tool_calling as tool_calling
-from llm_benchmark.tool_calling import (
+import llm_benchmark.tool_use.calling as tool_calling
+from llm_benchmark.tool_use.calling import (
     NormalizationToolTurn,
     ToolCallNormalizationError,
     ToolCallNormalizationErrorCode,
     normalize_openai_tool_response,
 )
-from llm_benchmark.tool_runtime import ToolCall
+from llm_benchmark.tool_use.runtime import ToolCall
 
 
 def response(
@@ -630,14 +630,14 @@ def reject_io(event, args):
         ):
             raise AssertionError('Unexpected file write')
 sys.addaudithook(reject_io)
-import llm_benchmark.tool_runtime as runtime
+import llm_benchmark.tool_use.runtime as runtime
 def reject_execution(*args, **kwargs):
     raise AssertionError('Unexpected tool initialization or execution')
 runtime.ToolRegistry.__init__ = reject_execution
 runtime.ToolRegistry.get = reject_execution
 runtime.ToolRuntime.__init__ = reject_execution
 runtime.ToolRuntime.execute = reject_execution
-import llm_benchmark.tool_calling as module
+import llm_benchmark.tool_use.calling as module
 turn = module.normalize_openai_tool_response({'choices': [{'message': {
     'role': 'assistant', 'content': None, 'tool_calls': [{
         'id': 'call-1', 'type': 'function',

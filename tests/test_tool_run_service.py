@@ -4,19 +4,23 @@ from dataclasses import replace
 import pytest
 
 from llm_benchmark.cli import main
-from llm_benchmark.tool_demo_provider import DemoToolProvider
-from llm_benchmark.tool_loop import ToolLoopPolicy, ToolLoopStopReason, run_tool_loop
-from llm_benchmark.tool_provider_models import (
+from llm_benchmark.tool_use.builtin_tools import create_example_tool_registry
+from llm_benchmark.tool_use.demo_provider import DemoToolProvider
+from llm_benchmark.tool_use.loop import (
+    ToolLoopPolicy,
+    ToolLoopStopReason,
+    run_tool_loop,
+)
+from llm_benchmark.tool_use.provider_models import (
     ToolProviderErrorCode,
     ToolProviderResult,
     ToolProviderStatus,
 )
-from llm_benchmark.tool_run_config import ToolRunConfig, load_tool_run_config
-from llm_benchmark.tool_run_service import run_tool_benchmark
-from llm_benchmark.tool_scenario_requests import build_tool_scenario_request
-from llm_benchmark.tool_scenarios import create_example_tool_scenarios
-from llm_benchmark.tool_suite import run_tool_suite
-from llm_benchmark.tools import create_example_tool_registry
+from llm_benchmark.tool_use.run_config import ToolRunConfig, load_tool_run_config
+from llm_benchmark.tool_use.run_service import run_tool_benchmark
+from llm_benchmark.tool_use.scenario_requests import build_tool_scenario_request
+from llm_benchmark.tool_use.scenarios import create_example_tool_scenarios
+from llm_benchmark.tool_use.suite import run_tool_suite
 
 
 def read_json(path):
@@ -183,7 +187,7 @@ def test_normalized_provider_failure_is_completed_evaluation(tmp_path, monkeypat
 
 
 def test_deadline_after_tool_retains_result_and_prevents_next_turn():
-    from llm_benchmark.tool_runtime import ToolRuntime
+    from llm_benchmark.tool_use.runtime import ToolRuntime
 
     now = [0.0]
     registry = create_example_tool_registry()
@@ -253,7 +257,7 @@ def test_local_config_snapshot_preserves_legacy_fields():
 
 
 def test_local_manifest_keeps_legacy_config_hash(tmp_path):
-    from llm_benchmark.tool_artifacts import fingerprint
+    from llm_benchmark.tool_use.artifacts import fingerprint
 
     config = ToolRunConfig(output_dir=tmp_path)
     legacy_snapshot = {
@@ -315,8 +319,8 @@ def test_local_run_does_not_import_mcp(monkeypatch, tmp_path):
 
 
 def test_shared_artifact_runner_uses_supplied_runtime_and_callbacks(tmp_path):
-    from llm_benchmark.tool_artifacts import fingerprint
-    from llm_benchmark.tool_run_service import _run_tool_benchmark_with_artifacts
+    from llm_benchmark.tool_use.artifacts import fingerprint
+    from llm_benchmark.tool_use.run_service import _run_tool_benchmark_with_artifacts
 
     scenarios = create_example_tool_scenarios()
     invocations = []

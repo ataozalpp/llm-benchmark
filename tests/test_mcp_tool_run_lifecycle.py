@@ -4,11 +4,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from llm_benchmark.tool_descriptors import ToolDescriptor
-from llm_benchmark.tool_run_config import ToolRunConfig
-from llm_benchmark.tool_run_service import run_tool_benchmark
-from llm_benchmark.tool_runtime import ToolDefinition, ToolRuntime
-from llm_benchmark.tools import create_example_tool_registry
+from llm_benchmark.tool_use.builtin_tools import create_example_tool_registry
+from llm_benchmark.tool_use.descriptors import ToolDescriptor
+from llm_benchmark.tool_use.run_config import ToolRunConfig
+from llm_benchmark.tool_use.run_service import run_tool_benchmark
+from llm_benchmark.tool_use.runtime import ToolDefinition, ToolRuntime
 
 
 @pytest.mark.parametrize("fail_on_close", [False, True])
@@ -19,8 +19,9 @@ def test_manifest_completion_waits_for_session_close(
 ):
     pytest.importorskip("mcp")
 
-    from llm_benchmark import mcp_launch, mcp_runtime
-    from llm_benchmark.tool_artifacts import fingerprint
+    from llm_benchmark.mcp_integration import launch as mcp_launch
+    from llm_benchmark.mcp_integration import runtime as mcp_runtime
+    from llm_benchmark.tool_use.artifacts import fingerprint
 
     registry = create_example_tool_registry()
     registration = registry.get("calculator")
@@ -102,8 +103,9 @@ def test_manifest_completion_waits_for_session_close(
 @pytest.mark.parametrize("stage", ["preparation", "execution"])
 def test_mcp_run_failure_artifacts_and_sanitization(monkeypatch, tmp_path, stage):
     pytest.importorskip("mcp")
-    from llm_benchmark import mcp_launch, mcp_runtime
-    from llm_benchmark.tool_demo_provider import DemoToolProvider
+    from llm_benchmark.mcp_integration import launch as mcp_launch
+    from llm_benchmark.mcp_integration import runtime as mcp_runtime
+    from llm_benchmark.tool_use.demo_provider import DemoToolProvider
 
     registry = create_example_tool_registry()
     registration = registry.get("calculator")

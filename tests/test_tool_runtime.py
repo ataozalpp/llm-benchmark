@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel, ConfigDict
 
-from llm_benchmark.tool_runtime import (
+from llm_benchmark.tool_use.runtime import (
     DuplicateToolError,
     InvalidJsonValueError,
     ToolCall,
@@ -454,7 +454,7 @@ def test_importing_tool_runtime_has_no_runtime_side_effects(tmp_path: Path) -> N
     environment.pop("LLM_BENCHMARK_DATABASE_URL", None)
 
     completed = subprocess.run(
-        [sys.executable, "-c", "import llm_benchmark.tool_runtime"],
+        [sys.executable, "-c", "import llm_benchmark.tool_use.runtime"],
         cwd=tmp_path,
         env=environment,
         check=False,

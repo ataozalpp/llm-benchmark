@@ -1,6 +1,6 @@
 """Infrastructure failures during MCP tool execution."""
 
-from .tool_execution import ToolExecutionTimeout
+from llm_benchmark.tool_use.execution import ToolExecutionTimeout
 
 
 class MCPExecutionError(RuntimeError):

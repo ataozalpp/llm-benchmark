@@ -3,13 +3,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from llm_benchmark.tools import CalculatorArguments
+from llm_benchmark.tool_use.builtin_tools import CalculatorArguments
 
 
 @pytest.mark.parametrize("cursor", [None, "next-page"])
 def test_single_page_catalog_admission(cursor):
     pytest.importorskip("mcp")
-    from llm_benchmark.mcp_client import discover_calculator
+    from llm_benchmark.mcp_integration.client import discover_calculator
 
     class FakeClient:
         async def list_tools(self):

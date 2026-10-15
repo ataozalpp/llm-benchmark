@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .tool_runtime import (
+from llm_benchmark.tool_use.runtime import (
     ToolDefinition,
     ToolRegistration,
     ToolRegistry,

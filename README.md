@@ -8,6 +8,11 @@ quality, token usage, latency, reliability, and format compliance as separate
 measurements under explicit datasets, prompts, parser versions, and request
 parameters.
 
+Tool evaluation lives in `src/llm_benchmark/tool_use/`, external tool validation
+in `tool_use/external/`, and MCP adapters in `src/llm_benchmark/mcp_integration/`.
+See [package organization](docs/architecture.md#package-organization) for import
+boundaries. Existing CLI and demo commands are unchanged.
+
 > [!WARNING]
 > `MockProvider` scores and telemetry are synthetic software-validation
 > results. They are not measurements of real LLM performance. The recorded

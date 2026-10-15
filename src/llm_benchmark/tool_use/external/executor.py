@@ -5,15 +5,15 @@ from __future__ import annotations
 import math
 import time
 
-from .external_tool_schema import (
+from llm_benchmark.tool_use.descriptors import ToolDescriptor
+from llm_benchmark.tool_use.execution import ToolExecutionTimeout, ToolExecutor
+from llm_benchmark.tool_use.external.schema import (
     ExternalToolSchemaCode,
     ExternalToolSchemaError,
     validate_external_tool_arguments,
     validate_external_tool_schema,
 )
-from .tool_descriptors import ToolDescriptor
-from .tool_execution import ToolExecutionTimeout, ToolExecutor
-from .tool_runtime import (
+from llm_benchmark.tool_use.runtime import (
     ToolCall,
     ToolErrorCode,
     ToolExecutionStatus,

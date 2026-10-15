@@ -2,9 +2,9 @@
 
 import json
 
-from .external_tool_schema import validate_external_tool_schema
-from .tool_descriptors import ToolDescriptor
-from .tool_runtime import (
+from llm_benchmark.tool_use.descriptors import ToolDescriptor
+from llm_benchmark.tool_use.external.schema import validate_external_tool_schema
+from llm_benchmark.tool_use.runtime import (
     ToolCall,
     ToolDefinition,
     ToolErrorCode,

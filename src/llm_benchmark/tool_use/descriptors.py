@@ -6,7 +6,7 @@ import json
 import math
 from dataclasses import dataclass, field
 
-from .tool_runtime import ToolDefinition, ToolRegistration
+from llm_benchmark.tool_use.runtime import ToolDefinition, ToolRegistration
 
 MAX_TOOL_SCHEMA_BYTES = 65_536
 MAX_TOOL_SCHEMA_DEPTH = 32

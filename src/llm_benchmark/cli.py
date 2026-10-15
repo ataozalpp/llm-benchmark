@@ -24,8 +24,8 @@ def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "tool-run":
-            from .tool_run_config import load_tool_run_config
-            from .tool_run_service import run_tool_benchmark
+            from .tool_use.run_config import load_tool_run_config
+            from .tool_use.run_service import run_tool_benchmark
 
             run_dir, summary = run_tool_benchmark(load_tool_run_config(args.config))
         else:

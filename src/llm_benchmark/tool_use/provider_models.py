@@ -4,7 +4,7 @@ import math
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from .tool_calling import (
+from llm_benchmark.tool_use.calling import (
     NormalizationToolTurn,
     ToolCallNormalizationErrorCode,
 )

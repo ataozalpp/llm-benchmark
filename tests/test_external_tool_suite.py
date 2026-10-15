@@ -6,33 +6,36 @@ from pathlib import Path
 
 import pytest
 
-from llm_benchmark.external_tool_policy import (
+from llm_benchmark.tool_use.builtin_tools import create_example_tool_registry
+from llm_benchmark.tool_use.calling import NormalizationToolTurn
+from llm_benchmark.tool_use.demo_provider import DemoToolProvider
+from llm_benchmark.tool_use.descriptors import (
+    ToolDescriptor,
+    descriptor_from_registration,
+)
+from llm_benchmark.tool_use.external.policy import (
     ExternalToolAdmissionCode,
     ExternalToolAdmissionError,
     ExternalToolPolicy,
 )
-from llm_benchmark.external_tool_schema import (
+from llm_benchmark.tool_use.external.schema import (
     ExternalToolSchemaCode,
     ExternalToolSchemaError,
 )
-from llm_benchmark.external_tool_suite import run_external_tool_suite
-from llm_benchmark.tool_calling import NormalizationToolTurn
-from llm_benchmark.tool_demo_provider import DemoToolProvider
-from llm_benchmark.tool_descriptors import ToolDescriptor, descriptor_from_registration
-from llm_benchmark.tool_provider_models import (
+from llm_benchmark.tool_use.external.suite import run_external_tool_suite
+from llm_benchmark.tool_use.provider_models import (
     ToolProviderResult,
     ToolProviderStatus,
 )
-from llm_benchmark.tool_runtime import (
+from llm_benchmark.tool_use.runtime import (
     ToolCall,
     ToolErrorCode,
     ToolExecutionStatus,
     ToolRegistry,
     ToolRuntime,
 )
-from llm_benchmark.tool_scenarios import create_example_tool_scenarios
-from llm_benchmark.tool_suite import run_tool_suite
-from llm_benchmark.tools import create_example_tool_registry
+from llm_benchmark.tool_use.scenarios import create_example_tool_scenarios
+from llm_benchmark.tool_use.suite import run_tool_suite
 
 
 def calculator_descriptor():
@@ -503,19 +506,19 @@ def guard(event, args):
         ):
             raise AssertionError('Unexpected write')
 sys.addaudithook(guard)
-from llm_benchmark.tool_runtime import ToolRegistry, ToolRuntime
+from llm_benchmark.tool_use.runtime import ToolRegistry, ToolRuntime
 def reject(*args, **kwargs):
     raise AssertionError('Unexpected runtime initialization')
 ToolRegistry.__init__ = reject
 ToolRuntime.__init__ = reject
-from llm_benchmark.external_tool_suite import run_external_tool_suite
+from llm_benchmark.tool_use.external.suite import run_external_tool_suite
 assert callable(run_external_tool_suite)
-from llm_benchmark.external_tool_schema import (
+from llm_benchmark.tool_use.external.schema import (
     validate_external_tool_schema, validate_external_tool_arguments,
     ExternalToolSchemaError, ExternalToolSchemaCode,
 )
-from llm_benchmark.tool_descriptors import ToolDescriptor
-from llm_benchmark.tool_runtime import ToolDefinition, ToolCall
+from llm_benchmark.tool_use.descriptors import ToolDescriptor
+from llm_benchmark.tool_use.runtime import ToolDefinition, ToolCall
 definition = ToolDefinition('example', 'Synthetic tool.')
 descriptor = ToolDescriptor(definition=definition, parameters={'type': 'object'})
 validate_external_tool_schema(descriptor)
@@ -523,8 +526,8 @@ validate_external_tool_arguments(
     descriptor=descriptor,
     call=ToolCall(call_id='call_1', tool_name='example', arguments={}),
 )
-from llm_benchmark.external_tool_executor import ValidatingExternalToolExecutor
-from llm_benchmark.tool_runtime import ToolResult, ToolExecutionStatus
+from llm_benchmark.tool_use.external.executor import ValidatingExternalToolExecutor
+from llm_benchmark.tool_use.runtime import ToolResult, ToolExecutionStatus
 class Delegate:
     def execute(self, call):
         return ToolResult(call_id=call.call_id, tool_name=call.tool_name,

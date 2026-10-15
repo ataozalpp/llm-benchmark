@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .tool_evaluation import ToolEvaluationResult
-from .tool_loop import ToolLoopStopReason
+from llm_benchmark.tool_use.evaluation import ToolEvaluationResult
+from llm_benchmark.tool_use.loop import ToolLoopStopReason
 
 
 @dataclass(frozen=True)

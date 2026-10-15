@@ -1,6 +1,6 @@
 import pytest
 
-from llm_benchmark.mcp_launch import resolve_calculator_launch
+from llm_benchmark.mcp_integration.launch import resolve_calculator_launch
 
 
 def make_project(tmp_path):

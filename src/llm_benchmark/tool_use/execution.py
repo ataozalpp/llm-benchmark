@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from .tool_runtime import ToolCall, ToolResult
+from llm_benchmark.tool_use.runtime import ToolCall, ToolResult
 
 
 class ToolExecutor(Protocol):

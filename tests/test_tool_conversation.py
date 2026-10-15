@@ -4,8 +4,8 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from llm_benchmark.tool_calling import NormalizationToolTurn
-from llm_benchmark.tool_conversation import (
+from llm_benchmark.tool_use.calling import NormalizationToolTurn
+from llm_benchmark.tool_use.conversation import (
     AssistantMessage,
     SystemMessage,
     ToolConversation,
@@ -13,7 +13,7 @@ from llm_benchmark.tool_conversation import (
     UserMessage,
     serialize_conversation,
 )
-from llm_benchmark.tool_runtime import (
+from llm_benchmark.tool_use.runtime import (
     ToolCall,
     ToolErrorCode,
     ToolExecutionStatus,

@@ -6,15 +6,15 @@ from pathlib import Path
 
 import anyio
 
-from .external_tool_policy import ExternalToolPolicy
-from .external_tool_suite import run_external_tool_suite
-from .mcp_runtime import prepare_calculator_runtime
-from .tool_evaluation import ToolEvaluationResult
-from .tool_execution import ToolExecutor
-from .tool_loop import ConversationProvider, ToolLoopResult
-from .tool_requests import ToolConversationRequest
-from .tool_scenarios import ToolScenario
-from .tool_suite import ToolSuiteResult
+from llm_benchmark.mcp_integration.runtime import prepare_calculator_runtime
+from llm_benchmark.tool_use.evaluation import ToolEvaluationResult
+from llm_benchmark.tool_use.execution import ToolExecutor
+from llm_benchmark.tool_use.external.policy import ExternalToolPolicy
+from llm_benchmark.tool_use.external.suite import run_external_tool_suite
+from llm_benchmark.tool_use.loop import ConversationProvider, ToolLoopResult
+from llm_benchmark.tool_use.requests import ToolConversationRequest
+from llm_benchmark.tool_use.scenarios import ToolScenario
+from llm_benchmark.tool_use.suite import ToolSuiteResult
 
 
 async def run_calculator_mcp_suite(

@@ -7,29 +7,29 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel, ConfigDict
 
-from llm_benchmark.tool_calling import (
+from llm_benchmark.tool_use.calling import (
     NormalizationToolTurn,
     ToolCallNormalizationErrorCode,
 )
-from llm_benchmark.tool_conversation import (
+from llm_benchmark.tool_use.conversation import (
     AssistantMessage,
     ToolConversation,
     ToolResultMessage,
     UserMessage,
 )
-from llm_benchmark.tool_loop import (
+from llm_benchmark.tool_use.loop import (
     ToolLoopPolicy,
     ToolLoopResult,
     ToolLoopStopReason,
     run_tool_loop,
 )
-from llm_benchmark.tool_provider_models import (
+from llm_benchmark.tool_use.provider_models import (
     ToolProviderErrorCode,
     ToolProviderResult,
     ToolProviderStatus,
 )
-from llm_benchmark.tool_requests import ToolConversationRequest
-from llm_benchmark.tool_runtime import (
+from llm_benchmark.tool_use.requests import ToolConversationRequest
+from llm_benchmark.tool_use.runtime import (
     ToolCall,
     ToolDefinition,
     ToolErrorCode,
@@ -601,12 +601,12 @@ def reject_io(event, args):
         ):
             raise AssertionError('Unexpected file write')
 sys.addaudithook(reject_io)
-from llm_benchmark.tool_runtime import ToolRegistry, ToolRuntime
+from llm_benchmark.tool_use.runtime import ToolRegistry, ToolRuntime
 def fail(*args, **kwargs):
     raise AssertionError('Unexpected runtime initialization')
 ToolRegistry.__init__ = fail
 ToolRuntime.__init__ = fail
-from llm_benchmark.tool_loop import ToolLoopPolicy
+from llm_benchmark.tool_use.loop import ToolLoopPolicy
 assert ToolLoopPolicy(2, 1).max_provider_turns == 2
 for name in ('providers', 'runner', 'trace', 'api', 'worker', 'db', 'tools'):
     assert 'llm_benchmark.' + name not in sys.modules

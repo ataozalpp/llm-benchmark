@@ -2,20 +2,20 @@ from dataclasses import FrozenInstanceError, replace
 
 import pytest
 
-from llm_benchmark.tool_calling import NormalizationToolTurn
-from llm_benchmark.tool_descriptors import descriptor_from_registration
-from llm_benchmark.tool_provider_models import (
+from llm_benchmark.tool_use.builtin_tools import create_example_tool_registry
+from llm_benchmark.tool_use.calling import NormalizationToolTurn
+from llm_benchmark.tool_use.descriptors import descriptor_from_registration
+from llm_benchmark.tool_use.provider_models import (
     ToolProviderErrorCode,
     ToolProviderResult,
     ToolProviderStatus,
 )
-from llm_benchmark.tool_reporting import MetricCount
-from llm_benchmark.tool_runtime import ToolCall, ToolRegistry, ToolRuntime
-from llm_benchmark.tool_scenarios import (
+from llm_benchmark.tool_use.reporting import MetricCount
+from llm_benchmark.tool_use.runtime import ToolCall, ToolRegistry, ToolRuntime
+from llm_benchmark.tool_use.scenarios import (
     create_example_tool_scenarios,
 )
-from llm_benchmark.tool_suite import ToolSuiteResult, run_tool_suite
-from llm_benchmark.tools import create_example_tool_registry
+from llm_benchmark.tool_use.suite import ToolSuiteResult, run_tool_suite
 
 
 class ScriptedProvider:
@@ -293,7 +293,7 @@ def test_repeated_suites_preserve_inputs_and_have_fresh_conversations() -> None:
 
 
 def test_late_registry_additions_do_not_expand_selected_tools() -> None:
-    from llm_benchmark.tool_runtime import ToolDefinition, ToolRegistration
+    from llm_benchmark.tool_use.runtime import ToolDefinition, ToolRegistration
 
     scenario = create_example_tool_scenarios()[1]
     scenarios = (
@@ -553,7 +553,7 @@ def test_descriptor_unexpected_failures_stop_suite(source, error_type):
 
 @pytest.mark.parametrize("failure_source", ["provider", "tool"])
 def test_descriptor_normalized_failures_continue(failure_source):
-    from llm_benchmark.tool_runtime import (
+    from llm_benchmark.tool_use.runtime import (
         ToolErrorCode,
         ToolExecutionStatus,
         ToolResult,

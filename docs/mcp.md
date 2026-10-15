@@ -1,4 +1,4 @@
-﻿# MCP calculator integration
+# MCP calculator integration
 
 This guide covers setup, execution, and validation of the local calculator MCP
 integration. Existing calculator logic runs in a separate FastMCP process; the
@@ -26,30 +26,30 @@ outside this path.
 ```text
 Benchmark environment (.venv)
     demo_mcp_suite
-    -> mcp_tool_suite: session ownership and discovery
+    -> mcp_integration.suite: session ownership and discovery
     -> AnyIO worker thread: synchronous external tool suite
        -> tool loop and argument validation
-       -> mcp_executor: dispatch to the async client event loop
+       -> mcp_integration.executor: dispatch to the async client event loop
           -> stdio
 Server environment (.venv-mcp)
     demo_mcp_server: FastMCP
     -> CalculatorArguments -> calculator_handler
     -> structured JSON response
 Benchmark environment
-    -> mcp_mapping -> ToolResult -> evaluation -> suite summary
+    -> mcp_integration.mapping -> ToolResult -> evaluation -> suite summary
 ```
 
 | File | Responsibility |
 |---|---|
 | `src/llm_benchmark/demo_mcp_server.py` | Exposes the calculator as a FastMCP tool |
 | `src/llm_benchmark/demo_mcp_smoke.py` | Checks server behavior in the same process |
-| `src/llm_benchmark/mcp_client.py` | Trusted local launch profile, session, and catalog admission |
-| `src/llm_benchmark/mcp_launch.py` | Resolves trusted local server Python and project-root settings |
-| `src/llm_benchmark/mcp_runtime.py` | Prepares an open session, executor, catalog snapshot, and protocol metadata |
-| `src/llm_benchmark/mcp_mapping.py` | SDK-independent descriptor and result mapping |
-| `src/llm_benchmark/mcp_errors.py` | Tool-request infrastructure exception types |
-| `src/llm_benchmark/mcp_executor.py` | Bridges synchronous execution to an open async client |
-| `src/llm_benchmark/mcp_tool_suite.py` | Owns the session and runs the external tool suite |
+| `src/llm_benchmark/mcp_integration/client.py` | Trusted local launch profile, session, and catalog admission |
+| `src/llm_benchmark/mcp_integration/launch.py` | Resolves trusted local server Python and project-root settings |
+| `src/llm_benchmark/mcp_integration/runtime.py` | Prepares an open session, executor, catalog snapshot, and protocol metadata |
+| `src/llm_benchmark/mcp_integration/mapping.py` | SDK-independent descriptor and result mapping |
+| `src/llm_benchmark/mcp_integration/errors.py` | Tool-request infrastructure exception types |
+| `src/llm_benchmark/mcp_integration/executor.py` | Bridges synchronous execution to an open async client |
+| `src/llm_benchmark/mcp_integration/suite.py` | Owns the session and runs the external tool suite |
 | `src/llm_benchmark/demo_mcp_stdio_smoke.py` | End-to-end smoke check with a real subprocess |
 | `src/llm_benchmark/demo_mcp_suite.py` | Runs synthetic scenarios and prints a JSON summary |
 | `tests/test_mcp_mapping.py` | Pure mapping and output-budget checks |
@@ -283,8 +283,8 @@ a fixed test count in this guide as proof of current validation.
 
 ## Execution and error behavior
 
-`mcp_tool_suite.py` owns the session. It runs the synchronous external suite in
-an AnyIO worker thread; `mcp_executor.py` dispatches calls back to the open async
+`mcp_integration/suite.py` owns the session. It runs the synchronous external suite in
+an AnyIO worker thread; `mcp_integration/executor.py` dispatches calls back to the open async
 client. The validation wrapper checks selected-tool arguments before delegating
 execution. The current calculator suite runs sequentially and shares one session.
 

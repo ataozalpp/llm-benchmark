@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from llm_benchmark.tool_runtime import (
+from llm_benchmark.tool_use.builtin_tools import create_example_tool_registry
+from llm_benchmark.tool_use.runtime import (
     ToolCall,
     ToolDefinition,
     ToolErrorCode,
@@ -10,7 +11,6 @@ from llm_benchmark.tool_runtime import (
     ToolRegistration,
     ToolRuntime,
 )
-from llm_benchmark.tools import create_example_tool_registry
 
 
 @pytest.fixture

@@ -5,9 +5,9 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from .mcp_client import connect_calculator, discover_calculator
-from .mcp_executor import MCPToolExecutor
-from .tool_descriptors import ToolDescriptor
+from llm_benchmark.mcp_integration.client import connect_calculator, discover_calculator
+from llm_benchmark.mcp_integration.executor import MCPToolExecutor
+from llm_benchmark.tool_use.descriptors import ToolDescriptor
 
 
 @dataclass(frozen=True)

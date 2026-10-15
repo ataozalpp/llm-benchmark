@@ -2,11 +2,11 @@ from dataclasses import FrozenInstanceError, replace
 
 import pytest
 
-from llm_benchmark.tool_evaluation import (
+from llm_benchmark.tool_use.evaluation import (
     ExpectedToolCall,
     ToolEvaluationCase,
 )
-from llm_benchmark.tool_scenarios import (
+from llm_benchmark.tool_use.scenarios import (
     create_example_tool_scenarios,
 )
 
@@ -152,7 +152,7 @@ def test_unicode_user_text_is_preserved() -> None:
 
 
 def test_examples_fit_budgets_and_registered_argument_schemas() -> None:
-    from llm_benchmark.tools import create_example_tool_registry
+    from llm_benchmark.tool_use.builtin_tools import create_example_tool_registry
 
     registry = create_example_tool_registry()
     for scenario in create_example_tool_scenarios():
@@ -167,8 +167,8 @@ def test_examples_fit_budgets_and_registered_argument_schemas() -> None:
 
 
 def test_factory_does_not_initialize_runtime_or_execute_handlers(monkeypatch) -> None:
-    from llm_benchmark import tools
-    from llm_benchmark.tool_runtime import ToolRegistry, ToolRuntime
+    from llm_benchmark.tool_use import builtin_tools as tools
+    from llm_benchmark.tool_use.runtime import ToolRegistry, ToolRuntime
 
     def forbidden(*args, **kwargs):
         pytest.fail("Scenario construction must not execute tools")

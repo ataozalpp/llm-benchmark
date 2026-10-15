@@ -10,8 +10,8 @@ import json
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from .tool_descriptors import ToolDescriptor
-from .tool_runtime import ToolDefinition
+from llm_benchmark.tool_use.descriptors import ToolDescriptor
+from llm_benchmark.tool_use.runtime import ToolDefinition
 
 
 class ExternalToolAdmissionCode(StrEnum):

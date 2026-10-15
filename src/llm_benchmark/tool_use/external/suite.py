@@ -4,19 +4,19 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from .external_tool_executor import ValidatingExternalToolExecutor
-from .external_tool_policy import (
+from llm_benchmark.tool_use.descriptors import ToolDescriptor
+from llm_benchmark.tool_use.evaluation import ToolEvaluationResult
+from llm_benchmark.tool_use.execution import ToolExecutor
+from llm_benchmark.tool_use.external.executor import ValidatingExternalToolExecutor
+from llm_benchmark.tool_use.external.policy import (
     ExternalToolPolicy,
     admit_tool_descriptors,
 )
-from .external_tool_schema import validate_external_tool_schema
-from .tool_descriptors import ToolDescriptor
-from .tool_evaluation import ToolEvaluationResult
-from .tool_execution import ToolExecutor
-from .tool_loop import ConversationProvider, ToolLoopResult
-from .tool_requests import ToolConversationRequest
-from .tool_scenarios import ToolScenario
-from .tool_suite import ToolSuiteResult, run_tool_suite
+from llm_benchmark.tool_use.external.schema import validate_external_tool_schema
+from llm_benchmark.tool_use.loop import ConversationProvider, ToolLoopResult
+from llm_benchmark.tool_use.requests import ToolConversationRequest
+from llm_benchmark.tool_use.scenarios import ToolScenario
+from llm_benchmark.tool_use.suite import ToolSuiteResult, run_tool_suite
 
 
 def run_external_tool_suite(

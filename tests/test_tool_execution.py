@@ -1,27 +1,27 @@
 import pytest
 
-from llm_benchmark.tool_calling import NormalizationToolTurn
-from llm_benchmark.tool_conversation import ToolConversation, UserMessage
-from llm_benchmark.tool_descriptors import descriptor_from_registration
-from llm_benchmark.tool_execution import ToolExecutor
-from llm_benchmark.tool_loop import (
+from llm_benchmark.tool_use.builtin_tools import create_example_tool_registry
+from llm_benchmark.tool_use.calling import NormalizationToolTurn
+from llm_benchmark.tool_use.conversation import ToolConversation, UserMessage
+from llm_benchmark.tool_use.descriptors import descriptor_from_registration
+from llm_benchmark.tool_use.execution import ToolExecutor
+from llm_benchmark.tool_use.loop import (
     ToolLoopPolicy,
     ToolLoopStopReason,
     run_tool_loop,
 )
-from llm_benchmark.tool_provider_models import (
+from llm_benchmark.tool_use.provider_models import (
     ToolProviderResult,
     ToolProviderStatus,
 )
-from llm_benchmark.tool_requests import ToolConversationRequest
-from llm_benchmark.tool_runtime import (
+from llm_benchmark.tool_use.requests import ToolConversationRequest
+from llm_benchmark.tool_use.runtime import (
     ToolCall,
     ToolErrorCode,
     ToolExecutionStatus,
     ToolResult,
     ToolRuntime,
 )
-from llm_benchmark.tools import create_example_tool_registry
 
 
 class ScriptedProvider:
@@ -143,7 +143,7 @@ def test_default_and_injected_runtime_have_equal_results():
 def test_injected_executor_avoids_local_runtime_initialization(
     monkeypatch,
 ):
-    import llm_benchmark.tool_loop as loop_module
+    import llm_benchmark.tool_use.loop as loop_module
 
     request = make_request()
     call = make_call()
@@ -322,7 +322,7 @@ def test_executor_exceptions_propagate(error_type, descriptors):
 
 
 def test_descriptor_request_requires_executor_before_runtime_or_provider(monkeypatch):
-    import llm_benchmark.tool_loop as loop_module
+    import llm_benchmark.tool_use.loop as loop_module
 
     request = make_request(descriptors=True)
     provider = ScriptedProvider(())
@@ -338,7 +338,7 @@ def test_descriptor_request_requires_executor_before_runtime_or_provider(monkeyp
 
 
 def test_descriptor_loop_preserves_selection_and_uses_only_executor(monkeypatch):
-    import llm_benchmark.tool_loop as loop_module
+    import llm_benchmark.tool_use.loop as loop_module
 
     request = make_request(descriptors=True)
     provider = ScriptedProvider((calls_response(make_call()), final_response()))

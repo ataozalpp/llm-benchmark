@@ -3,19 +3,19 @@ from dataclasses import replace
 import pytest
 
 from llm_benchmark.config import ModelConfig
-from llm_benchmark.tool_conversation import UserMessage
-from llm_benchmark.tool_descriptors import descriptor_from_registration
-from llm_benchmark.tool_evaluation import ExpectedToolCall, ToolEvaluationCase
-from llm_benchmark.tool_requests import build_openai_tool_conversation_payload
-from llm_benchmark.tool_runtime import ToolRegistry, ToolRuntime
-from llm_benchmark.tool_scenario_requests import (
+from llm_benchmark.tool_use.builtin_tools import create_example_tool_registry
+from llm_benchmark.tool_use.conversation import UserMessage
+from llm_benchmark.tool_use.descriptors import descriptor_from_registration
+from llm_benchmark.tool_use.evaluation import ExpectedToolCall, ToolEvaluationCase
+from llm_benchmark.tool_use.requests import build_openai_tool_conversation_payload
+from llm_benchmark.tool_use.runtime import ToolRegistry, ToolRuntime
+from llm_benchmark.tool_use.scenario_requests import (
     build_descriptor_scenario_request,
     build_tool_scenario_request,
 )
-from llm_benchmark.tool_scenarios import (
+from llm_benchmark.tool_use.scenarios import (
     create_example_tool_scenarios,
 )
-from llm_benchmark.tools import create_example_tool_registry
 
 
 def descriptors():

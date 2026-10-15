@@ -6,7 +6,7 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .config import ModelConfig
+from llm_benchmark.config import ModelConfig
 
 
 class ToolRunConfig(BaseModel):

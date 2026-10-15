@@ -9,18 +9,18 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Protocol
 
-from .tool_conversation import (
+from llm_benchmark.tool_use.conversation import (
     AssistantMessage,
     ToolConversation,
     ToolResultMessage,
 )
-from .tool_execution import ToolExecutionTimeout, ToolExecutor
-from .tool_provider_models import (
+from llm_benchmark.tool_use.execution import ToolExecutionTimeout, ToolExecutor
+from llm_benchmark.tool_use.provider_models import (
     ToolProviderResult,
     ToolProviderStatus,
 )
-from .tool_requests import ToolConversationRequest
-from .tool_runtime import (
+from llm_benchmark.tool_use.requests import ToolConversationRequest
+from llm_benchmark.tool_use.runtime import (
     ToolRegistry,
     ToolResult,
     ToolRuntime,

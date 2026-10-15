@@ -1,13 +1,13 @@
 import pytest
 
-import llm_benchmark.external_tool_executor as executor_module
-from llm_benchmark.external_tool_executor import ValidatingExternalToolExecutor
-from llm_benchmark.external_tool_schema import (
+import llm_benchmark.tool_use.external.executor as executor_module
+from llm_benchmark.tool_use.descriptors import ToolDescriptor
+from llm_benchmark.tool_use.external.executor import ValidatingExternalToolExecutor
+from llm_benchmark.tool_use.external.schema import (
     ExternalToolSchemaCode,
     ExternalToolSchemaError,
 )
-from llm_benchmark.tool_descriptors import ToolDescriptor
-from llm_benchmark.tool_runtime import (
+from llm_benchmark.tool_use.runtime import (
     ToolCall,
     ToolDefinition,
     ToolErrorCode,
@@ -320,7 +320,7 @@ def test_validation_time_is_subtracted_from_budget(monkeypatch):
 
 
 def test_expired_validation_budget_never_reaches_delegate(monkeypatch):
-    from llm_benchmark.tool_execution import ToolExecutionTimeout
+    from llm_benchmark.tool_use.execution import ToolExecutionTimeout
 
     delegate = RecordingTimedExecutor()
     wrapper = ValidatingExternalToolExecutor(

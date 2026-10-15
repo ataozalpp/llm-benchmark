@@ -9,15 +9,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from .providers import OpenAICompatibleProvider
-from .tool_artifacts import ToolArtifactWriter, fingerprint
-from .tool_demo_provider import DemoToolProvider
-from .tool_evaluation import ToolEvaluationResult
-from .tool_loop import ConversationProvider, ToolLoopResult
-from .tool_run_config import ToolRunConfig
-from .tool_scenarios import ToolScenario, create_example_tool_scenarios
-from .tool_suite import ToolSuiteResult, run_tool_suite
-from .tools import create_example_tool_registry
+from llm_benchmark.providers import OpenAICompatibleProvider
+from llm_benchmark.tool_use.artifacts import ToolArtifactWriter, fingerprint
+from llm_benchmark.tool_use.builtin_tools import create_example_tool_registry
+from llm_benchmark.tool_use.demo_provider import DemoToolProvider
+from llm_benchmark.tool_use.evaluation import ToolEvaluationResult
+from llm_benchmark.tool_use.loop import ConversationProvider, ToolLoopResult
+from llm_benchmark.tool_use.run_config import ToolRunConfig
+from llm_benchmark.tool_use.scenarios import ToolScenario, create_example_tool_scenarios
+from llm_benchmark.tool_use.suite import ToolSuiteResult, run_tool_suite
 
 type ToolRunObserver = Callable[
     [str, str, dict[str, object]],
@@ -342,21 +342,21 @@ async def _run_mcp_tool_benchmark(
 ) -> tuple[Path, dict[str, object]]:
     from functools import partial
 
-    from .mcp_launch import resolve_calculator_launch
+    from llm_benchmark.mcp_integration.launch import resolve_calculator_launch
 
     launch = resolve_calculator_launch(project_root=project_root)
 
     try:
         import anyio
 
-        from .mcp_runtime import prepare_calculator_runtime
+        from llm_benchmark.mcp_integration.runtime import prepare_calculator_runtime
     except ImportError:
         raise RuntimeError(
             "MCP runtime dependencies are unavailable; install the mcp extra."
         ) from None
 
-    from .external_tool_policy import ExternalToolPolicy
-    from .external_tool_suite import run_external_tool_suite
+    from llm_benchmark.tool_use.external.policy import ExternalToolPolicy
+    from llm_benchmark.tool_use.external.suite import run_external_tool_suite
 
     completions: list[_ToolRunCompletion] = []
 

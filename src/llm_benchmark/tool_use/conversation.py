@@ -4,8 +4,8 @@ import json
 from dataclasses import dataclass, field
 from typing import TypeAlias
 
-from .tool_calling import NormalizationToolTurn
-from .tool_runtime import ToolResult
+from llm_benchmark.tool_use.calling import NormalizationToolTurn
+from llm_benchmark.tool_use.runtime import ToolResult
 
 
 def _validate_message_text(content: object) -> None:

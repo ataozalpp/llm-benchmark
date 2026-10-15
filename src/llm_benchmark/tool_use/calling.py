@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from .tool_runtime import InvalidJsonValueError, ToolCall
+from llm_benchmark.tool_use.runtime import InvalidJsonValueError, ToolCall
 
 
 class ToolCallNormalizationErrorCode(StrEnum):

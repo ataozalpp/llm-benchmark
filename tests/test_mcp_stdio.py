@@ -41,7 +41,7 @@ def test_server_rejects_invalid_arguments(server_python):
     import anyio
     from mcp.shared.exceptions import MCPError
 
-    from llm_benchmark.mcp_client import connect_calculator
+    from llm_benchmark.mcp_integration.client import connect_calculator
 
     project_root = Path(__file__).resolve().parents[1]
 
@@ -100,11 +100,11 @@ def test_server_rejects_invalid_arguments(server_python):
 def test_mcp_suite_matches_local_suite(server_python):
     pytest.importorskip("mcp")
 
-    from llm_benchmark.mcp_tool_suite import run_calculator_mcp_suite
-    from llm_benchmark.tool_demo_provider import DemoToolProvider
-    from llm_benchmark.tool_scenarios import create_example_tool_scenarios
-    from llm_benchmark.tool_suite import run_tool_suite
-    from llm_benchmark.tools import create_example_tool_registry
+    from llm_benchmark.mcp_integration.suite import run_calculator_mcp_suite
+    from llm_benchmark.tool_use.builtin_tools import create_example_tool_registry
+    from llm_benchmark.tool_use.demo_provider import DemoToolProvider
+    from llm_benchmark.tool_use.scenarios import create_example_tool_scenarios
+    from llm_benchmark.tool_use.suite import run_tool_suite
 
     scenarios = create_example_tool_scenarios()
 
@@ -133,9 +133,9 @@ def test_executor_maps_real_tool_error(server_python):
 
     import anyio
 
-    from llm_benchmark.mcp_client import connect_calculator
-    from llm_benchmark.mcp_executor import MCPToolExecutor
-    from llm_benchmark.tool_runtime import (
+    from llm_benchmark.mcp_integration.client import connect_calculator
+    from llm_benchmark.mcp_integration.executor import MCPToolExecutor
+    from llm_benchmark.tool_use.runtime import (
         ToolCall,
         ToolErrorCode,
         ToolExecutionStatus,
@@ -175,9 +175,9 @@ def test_server_exit_during_call_is_transport_failure(server_python):
     import anyio
     from mcp import Client, StdioServerParameters
 
-    from llm_benchmark.mcp_errors import MCPTransportFailure
-    from llm_benchmark.mcp_executor import MCPToolExecutor
-    from llm_benchmark.tool_runtime import ToolCall
+    from llm_benchmark.mcp_integration.errors import MCPTransportFailure
+    from llm_benchmark.mcp_integration.executor import MCPToolExecutor
+    from llm_benchmark.tool_use.runtime import ToolCall
 
     project_root = Path(__file__).resolve().parents[1]
     server_script = (
@@ -214,7 +214,7 @@ def test_server_exit_during_call_is_transport_failure(server_python):
 def test_prepared_runtime_exposes_discovered_catalog(server_python):
     pytest.importorskip("mcp")
 
-    from llm_benchmark.mcp_runtime import prepare_calculator_runtime
+    from llm_benchmark.mcp_integration.runtime import prepare_calculator_runtime
 
     async def check():
         async with prepare_calculator_runtime(
@@ -241,8 +241,8 @@ def test_mcp_tool_run_writes_artifacts(
 
     import json
 
-    from llm_benchmark.tool_run_config import ToolRunConfig
-    from llm_benchmark.tool_run_service import run_tool_benchmark
+    from llm_benchmark.tool_use.run_config import ToolRunConfig
+    from llm_benchmark.tool_use.run_service import run_tool_benchmark
 
     monkeypatch.setenv("LLM_BENCHMARK_MCP_PYTHON", str(server_python))
 

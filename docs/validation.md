@@ -4,6 +4,27 @@ This document summarizes completed software and local operational validation.
 The real-model results are small diagnostic smoke runs, not statistically
 sufficient model benchmarks.
 
+## Package-layout refactor checkpoint (2026-10-15)
+
+The working tree on `refactor/packages-layout` was validated after moving tool
+modules into `tool_use` (including `tool_use.external`) and MCP modules into
+`mcp_integration`. Import references and test patch targets were updated; CLI
+commands, demo entry points, policies, and artifact contracts were preserved.
+
+- Full regression with the real MCP server configured: **1672 passed, 7 skipped
+  in 66.80 seconds**. Five skips require PostgreSQL configuration; two require
+  filesystem symlink support.
+- Ruff passed; `git diff --check` passed.
+- Synthetic MCP CLI run `6fe609c3b6d24266a6325a283a0ed003` completed both cases
+  with one successful tool call and all-case final-answer accuracy 2/2.
+- No real-model requests were made for this refactor.
+
+The first full-test attempt had one MCP `initialize` timeout while a separate
+CLI smoke was also running; that smoke failed during preparation too. The full
+suite and smoke both passed when rerun sequentially without changing timeouts.
+Concurrent startup contention is a possible explanation, not a proven cause.
+The existing startup-timeout sensitivity remains a limitation.
+
 ## Real-model MCP diagnostic repeats (2026-10-15)
 
 Three user-executed LM Studio runs were reviewed from their manifests, summaries,
@@ -117,8 +138,8 @@ variable was configured so real MCP stdio tests ran.
   two filesystem-symlink tests unavailable in the Windows environment.
 - `python -m ruff check .`: passed.
 - Documentation diff check: passed. The whole-tree `git diff --check` still
-  reports trailing whitespace in `external_tool_executor.py` and
-  `tool_execution.py`, plus an extra blank line at the end of the latter.
+  reports trailing whitespace in `tool_use/external/executor.py` and
+  `tool_use/execution.py`, plus an extra blank line at the end of the latter.
 
 Coverage includes remaining-budget forwarding, validation-time subtraction,
 expired-budget rejection before delegation, early-timeout propagation, and
@@ -273,7 +294,7 @@ at this checkpoint.
 These are software-behavior tests, not measurements of LLM tool selection or
 answer quality. They do not exhaust both operands' boundary combinations or
 the city-key grammar, and do not include a separate subprocess import test for
-`tools.py`; the existing import test covers `tool_runtime.py` only. No general
+`tool_use/builtin_tools.py`; the existing import test covers `tool_use/runtime.py` only. No general
 handler timeout or sandbox guarantee is established.
 
 ## Tool-call normalization validation

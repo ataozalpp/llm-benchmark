@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 from fastmcp import FastMCP
 from pydantic import Field
 
-from .tools import CalculatorArguments, calculator_handler
+from .tool_use.builtin_tools import CalculatorArguments, calculator_handler
 
 server = FastMCP(
     "llm-benchmark-calculator",

@@ -1,15 +1,15 @@
 import pytest
 
-from llm_benchmark.external_tool_schema import (
-    ExternalToolSchemaCode,
-    ExternalToolSchemaError,
-)
-from llm_benchmark.mcp_mapping import (
+from llm_benchmark.mcp_integration.mapping import (
     descriptor_from_mcp_fields,
     result_from_mcp_fields,
 )
-from llm_benchmark.tool_runtime import ToolCall, ToolExecutionStatus
-from llm_benchmark.tools import CalculatorArguments
+from llm_benchmark.tool_use.builtin_tools import CalculatorArguments
+from llm_benchmark.tool_use.external.schema import (
+    ExternalToolSchemaCode,
+    ExternalToolSchemaError,
+)
+from llm_benchmark.tool_use.runtime import ToolCall, ToolExecutionStatus
 
 
 def make_call():

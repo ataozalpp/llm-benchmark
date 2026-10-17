@@ -26,7 +26,7 @@ def test_macro_metrics_include_unsuccessful_queries():
     first = make_metrics("q1", {"a", "b"}, ("noise", "a"))
     second = make_metrics("q2", {"c"}, ())
 
-    summary = summarize_retrieval((first,second))
+    summary = summarize_retrieval((first, second))
 
     assert summary.query_count == 2
     assert summary.k == 2

@@ -31,7 +31,7 @@ def run_retrieval_suite(
 
     if any(not isinstance(chunk, Chunk) for chunk in chunks):
         raise TypeError("Every corpus item must be a Chunk.")
-    
+
     if not isinstance(scenarios, tuple):
         raise TypeError("Scenarios must be a tuple.")
 

@@ -5,6 +5,7 @@ from llm_benchmark.retrieval.models import (
     RankedRetrieval,
     RetrievalEvaluationCase,
     RetrievalQuery,
+    RetrievalScenario,
 )
 
 
@@ -30,7 +31,7 @@ def test_empty_gold_is_rejected():
         )
 
 
-@pytest.mark.parametrize("query_id", [""," ", None])
+@pytest.mark.parametrize("query_id", ["", " ", None])
 def test_invalid_query_id_is_rejected(query_id):
     with pytest.raises(ValueError):
         RankedRetrieval(query_id=query_id, chunk_ids=())
@@ -82,3 +83,14 @@ def test_invalid_chunk_identity_is_rejected(chunk_id):
 def test_invalid_document_id_is_rejected(document_id):
     with pytest.raises(ValueError):
         Chunk("c1", document_id, "valid text")
+
+
+def test_scenario_rejects_query_id_mismatch():
+    with pytest.raises(ValueError, match="Scenario query IDs"):
+        RetrievalScenario(
+            query=RetrievalQuery("q1", "refund policy"),
+            evaluation=RetrievalEvaluationCase(
+                query_id="q2",
+                relevant_chunk_ids=frozenset({"refund"}),
+            ),
+        )

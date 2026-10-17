@@ -28,7 +28,18 @@ IDs are rejected. `retrieved_count` records the number evaluated within K.
 MRR requires aggregation across queries and is not computed by the
 single-query evaluator.
 
-## Current scope
+## Keyword baseline
 
-This slice does not implement retrieval, chunking, corpus loading, embeddings,
-artifact persistence, CLI execution, or RAG answer generation.
+`KeywordRetriever` ranks pre-chunked text using the number of unique tokens shared
+with the query.
+
+- Tokenization uses Unicode word matching after `casefold`.
+- Repeated tokens do not increase the score.
+- Zero-score chunks are omitted.
+- Equal scores are ordered by chunk ID.
+- Results contain at most `top_k` unique chunk IDs.
+- Empty corpora and queries without token overlap return empty results.
+- Gold labels are never passed to the retriever.
+
+ This is a lexical baseline, not BM25 or semantic retrieval. It does not
+ perform stemming, language-specific normalization, chunking or embedding.

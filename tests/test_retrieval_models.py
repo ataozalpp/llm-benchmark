@@ -1,8 +1,10 @@
 import pytest
 
 from llm_benchmark.retrieval.models import (
+    Chunk,
     RankedRetrieval,
     RetrievalEvaluationCase,
+    RetrievalQuery,
 )
 
 
@@ -56,3 +58,27 @@ def test_mutable_gold_container_is_rejected():
 def test_invalid_gold_chunk_id_is_rejected():
     with pytest.raises(ValueError):
         RetrievalEvaluationCase(query_id="q1", relevant_chunk_ids=frozenset({""}))
+
+
+@pytest.mark.parametrize("text", ["", " ", None])
+def test_invalid_chunk_text_is_rejected(text):
+    with pytest.raises(ValueError):
+        Chunk("c1", "d1", text)
+
+
+@pytest.mark.parametrize("text", ["", " ", None])
+def test_invalid_query_text_is_rejected(text):
+    with pytest.raises(ValueError):
+        RetrievalQuery("q1", text)
+
+
+@pytest.mark.parametrize("chunk_id", ["", " ", None])
+def test_invalid_chunk_identity_is_rejected(chunk_id):
+    with pytest.raises(ValueError):
+        Chunk(chunk_id, "d1", "valid text")
+
+
+@pytest.mark.parametrize("document_id", ["", " ", None])
+def test_invalid_document_id_is_rejected(document_id):
+    with pytest.raises(ValueError):
+        Chunk("c1", document_id, "valid text")

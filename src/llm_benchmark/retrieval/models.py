@@ -42,3 +42,29 @@ class RankedRetrieval:
 
         if len(self.chunk_ids) != len(set(self.chunk_ids)):
             raise ValueError("Retrieved chunk IDs must be unique.")
+
+
+@dataclass(frozen=True)
+class Chunk:
+    chunk_id: str
+    document_id: str
+    text: str
+
+    def __post_init__(self) -> None:
+        _validate_id(self.chunk_id)
+        _validate_id(self.document_id)
+
+        if not isinstance(self.text, str) or not self.text.strip():
+            raise ValueError("Chunk text must be a non blank string.")
+
+
+@dataclass(frozen=True)
+class RetrievalQuery:
+    query_id: str
+    text: str
+
+    def __post_init__(self) -> None:
+        _validate_id(self.query_id)
+
+        if not isinstance(self.text, str) or not self.text.strip():
+            raise ValueError("Query text must be a non blank string.")

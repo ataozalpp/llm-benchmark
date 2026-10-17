@@ -41,17 +41,21 @@ with the query.
 - Empty corpora and queries without token overlap return empty results.
 - Gold labels are never passed to the retriever.
 
- This is a lexical baseline, not BM25 or semantic retrieval. It does not
- perform stemming, language-specific normalization, chunking or embedding.
+This is a lexical baseline, not BM25 or semantic retrieval. It does not
+perform stemming, language-specific normalization, chunking or embedding.
 
 ## Suite execution
 
 The suite validates corpus IDs, scenario IDs, and gold membership before
-creating the retriever. Retrievers recieve queries and corpus chunks,
+creating the retriever. Retrievers receive queries and corpus chunks,
 never gold labels.
 
 Returned IDs must belong to the corpus, match the query, and respect top_k.
 Contract violations raise errors rather than becoming zero-quality scores.
+
+Invalid K, empty scenarios, duplicate IDs, and unknown gold IDs are rejected
+before retriever creation. Invalid result types are rejected after retrieval.
+Retriever execution exceptions propagate rather than becoming zero-score results.
 
 ## Aggregation
 
@@ -60,3 +64,22 @@ Queries with no retrieved results remain in the denominator.
 
 MRR@K is the mean reciprocal rank@K across all evaluated queries.
 All queries in a summary must use the same K.
+
+## Offline fixture
+
+`tests/fixtures/retrieval/keyword_smoke.json` contains fou project-authored
+chunks and four queries.
+
+Three queries produce exact lexical matches. The delivery query is relevant
+to the shipping chunk but has no token overlap, exposing the keyword
+baseline's semantic limitation.
+
+At K=2, expected summary metrics are:
+
+- Hit rate: 0.75
+- Mean precision: 0.375
+- Mean recall: 0.75
+- MRR: 0.75
+
+The fixture validates implementation behaviour. It is not a representative
+retrieval-quality benchmark or a public corpus-loading interface.

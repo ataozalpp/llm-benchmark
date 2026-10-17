@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "suite_id": "keyword-smoke-v1",
+  "k": 2,
+  "chunks": [
+    {
+      "chunk_id": "refund",
+      "document_id": "store-policy",
+      "text": "refund period thirty days"
+    },
+    {
+      "chunk_id": "shipping",
+      "document_id": "store-policy",
+      "text": "shipping five days"
+    },
+    {
+      "chunk_id": "account",
+      "document_id": "account-guide",
+      "text": "account password reset"
+    },
+    {
+      "chunk_id": "payment",
+      "document_id": "billing-guide",
+      "text": "payment invoice receipt"
+    }
+  ],
+  "scenarios": [
+    {
+      "query_id": "q-refund",
+      "text": "refund period",
+      "relevant_chunk_ids": ["refund"]
+    },
+    {
+      "query_id": "q-account",
+      "text": "password reset",
+      "relevant_chunk_ids": ["account"]
+    },
+    {
+      "query_id": "q-delivery",
+      "text": "delivery",
+      "relevant_chunk_ids": ["shipping"]
+    },
+    {
+      "query_id": "q-invoice",
+      "text": "invoice",
+      "relevant_chunk_ids": ["payment"]
+    }
+  ]
+}

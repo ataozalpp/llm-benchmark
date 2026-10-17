@@ -43,3 +43,20 @@ with the query.
 
  This is a lexical baseline, not BM25 or semantic retrieval. It does not
  perform stemming, language-specific normalization, chunking or embedding.
+
+## Suite execution
+
+The suite validates corpus IDs, scenario IDs, and gold membership before
+creating the retriever. Retrievers recieve queries and corpus chunks,
+never gold labels.
+
+Returned IDs must belong to the corpus, match the query, and respect top_k.
+Contract violations raise errors rather than becoming zero-quality scores.
+
+## Aggregation
+
+Summary metrics use macro averaging: each query has equal weight.
+Queries with no retrieved results remain in the denominator.
+
+MRR@K is the mean reciprocal rank@K across all evaluated queries.
+All queries in a summary must use the same K.

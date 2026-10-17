@@ -68,3 +68,19 @@ class RetrievalQuery:
 
         if not isinstance(self.text, str) or not self.text.strip():
             raise ValueError("Query text must be a non blank string.")
+
+
+@dataclass(frozen=True)
+class RetrievalScenario:
+    query: RetrievalQuery
+    evaluation: RetrievalEvaluationCase
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.query, RetrievalQuery):
+            raise TypeError("Expected a RetrievalQuery.")
+
+        if not isinstance(self.evaluation, RetrievalEvaluationCase):
+            raise TypeError("Expected a RetrievalEvaluationCase.")
+
+        if self.query.query_id != self.evaluation.query_id:
+            raise ValueError("Scenario query IDs must match.")

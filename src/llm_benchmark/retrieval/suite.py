@@ -22,6 +22,7 @@ def run_retrieval_suite(
     scenarios: tuple[RetrievalScenario, ...],
     retriever_factory: Callable[[tuple[Chunk, ...]], Retriever],
     k: int,
+    on_case_completed: Callable[[RankedRetrieval, RetrievalMetrics], None] | None = None,
 ) -> RetrievalSuiteResult:
     if type(k) is not int or k <= 0:
         raise ValueError("k must be a positive integer.")
@@ -88,6 +89,8 @@ def run_retrieval_suite(
 
         rankings.append(result)
         evaluations.append(metrics)
+        if on_case_completed is not None:
+            on_case_completed(result, metrics)
 
     evaluated = tuple(evaluations)
 

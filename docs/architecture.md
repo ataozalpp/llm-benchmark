@@ -1166,6 +1166,21 @@ CLI commands, demo module entry points, YAML configuration, runtime/evaluator
 versions, and artifact schemas are unchanged. Tests retain their existing file
 names and import the new package paths.
 
-Future retrieval development should start in `llm_benchmark.retrieval`, with
-model-independent contracts and metrics. No retrieval implementation is included
-in this package-layout refactor.
+Retrieval now lives in `llm_benchmark.retrieval`, with model-independent
+contracts, a keyword baseline, exact relevance metrics, aggregation, and content
+identity. Its CLI execution path is:
+
+```text
+cli.py retrieval-run
+  -> retrieval/run_config.py (strict YAML and relative path resolution)
+  -> retrieval/run_service.py
+     -> dataset.py (strict JSON -> validated domain objects)
+     -> identity.py + profile.py (content identity)
+     -> suite.py -> keyword.py -> evaluation.py -> reporting.py
+     -> artifacts.py (manifest, incremental results, summary)
+```
+
+The suite has an optional completed-case callback so persistence does not leak
+into evaluation logic. The run service owns lifecycle and measurements. Retrieval
+does not import tool-use or MCP integration, and this command does not participate
+in the existing API/worker execution path. See [Retrieval](retrieval.md).

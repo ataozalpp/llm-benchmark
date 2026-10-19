@@ -93,8 +93,125 @@ the retriever profile, and evaluator/input-profile versions.
 Corpus entries are sorted by chunk ID before hashing; scenario order is
 preserved. Gold IDs are sorted because relevance-set order has no meaning.
 Run IDs, timestamps, and output paths are not part of this content identity.
-The identity does not capture the complete execution environment; runtime
-provenance will need to be recorded separately when artifacts are implemented.
+The identity does not capture the complete execution environment. The run
+manifest records the Python version separately; timings are observations, not
+part of content identity.
 
 The current input profile is pre-chunked text, not an automatic chunking
 algorithm. Identity generation does not execute a retriever or write artifacts.
+
+## Run the local keyword benchmark
+
+From the repository root, with the project installed in the virtual environment:
+
+```powershell
+.\.venv\Scripts\python.exe -m llm_benchmark retrieval-run --config configs/retrieval_keyword_smoke.yaml
+```
+
+No model server, model download, API key, or MCP process is needed. The command
+prints JSON with `run_id`, `output_dir`, and `overall`. The example produces the
+four-query metrics above. These are correctness checks, not model-quality claims.
+
+The config is:
+
+```yaml
+schema_version: 1
+suite_path: ../examples/retrieval/keyword_smoke.json
+retriever: keyword
+k: 2
+output_dir: ../outputs/retrieval
+```
+
+Both paths resolve relative to the YAML file, not the terminal working directory.
+Absolute paths are also supported. If omitted, `output_dir` defaults to
+`outputs/retrieval` relative to that YAML file. Configs are limited to 64 KiB;
+unknown fields, duplicate keys, unsupported versions/retrievers, blank paths,
+and non-positive or non-integer K (including booleans) are rejected.
+
+`examples/retrieval/keyword_smoke.json` is the runnable input. Unlike the older
+test-only fixture, it has no `k` field: K belongs exclusively to the run config.
+The input contract is strict UTF-8 JSON, at most 4 MiB:
+
+```json
+{
+  "schema_version": 1,
+  "suite_id": "my-suite-v1",
+  "chunks": [
+    {"chunk_id": "refund", "document_id": "policy", "text": "refund period thirty days"}
+  ],
+  "scenarios": [
+    {"query_id": "q-refund", "text": "refund period", "relevant_chunk_ids": ["refund"]}
+  ]
+}
+```
+
+Both lists must be nonempty. Chunk IDs and query IDs must be unique. Gold IDs
+must be nonempty, unique within each query, and present in the corpus. Unknown
+fields, duplicate JSON keys, invalid text, and unsupported versions fail before
+run-directory creation. Gold labels are used for evaluation, never retrieval.
+The loader is for controlled local pre-chunked inputs, not a public upload API.
+
+## Artifacts and failure semantics
+
+Every invocation creates a fresh UUID directory under the configured output:
+
+```text
+outputs/retrieval/<run_id>/
+  manifest.json
+  results.jsonl
+  summary.json
+```
+
+- `manifest.json`: artifact schema version 1, content hashes/fingerprint,
+  retriever profile, Python version, K, ordered query IDs, timestamps, status,
+  and completed-case count. The human-readable suite ID is metadata; changing
+  only that label does not change the fingerprint.
+- `results.jsonl`: one line per successfully evaluated query, in input order;
+  query/run IDs, retrieved chunk IDs, metrics, and retrieval latency. Empty
+  rankings are valid results and remain in the aggregate denominator.
+- `summary.json`: macro metrics plus run ID and measured timings; written after
+  every query succeeds. Timings vary between identical runs.
+
+`index_build_ms` measures keyword index construction. Per-query latency and
+`retrieval_total_ms`/`retrieval_mean_ms` measure retrieval calls only, excluding
+evaluation and artifact writes. `wall_time_ms` starts before input loading and
+includes validation, identity, indexing, evaluation, and incremental result
+writes; it ends before writing the summary and final manifest. It is not total
+CLI process startup/shutdown time.
+
+Metadata files use temporary-file replacement. Results are appended, flushed,
+and fsynced after each completed query. An execution/storage failure raises a
+sanitized error and attempts to mark the manifest `failed`; earlier result
+lines remain available. Invalid input is a preflight error with no run artifacts.
+The CLI exits with code 2 for these errors. Failed runs must not be interpreted
+as successful zero-quality runs or compared as complete benchmarks.
+
+Consumers must require `manifest.status == "completed"`; a summary might exist
+if writing the final manifest failed. Disk failures can also prevent recording
+failure status. A killed process may leave `running`, a temporary file, or a
+partial final JSONL line. This increment does not implement recovery, resume,
+locking across processes, or power-loss durability guarantees. Existing run
+directories are never reused. Artifacts omit raw corpus/query text and raw
+exception details, but include user-supplied IDs; use suitable IDs for your data.
+
+## Implementation boundaries and validation
+
+- `run_config.py`: YAML validation and path resolution.
+- `dataset.py`: bounded JSON loading and domain-object construction.
+- `run_service.py`: identity, lifecycle, timings, and orchestration.
+- `artifacts.py`: local persistence, without a dependency on tool-use artifacts.
+- `suite.py`: evaluation contracts and an optional completed-case callback;
+  existing callers remain compatible. Callback errors abort execution.
+- `cli.py`: the `retrieval-run` command; existing commands remain available.
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q tests/test_retrieval_run.py tests/test_retrieval_identity.py tests/test_retrieval_suite.py
+.\.venv\Scripts\python.exe -m ruff check .
+```
+
+Run the full offline regression suite before merging (see `validation.md`).
+The smoke corpus is deliberately small. A later increment should introduce a
+larger reviewed relevance corpus and independent regression expectations before
+adding dense retrieval, multiple retriever comparison, or RAG answer generation.
+API/worker integration, automatic chunking, vector stores, embeddings, and
+retrieval traces are outside this CLI increment.

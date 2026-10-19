@@ -17,6 +17,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--set", action="append", default=[], metavar="KEY=VALUE", help="override a config value")
     tool_run = subparsers.add_parser("tool-run", help="run the versioned tool suite")
     tool_run.add_argument("--config", type=Path, required=True)
+    retrieval_run = subparsers.add_parser("retrieval-run", help="run a retrieval evaluation")
+    retrieval_run.add_argument("--config", type=Path, required=True)
     return parser
 
 
@@ -28,6 +30,11 @@ def main(argv: list[str] | None = None) -> None:
             from .tool_use.run_service import run_tool_benchmark
 
             run_dir, summary = run_tool_benchmark(load_tool_run_config(args.config))
+        elif args.command == "retrieval-run":
+            from .retrieval.run_config import load_retrieval_run_config
+            from .retrieval.run_service import run_retrieval_benchmark
+
+            run_dir, summary = run_retrieval_benchmark(load_retrieval_run_config(args.config))
         else:
             config = load_config(args.config, args.set)
             run_dir, summary = run_benchmark(config)

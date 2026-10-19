@@ -1327,6 +1327,47 @@ transport-specific cancellation belongs to the future MCP adapter.
 
 See [the Turkish implementation walkthrough](projeyi-anlama-ve-mcp-oncesi.md).
 
+## Retrieval CLI checkpoint (2026-10-19)
+
+Validated locally on Windows with Python 3.12.10:
+
+- Focused run/identity/suite tests: **89 passed**.
+- Full offline regression suite: **1813 passed, 7 skipped**, 60.06 seconds.
+- `ruff check .`: passed after correcting the new config module's import layout.
+- `git diff --check`: passed.
+- Actual `retrieval-run --config configs/retrieval_keyword_smoke.yaml`: completed
+  four queries at K=2, hit rate 0.75, mean precision 0.375, mean recall 0.75,
+  MRR 0.75. Manifest and incremental results were read back after execution.
+
+Full-suite command (repository root, existing environments):
+
+```powershell
+$env:HF_HUB_OFFLINE = "1"
+$env:HF_DATASETS_OFFLINE = "1"
+$env:TRANSFORMERS_OFFLINE = "1"
+$env:LLM_BENCHMARK_MCP_PYTHON = (Resolve-Path .venv-mcp/Scripts/python.exe).Path
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+The MCP interpreter variable enables existing real stdio integration tests; it
+is not required by retrieval. Five PostgreSQL tests were skipped because the
+test database URL was absent, and two symlink tests were skipped due to Windows
+filesystem support. No external model endpoint or PostgreSQL integration was
+validated in this checkpoint.
+
+New tests cover strict config and dataset ingestion (including duplicate keys,
+invalid UTF-8, size limits, versions, duplicate IDs, and gold membership), path
+resolution independent of the working directory, deterministic content identity
+with fresh run IDs, known smoke metrics, artifact consistency, preflight without
+output creation, partial execution failures, storage failure propagation, safe
+error messages, and CLI output/exit behavior. Existing identity and evaluator
+tests remain unchanged and passing.
+
+This establishes local correctness, not representative retrieval quality or
+performance. The four-query corpus is intentionally tiny; timings are individual
+observations. API/worker integration, semantic retrieval, RAG, recovery/resume,
+and complete execution-environment reproducibility remain outside this increment.
+
 ## Licensing note
 
 No project license has been selected yet. MMLU-Pro attribution and its dataset

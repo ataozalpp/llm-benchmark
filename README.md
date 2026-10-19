@@ -606,6 +606,20 @@ resolved-config hash, dataset-manifest hash, prompt hash, parser/evaluator
 versions, environment metadata, and a combined run fingerprint. Pricing and
 cost calculation are not implemented.
 
+## Local retrieval evaluation
+
+Run the model-independent keyword baseline with versioned inputs and local artifacts:
+
+```powershell
+.\.venv\Scripts\python.exe -m llm_benchmark retrieval-run --config configs/retrieval_keyword_smoke.yaml
+```
+
+The four-query example reports hit rate 0.75, mean precision 0.375, mean recall
+0.75, and MRR 0.75 at K=2. Each invocation writes a manifest, per-query JSONL,
+and summary under `outputs/retrieval/<run_id>/`. No model or MCP server is needed.
+See [Retrieval](docs/retrieval.md) for input schemas, path resolution, identity,
+timing definitions, failure handling, and current scope.
+
 ## Security boundaries and limitations
 
 - No authentication or authorization.
@@ -627,8 +641,9 @@ cost calculation are not implemented.
   only the high-level error type.
 - Actual secrets are never persisted; only credential environment-variable
   names may be stored.
-- The CLI/registered benchmark task is currently multiple-choice only;
-  standalone tool-loop evaluation is not yet integrated into those paths.
+- The registered API/worker benchmark task is currently multiple-choice only;
+  tool-use and retrieval evaluation have separate CLI commands and are not
+  integrated into that registered execution path.
 - Execution traces are diagnostic lifecycle data. Events are buffered in
   memory and successful pipelines write `trace.jsonl` on a best-effort basis;
   missing trace persistence is not reported separately in the summary or DB.

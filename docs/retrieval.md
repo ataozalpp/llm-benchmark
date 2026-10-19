@@ -67,7 +67,7 @@ All queries in a summary must use the same K.
 
 ## Offline fixture
 
-`tests/fixtures/retrieval/keyword_smoke.json` contains fou project-authored
+`tests/fixtures/retrieval/keyword_smoke.json` contains four project-authored
 chunks and four queries.
 
 Three queries produce exact lexical matches. The delivery query is relevant
@@ -83,3 +83,18 @@ At K=2, expected summary metrics are:
 
 The fixture validates implementation behaviour. It is not a representative
 retrieval-quality benchmark or a public corpus-loading interface.
+
+## Run identity
+
+`profile.py` describes the versioned keyword baseline. `identity.py` hashes
+corpus content and metadata, ordered scenarios, gold relevance sets, K,
+the retriever profile, and evaluator/input-profile versions.
+
+Corpus entries are sorted by chunk ID before hashing; scenario order is
+preserved. Gold IDs are sorted because relevance-set order has no meaning.
+Run IDs, timestamps, and output paths are not part of this content identity.
+The identity does not capture the complete execution environment; runtime
+provenance will need to be recorded separately when artifacts are implemented.
+
+The current input profile is pre-chunked text, not an automatic chunking
+algorithm. Identity generation does not execute a retriever or write artifacts.

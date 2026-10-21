@@ -130,7 +130,7 @@ and non-positive or non-integer K (including booleans) are rejected.
 
 `examples/retrieval/keyword_smoke.json` is the runnable input. Unlike the older
 test-only fixture, it has no `k` field: K belongs exclusively to the run config.
-The input contract is strict UTF-8 JSON, at most 4 MiB:
+The input contract is strict UTF-8 JSON, at most 32 MiB:
 
 ```json
 {
@@ -209,9 +209,112 @@ exception details, but include user-supplied IDs; use suitable IDs for your data
 .\.venv\Scripts\python.exe -m ruff check .
 ```
 
-Run the full offline regression suite before merging (see `validation.md`).
-The smoke corpus is deliberately small. A later increment should introduce a
-larger reviewed relevance corpus and independent regression expectations before
-adding dense retrieval, multiple retriever comparison, or RAG answer generation.
-API/worker integration, automatic chunking, vector stores, embeddings, and
-retrieval traces are outside this CLI increment.
+The small smoke corpus remains an implementation correctness check.
+The BEIR SciFact import provides an external retrieval baseline using
+the full source corpus and the selected relevance-labelled split.
+
+See `validation.md` for the recorded keyword baseline. Dense retrieval,
+automatic chunking, and RAG generation evaluation remain separate
+future increments.
+
+## BEIR SciFact import
+
+The project can prepare a local BEIR-formatted SciFact distribution
+for the existing `retrieval-run` command.
+
+### Source and attribution
+
+Dataset distribution and published archive checksum:
+
+https://github.com/beir-cellar/beir/wiki/Datasets-available
+
+Original dataset and licensing information:
+
+- https://github.com/allenai/scifact
+- https://github.com/allenai/scifact/blob/master/LICENSE.md
+- https://huggingface.co/datasets/BeIR/scifact
+
+### Local source layout
+
+Extract the BEIR distribution under:
+
+```text
+data/downloads/beir/scifact/
+  corpus.jsonl
+  queries.jsonl
+  qrels/
+    test.tsv
+```
+
+Downloaded files and prepared datasets remain in Git-ignored directories.
+
+### Prepare the dataset
+
+From the repository root:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/prepare_beir_retrieval.py --source-dir data/downloads/beir/scifact --split test --output-dir data/cache/retrieval/scifact-test-v1
+```
+
+The command creates:
+
+```text
+suite.json
+provenance.json
+```
+
+Existing output directories are rejected to prevent accidental
+replacement.
+
+Source files are limited to 64 MiB each. The prepared suite must
+fit the retrieval loader's 32 MiB limit.
+
+### Conversion contract
+
+- Each source document becomes one chunk.
+- Chunk IDs use `beir-doc:<source-document-id>`.
+- Titles and body text are stripped and joined with a blank line.
+- Every corpus document remains in the search space.
+- Evaluation queries come from the selected qrels file.
+- Positive integer relevance scores become binary gold membership.
+- Zero scores are not gold.
+- Duplicate IDs/judgements, unknown references, and evaluated queries
+  without positive gold are rejected.
+
+This representation preserves document-level retrieval through the
+existing chunk contract. It does not perform automatic chunking or
+introduce passage-level relevance labels.
+
+### Provenance and file formatting
+
+The provenance sidecar records source SHA-256 hashes, the importer
+version, split, conversion policies, selected query IDs, counts,
+and the prepared suite SHA-256.
+
+The sidecar is not automatically embedded in run manifests. Preserve
+it alongside the prepared suite.
+
+`suite.json` uses compact JSON serialization. It is generated input,
+not a hand-edited document. Formatting it in place changes its file
+hash and breaks the recorded byte-level provenance match.
+
+Use a separate pretty-printed copy when inspecting the data.
+
+Preparation validates the suite before creating its output directory.
+Storage failures can still leave incomplete output. Only use output
+from a successful preparation command.
+
+### Run the keyword baseline
+
+```powershell
+.\.venv\Scripts\python.exe -m llm_benchmark retrieval-run --config configs/retrieval_keyword_scifact.yaml
+```
+
+The example uses K=10 and the full imported corpus.
+
+The recorded baseline is documented in
+[Validation](validation.md#scifact-keyword-baseline-2026-10-20).
+
+This experiment evaluates English scientific-claim retrieval.
+It does not measure RAG answer correctness, citation support, or
+general conversational quality.

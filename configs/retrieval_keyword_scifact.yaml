@@ -1,0 +1,5 @@
+schema_version: 1
+suite_path: ../data/cache/retrieval/scifact-test-v1/suite.json
+retriever: keyword
+k: 10
+output_dir: ../outputs/retrieval

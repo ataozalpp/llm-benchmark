@@ -1368,6 +1368,55 @@ performance. The four-query corpus is intentionally tiny; timings are individual
 observations. API/worker integration, semantic retrieval, RAG, recovery/resume,
 and complete execution-environment reproducibility remain outside this increment.
 
+## SciFact keyword baseline (2026-10-20)
+
+The local BEIR SciFact test run completed successfully.
+
+- Run ID: `4188b7e1e9f246b8b0bb2a908060d4a1`
+- Dataset: BEIR SciFact, test split
+- Corpus size: 5,183 documents
+- Evaluated queries: 300
+- Representation: one source document per chunk
+- Retriever: keyword-overlap, version 1
+- K: 10
+- Evaluator: retrieval-exact-v1
+- Python: 3.12.10
+- Manifest status: completed
+
+| Metric | Observed value |
+|---|---:|
+| Hit rate at 10 | 0.62 |
+| Mean precision at 10 | 0.065 |
+| Mean recall at 10 | 0.5969444444444445 |
+| MRR at 10 | 0.45690740740740743 |
+| Index build time | 460.06 ms |
+| Total retrieval time | 1997.43 ms |
+| Mean retrieval time | 6.66 ms |
+| Measured wall time | 3456.80 ms |
+
+Artifact inspection confirmed:
+
+- 300 per-query result records.
+- 186 queries with at least one relevant result in the top 10.
+- 114 queries with no relevant result in the top 10.
+- 115 queries with a relevant result at rank 1.
+- 195 retrieved relevant query-document pairs out of 339 gold pairs.
+- The prepared suite SHA-256 matches its provenance sidecar.
+
+Recall is macro-averaged across queries. It is not calculated as
+195 divided by 339.
+
+Timing values are observations from one local run, not a performance
+guarantee. The wall-time measurement excludes final summary and
+manifest persistence.
+
+This checkpoint validates a real external-dataset execution. It does
+not establish RAG answer quality, semantic retrieval quality, or
+equivalence to published BEIR leaderboard results.
+
+For the full test suite, 1830 offline test passed, 7 skipped. Skipped
+tests are symlink and postgresql tests.
+
 ## Licensing note
 
 No project license has been selected yet. MMLU-Pro attribution and its dataset

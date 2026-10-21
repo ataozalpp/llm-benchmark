@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 
 from .models import Chunk, RetrievalEvaluationCase, RetrievalQuery, RetrievalScenario
 
-MAX_DATASET_BYTES = 4 * 1024 * 1024
+MAX_DATASET_BYTES = 32 * 1024 * 1024
 
 
 class _Record(BaseModel):

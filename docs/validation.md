@@ -1417,6 +1417,24 @@ equivalence to published BEIR leaderboard results.
 For the full test suite, 1830 offline test passed, 7 skipped. Skipped
 tests are symlink and postgresql tests.
 
+## Retrieval review verification (2026-10-23)
+
+Focused verification of the diagnostic review changes:
+
+- `python -m pytest -q tests/test_retrieval_review.py tests/test_retrieval_run.py`:
+  **90 passed**, 7.80 seconds.
+- Coverage includes deterministic selection, malformed/mismatched artifacts,
+  duplicate result IDs, metric types, replay agreement and disagreement,
+  partial recall despite rank-1 success, input/output limits, non-overwriting
+  publication, storage failure cleanup, and CLI errors.
+- The hard-link report publication path was exercised on this Windows workspace.
+- `ruff check .`: passed after fixing the existing preparation-test import layout.
+
+These checks did not rerun the full regression suite or create a new review of
+the 300-query SciFact run. Run those separately before merging, and record the
+actual results. No qualitative findings about the sampled SciFact cases are
+claimed by this checkpoint.
+
 ## Licensing note
 
 No project license has been selected yet. MMLU-Pro attribution and its dataset

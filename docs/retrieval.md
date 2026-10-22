@@ -3,6 +3,63 @@
 The first retrieval slice evaluates ranked chunk IDs independently of
 language models, MCP, and generation.
 
+## Diagnostic review of a completed keyword run
+
+The local review command checks a saved run against its prepared suite and
+selects a reproducible diagnostic sample. From the repository root:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/review_retrieval_run.py --suite data/cache/retrieval/scifact-test-v1/suite.json --run-dir outputs/retrieval/4188b7e1e9f246b8b0bb2a908060d4a1 --verify-retrieval
+```
+
+Use the run directory for your own experiment when it differs from this example.
+The default output is `review.json` inside that directory. Use `--output` with
+a new filename to preserve an earlier review; its parent directory must exist.
+Existing files are never replaced.
+
+The script validates completed status, artifact schema, content identity, query
+coverage/order, result IDs, and recomputed metrics. Duplicate JSON keys,
+non-finite constants, invalid objects and boolean metric values are rejected.
+Each manifest/results input file has a 64 MiB read limit.
+
+`--verify-retrieval` builds the current keyword index once and checks every saved
+ranking against current retrieval output. The report records `matched` or
+`not_requested`; a mismatch fails the command. Replay never modifies original
+rankings, metrics or timings. Matching outputs do not prove source-code identity,
+and a mismatch alone does not establish its cause.
+
+The selection uses `retrieval-review-v1`, sorting query IDs by a versioned
+SHA-256 key within three groups:
+
+- Up to 5 queries whose first relevant result is at rank 1.
+- Up to 5 queries whose first relevant result is at rank 2 through K.
+- Up to 10 queries with no relevant result in the top K.
+
+Small groups are not padded. The sample is diagnostic, not representative;
+do not derive overall quality scores from these selected cases. Do not tune
+query-specific rules on the reviewed test split.
+
+`recall_diagnostics` separately lists all queries with some, but not all, gold
+items retrieved. It is computed over the entire run, including rank-1 hits.
+These queries are not guaranteed to occur in the selected sample. Each selected
+case includes full query, gold and retrieved text for local inspection. Imported
+corpus licensing and attribution still apply to exported text.
+
+Reports are serialized before writing and limited to 16 MiB of UTF-8 output.
+This is an output bound, not a memory bound: the report is built in memory.
+A same-directory temporary file is flushed and fsynced, then published using
+an atomic hard-link creation that fails if the target exists. The filesystem
+must support hard links; unsupported storage fails without a partial target.
+Temporary files are cleaned on normal exceptions. Forced process termination
+may leave a temporary file; power-loss recovery is not guaranteed.
+
+Invalid input, replay mismatch and storage errors produce exit code 2 with a
+sanitized message. Core functions retain detailed exceptions for debugging.
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q tests/test_retrieval_review.py tests/test_retrieval_run.py
+```
+
 ## Contracts
 
 - `RetrievalEvaluationCase` contains a query ID and non-empty gold chunk IDs.

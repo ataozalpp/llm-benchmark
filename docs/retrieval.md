@@ -3,6 +3,63 @@
 The first retrieval slice evaluates ranked chunk IDs independently of
 language models, MCP, and generation.
 
+## Diagnostic review of a completed keyword run
+
+The local review command checks a saved run against its prepared suite and
+selects a reproducible diagnostic sample. From the repository root:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/review_retrieval_run.py --suite data/cache/retrieval/scifact-test-v1/suite.json --run-dir outputs/retrieval/4188b7e1e9f246b8b0bb2a908060d4a1 --verify-retrieval
+```
+
+Use the run directory for your own experiment when it differs from this example.
+The default output is `review.json` inside that directory. Use `--output` with
+a new filename to preserve an earlier review; its parent directory must exist.
+Existing files are never replaced.
+
+The script validates completed status, artifact schema, content identity, query
+coverage/order, result IDs, and recomputed metrics. Duplicate JSON keys,
+non-finite constants, invalid objects and boolean metric values are rejected.
+Each manifest/results input file has a 64 MiB read limit.
+
+`--verify-retrieval` builds the current keyword index once and checks every saved
+ranking against current retrieval output. The report records `matched` or
+`not_requested`; a mismatch fails the command. Replay never modifies original
+rankings, metrics or timings. Matching outputs do not prove source-code identity,
+and a mismatch alone does not establish its cause.
+
+The selection uses `retrieval-review-v1`, sorting query IDs by a versioned
+SHA-256 key within three groups:
+
+- Up to 5 queries whose first relevant result is at rank 1.
+- Up to 5 queries whose first relevant result is at rank 2 through K.
+- Up to 10 queries with no relevant result in the top K.
+
+Small groups are not padded. The sample is diagnostic, not representative;
+do not derive overall quality scores from these selected cases. Do not tune
+query-specific rules on the reviewed test split.
+
+`recall_diagnostics` separately lists all queries with some, but not all, gold
+items retrieved. It is computed over the entire run, including rank-1 hits.
+These queries are not guaranteed to occur in the selected sample. Each selected
+case includes full query, gold and retrieved text for local inspection. Imported
+corpus licensing and attribution still apply to exported text.
+
+Reports are serialized before writing and limited to 16 MiB of UTF-8 output.
+This is an output bound, not a memory bound: the report is built in memory.
+A same-directory temporary file is flushed and fsynced, then published using
+an atomic hard-link creation that fails if the target exists. The filesystem
+must support hard links; unsupported storage fails without a partial target.
+Temporary files are cleaned on normal exceptions. Forced process termination
+may leave a temporary file; power-loss recovery is not guaranteed.
+
+Invalid input, replay mismatch and storage errors produce exit code 2 with a
+sanitized message. Core functions retain detailed exceptions for debugging.
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q tests/test_retrieval_review.py tests/test_retrieval_run.py
+```
+
 ## Contracts
 
 - `RetrievalEvaluationCase` contains a query ID and non-empty gold chunk IDs.
@@ -130,7 +187,7 @@ and non-positive or non-integer K (including booleans) are rejected.
 
 `examples/retrieval/keyword_smoke.json` is the runnable input. Unlike the older
 test-only fixture, it has no `k` field: K belongs exclusively to the run config.
-The input contract is strict UTF-8 JSON, at most 4 MiB:
+The input contract is strict UTF-8 JSON, at most 32 MiB:
 
 ```json
 {
@@ -209,9 +266,112 @@ exception details, but include user-supplied IDs; use suitable IDs for your data
 .\.venv\Scripts\python.exe -m ruff check .
 ```
 
-Run the full offline regression suite before merging (see `validation.md`).
-The smoke corpus is deliberately small. A later increment should introduce a
-larger reviewed relevance corpus and independent regression expectations before
-adding dense retrieval, multiple retriever comparison, or RAG answer generation.
-API/worker integration, automatic chunking, vector stores, embeddings, and
-retrieval traces are outside this CLI increment.
+The small smoke corpus remains an implementation correctness check.
+The BEIR SciFact import provides an external retrieval baseline using
+the full source corpus and the selected relevance-labelled split.
+
+See `validation.md` for the recorded keyword baseline. Dense retrieval,
+automatic chunking, and RAG generation evaluation remain separate
+future increments.
+
+## BEIR SciFact import
+
+The project can prepare a local BEIR-formatted SciFact distribution
+for the existing `retrieval-run` command.
+
+### Source and attribution
+
+Dataset distribution and published archive checksum:
+
+https://github.com/beir-cellar/beir/wiki/Datasets-available
+
+Original dataset and licensing information:
+
+- https://github.com/allenai/scifact
+- https://github.com/allenai/scifact/blob/master/LICENSE.md
+- https://huggingface.co/datasets/BeIR/scifact
+
+### Local source layout
+
+Extract the BEIR distribution under:
+
+```text
+data/downloads/beir/scifact/
+  corpus.jsonl
+  queries.jsonl
+  qrels/
+    test.tsv
+```
+
+Downloaded files and prepared datasets remain in Git-ignored directories.
+
+### Prepare the dataset
+
+From the repository root:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/prepare_beir_retrieval.py --source-dir data/downloads/beir/scifact --split test --output-dir data/cache/retrieval/scifact-test-v1
+```
+
+The command creates:
+
+```text
+suite.json
+provenance.json
+```
+
+Existing output directories are rejected to prevent accidental
+replacement.
+
+Source files are limited to 64 MiB each. The prepared suite must
+fit the retrieval loader's 32 MiB limit.
+
+### Conversion contract
+
+- Each source document becomes one chunk.
+- Chunk IDs use `beir-doc:<source-document-id>`.
+- Titles and body text are stripped and joined with a blank line.
+- Every corpus document remains in the search space.
+- Evaluation queries come from the selected qrels file.
+- Positive integer relevance scores become binary gold membership.
+- Zero scores are not gold.
+- Duplicate IDs/judgements, unknown references, and evaluated queries
+  without positive gold are rejected.
+
+This representation preserves document-level retrieval through the
+existing chunk contract. It does not perform automatic chunking or
+introduce passage-level relevance labels.
+
+### Provenance and file formatting
+
+The provenance sidecar records source SHA-256 hashes, the importer
+version, split, conversion policies, selected query IDs, counts,
+and the prepared suite SHA-256.
+
+The sidecar is not automatically embedded in run manifests. Preserve
+it alongside the prepared suite.
+
+`suite.json` uses compact JSON serialization. It is generated input,
+not a hand-edited document. Formatting it in place changes its file
+hash and breaks the recorded byte-level provenance match.
+
+Use a separate pretty-printed copy when inspecting the data.
+
+Preparation validates the suite before creating its output directory.
+Storage failures can still leave incomplete output. Only use output
+from a successful preparation command.
+
+### Run the keyword baseline
+
+```powershell
+.\.venv\Scripts\python.exe -m llm_benchmark retrieval-run --config configs/retrieval_keyword_scifact.yaml
+```
+
+The example uses K=10 and the full imported corpus.
+
+The recorded baseline is documented in
+[Validation](validation.md#scifact-keyword-baseline-2026-10-20).
+
+This experiment evaluates English scientific-claim retrieval.
+It does not measure RAG answer correctness, citation support, or
+general conversational quality.

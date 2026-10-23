@@ -1,9 +1,10 @@
-from dataclasses import replace
+from dataclasses import asdict, replace
 
 import pytest
 
 from llm_benchmark.retrieval.identity import (
     build_keyword_run_identity,
+    build_retrieval_run_identity,
     fingerprint,
 )
 from llm_benchmark.retrieval.models import (
@@ -11,6 +12,10 @@ from llm_benchmark.retrieval.models import (
     RetrievalEvaluationCase,
     RetrievalQuery,
     RetrievalScenario,
+)
+from llm_benchmark.retrieval.profile import (
+    KEYWORD_PROFILE,
+    DenseRetrievalProfile,
 )
 
 
@@ -236,3 +241,121 @@ def test_version_change_changes_run_identity(monkeypatch, version_field):
     assert first["corpus_hash"] == second["corpus_hash"]
     assert first["suite_hash"] == second["suite_hash"]
     assert first["run_fingerprint"] != second["run_fingerprint"]
+
+
+def make_dense_profile():
+    return DenseRetrievalProfile(
+        model_id="test/embedder",
+        model_revision="a" * 40,
+        embedding_dimension=3,
+        max_sequence_length=128,
+        query_prefix="query: ",
+        document_prefix="passage: ",
+        device="cpu",
+        precision="float32",
+        batch_size=8,
+        adapter_id="stub",
+        adapter_version="1",
+    )
+
+
+def test_generic_keyword_identity_matches_existing_entrypoint():
+    chunks, scenarios = make_inputs()
+
+    existing = build_keyword_run_identity(
+        chunks=chunks,
+        scenarios=scenarios,
+        k=2,
+    )
+    generic = build_retrieval_run_identity(
+        chunks=chunks,
+        scenarios=scenarios,
+        k=2,
+        profile=KEYWORD_PROFILE,
+    )
+
+    assert existing == generic
+    assert existing["retriever_profile_hash"] == fingerprint(asdict(KEYWORD_PROFILE))
+
+
+def test_dense_and_keyword_have_different_run_identity():
+    chunks, scenarios = make_inputs()
+
+    keyword = build_keyword_run_identity(
+        chunks=chunks,
+        scenarios=scenarios,
+        k=2,
+    )
+    dense = build_retrieval_run_identity(
+        chunks=chunks,
+        scenarios=scenarios,
+        k=2,
+        profile=make_dense_profile(),
+    )
+
+    assert keyword["corpus_hash"] == dense["corpus_hash"]
+    assert keyword["suite_hash"] == dense["suite_hash"]
+    assert keyword["evaluation_config_hash"] == dense["evaluation_config_hash"]
+
+    assert keyword["retriever_profile_hash"] != dense["retriever_profile_hash"]
+    assert keyword["run_fingerprint"] != dense["run_fingerprint"]
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("model_id", "test/other"),
+        ("model_revision", "b" * 40),
+        ("embedding_dimension", 6),
+        ("max_sequence_length", 256),
+        ("query_prefix", ""),
+        ("document_prefix", ""),
+        ("device", "cuda:0"),
+        ("precision", "float16"),
+        ("batch_size", 16),
+        ("adapter_id", "other-adapter"),
+        ("adapter_version", "2"),
+        ("truncation_policy", "truncate"),
+    ],
+)
+def test_dense_profile_changes_identity(field_name, value):
+    chunks, scenarios = make_inputs()
+    profile = make_dense_profile()
+
+    original = build_retrieval_run_identity(
+        chunks=chunks,
+        scenarios=scenarios,
+        k=2,
+        profile=profile,
+    )
+    changed = build_retrieval_run_identity(
+        chunks=chunks,
+        scenarios=scenarios,
+        k=2,
+        profile=replace(profile, **{field_name: value}),
+    )
+
+    assert original["corpus_hash"] == changed["corpus_hash"]
+    assert original["suite_hash"] == changed["suite_hash"]
+    assert original["retriever_profile_hash"] != changed["retriever_profile_hash"]
+    assert original["run_fingerprint"] != changed["run_fingerprint"]
+
+
+def test_dense_identity_is_stable():
+    chunks, scenarios = make_inputs()
+    profile = make_dense_profile()
+
+    first = build_retrieval_run_identity(
+        chunks=chunks,
+        scenarios=scenarios,
+        k=2,
+        profile=profile,
+    )
+    second = build_retrieval_run_identity(
+        chunks=chunks,
+        scenarios=scenarios,
+        k=2,
+        profile=profile,
+    )
+
+    assert first == second

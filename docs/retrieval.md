@@ -375,3 +375,57 @@ The recorded baseline is documented in
 This experiment evaluates English scientific-claim retrieval.
 It does not measure RAG answer correctness, citation support, or
 general conversational quality.
+
+## Dense retrieval core
+
+The dense retrieval core accepts an injected embedding implementation
+through the `Embedder` protocol.
+
+Documents are encoded once during construction. Queries are encoded 
+individually. Vectors are normalized and ranked by exact cosine 
+similarity, with chunk ID as the tie-breaker.
+
+The initial policy returns the highest-scoring K corpus entries without 
+a similarity threshold, including zero or negative scores.
+
+Invalid vectors, dimension mismatches and zero vectors are rejected.
+
+Tests use fixed vectors and do not download a model or access a network.
+They validate retrieval mechanics, not embedding-model quailty.
+
+A concrete model adapter, versioned dense profile and CLI config are not
+part of this initial core.
+
+The current implementation is an exact, in-memory reference retriever.
+It does not claim large-corpus scalability.
+
+Embedding adapters must return tuples of Python numeric values and 
+preserve docuement order. Adapters own model-specific batching, 
+array/tensor conversion, query/document instructions and truncation.
+
+Dense CLI integration requires a versioned embedding profile and 
+profile-aware run identity. The current keyword run identity must not
+be reused unchanged for dense runs.
+
+Embedding reporducibility depends on the model and execution
+environment; deterministic ranking code alone does not guarantee
+bit-identical embeddings.
+
+## Dense retrieval identity
+
+Dense experiments use a versioned profile containing model identity,
+resolved revision, embedding dimension, input prefixes, max sequence
+length, truncation policy, device, precision, batch size and adapter
+identity/version.
+
+These fields contribute to the retriever profile hash and run fingerprint.
+
+The existing keyword identity entry point remains available and retains
+the keyword profile and identity structure.
+
+A profile describes the configured experiment. It does not prove that
+model artifacts are immutable or embeddings are bit-identical.
+The concrete adapter must validate the effective settings and record
+runtime provenance.
+
+The profile and identity layer do not yet enable dense CLI execution.

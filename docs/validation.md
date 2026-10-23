@@ -1430,8 +1430,24 @@ Focused verification of the diagnostic review changes:
 - The hard-link report publication path was exercised on this Windows workspace.
 - `ruff check .`: passed after fixing the existing preparation-test import layout.
 
-These checks did not rerun the full regression suite or create a new review of
-the 300-query SciFact run. Run those separately before merging, and record the
+The saved SciFact diagnostic review was subsequently inspected.
+Its report records `retrieval_replay: matched`, confirming that current
+keyword retrieval reproduced the saved rankings.
+
+Population counts:
+
+- Rank 1: 115 queries.
+- First relevant result at ranks 2–10: 71 queries.
+- No relevant result in the top 10: 114 queries.
+- Partial recall: 13 queries.
+
+The selected diagnostic sample contains 5 rank-1 queries, 5 later-hit
+queries, and 10 misses.
+
+These observations do not constitute a new full regression run.
+Qualitative causes of retrieval errors require inspection of the query,
+gold evidence, and retrieved documents.300-query SciFact run.
+Run those separately before merging, and record the
 actual results. No qualitative findings about the sampled SciFact cases are
 claimed by this checkpoint.
 

@@ -54,7 +54,10 @@ class UrllibJsonTransport:
         timeout_seconds: float,
         headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        request_headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        request_headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
         request_headers.update(headers or {})
         request = urllib.request.Request(
             url,
@@ -83,9 +86,22 @@ class MockProvider:
         prompt_tokens = max(1, len(prompt.split()))
         latency = self.config.mock_latency_ms
         if scenario == "request_failed":
-            return ProviderResponse("failed", None, None, None, None, latency, "server_error", self.config.model_id)
+            return ProviderResponse(
+                "failed",
+                None,
+                None,
+                None,
+                None,
+                latency,
+                "server_error",
+                self.config.model_id,
+            )
         if scenario == "incorrect":
-            answer = next(label for label in example.allowed_labels if label != example.correct_answer)
+            answer = next(
+                label
+                for label in example.allowed_labels
+                if label != example.correct_answer
+            )
             raw = f"FINAL ANSWER: {answer}"
         elif scenario == "unparseable":
             raw = f"{example.allowed_labels[0]} and {example.allowed_labels[1]} are possible"
@@ -116,7 +132,9 @@ class LMStudioProvider:
 
     name = "lm_studio"
 
-    def __init__(self, config: ModelConfig, transport: JsonTransport | None = None) -> None:
+    def __init__(
+        self, config: ModelConfig, transport: JsonTransport | None = None
+    ) -> None:
         self.config = config
         self.transport = transport or UrllibJsonTransport()
 
@@ -145,11 +163,23 @@ class LMStudioProvider:
             usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}
             stats = body.get("stats") if isinstance(body.get("stats"), dict) else {}
             input_tokens = _integer(usage, stats, "input_tokens", "prompt_tokens")
-            output_tokens = _integer(usage, stats, "total_output_tokens", "output_tokens", "completion_tokens")
-            reasoning_tokens = _integer(usage, stats, "reasoning_output_tokens", "reasoning_tokens")
+            output_tokens = _integer(
+                usage,
+                stats,
+                "total_output_tokens",
+                "output_tokens",
+                "completion_tokens",
+            )
+            reasoning_tokens = _integer(
+                usage, stats, "reasoning_output_tokens", "reasoning_tokens"
+            )
             final_output_tokens = _final_output_tokens(output_tokens, reasoning_tokens)
             total_tokens = _integer(usage, stats, "total_tokens")
-            if total_tokens is None and input_tokens is not None and output_tokens is not None:
+            if (
+                total_tokens is None
+                and input_tokens is not None
+                and output_tokens is not None
+            ):
                 total_tokens = input_tokens + output_tokens
             return ProviderResponse(
                 request_status="succeeded",
@@ -158,13 +188,18 @@ class LMStudioProvider:
                 completion_tokens=output_tokens,
                 total_tokens=total_tokens,
                 latency_ms=latency_ms,
-                returned_model=_string(body, "model", "model_id") or self.config.model_id,
+                returned_model=_string(body, "model", "model_id")
+                or self.config.model_id,
                 input_tokens=input_tokens,
                 total_output_tokens=output_tokens,
                 reasoning_output_tokens=reasoning_tokens,
                 final_output_tokens=final_output_tokens,
-                reasoning_observed=_reasoning_observed(body.get("output"), reasoning_tokens),
-                tokens_per_second=_number(stats, usage, "tokens_per_second", "output_tokens_per_second"),
+                reasoning_observed=_reasoning_observed(
+                    body.get("output"), reasoning_tokens
+                ),
+                tokens_per_second=_number(
+                    stats, usage, "tokens_per_second", "output_tokens_per_second"
+                ),
                 time_to_first_token_ms=_duration_ms(stats, usage),
                 stop_reason=_stop_reason(body),
             )
@@ -189,7 +224,9 @@ class OpenAICompatibleProvider:
 
     name = "openai_compatible"
 
-    def __init__(self, config: ModelConfig, transport: JsonTransport | None = None) -> None:
+    def __init__(
+        self, config: ModelConfig, transport: JsonTransport | None = None
+    ) -> None:
         self.config = config
         self.transport = transport or UrllibJsonTransport()
 
@@ -210,11 +247,17 @@ class OpenAICompatibleProvider:
             payload["max_tokens"] = self.config.max_output_tokens
         if self.config.top_p is not None:
             payload["top_p"] = self.config.top_p
-        headers = {"Authorization": f"Bearer {credential}"} if credential is not None else None
+        headers = (
+            {"Authorization": f"Bearer {credential}"}
+            if credential is not None
+            else None
+        )
 
         started = time.perf_counter()
         try:
-            body = self.transport.post_json(url, payload, self.config.timeout_seconds, headers=headers)
+            body = self.transport.post_json(
+                url, payload, self.config.timeout_seconds, headers=headers
+            )
             latency_ms = (time.perf_counter() - started) * 1000
             raw, finish_reason = _openai_message(body)
             usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}
@@ -222,11 +265,19 @@ class OpenAICompatibleProvider:
             output_tokens = _integer(usage, "completion_tokens", "output_tokens")
             total_tokens = _integer(usage, "total_tokens")
             details = usage.get("completion_tokens_details")
-            reasoning_tokens = _integer(details, "reasoning_tokens") if isinstance(details, dict) else None
+            reasoning_tokens = (
+                _integer(details, "reasoning_tokens")
+                if isinstance(details, dict)
+                else None
+            )
             if reasoning_tokens is None:
                 reasoning_tokens = _integer(usage, "reasoning_tokens")
             final_output_tokens = _final_output_tokens(output_tokens, reasoning_tokens)
-            if total_tokens is None and input_tokens is not None and output_tokens is not None:
+            if (
+                total_tokens is None
+                and input_tokens is not None
+                and output_tokens is not None
+            ):
                 total_tokens = input_tokens + output_tokens
             return ProviderResponse(
                 request_status="succeeded",
@@ -240,7 +291,8 @@ class OpenAICompatibleProvider:
                 total_output_tokens=output_tokens,
                 reasoning_output_tokens=reasoning_tokens,
                 final_output_tokens=final_output_tokens,
-                reasoning_observed=reasoning_tokens is not None and reasoning_tokens > 0,
+                reasoning_observed=reasoning_tokens is not None
+                and reasoning_tokens > 0,
                 tokens_per_second=None,
                 time_to_first_token_ms=None,
                 stop_reason=finish_reason,
@@ -251,7 +303,9 @@ class OpenAICompatibleProvider:
             if isinstance(exc, ProviderProtocolError):
                 error_details.update(
                     provider_error_type=exc.provider_error_type,
-                    provider_error_message=_sanitize_error_message(exc.safe_message, False),
+                    provider_error_message=_sanitize_error_message(
+                        exc.safe_message, False
+                    ),
                 )
             elif isinstance(exc, json.JSONDecodeError):
                 error_details.update(
@@ -270,7 +324,6 @@ class OpenAICompatibleProvider:
                 **error_details,
             )
 
-
     def generate_tool_turn(self, request: ToolTurnRequest) -> ToolProviderResult:
         """Execute one initial tool-enabled request, without executing tools.
 
@@ -281,7 +334,6 @@ class OpenAICompatibleProvider:
         payload = build_openai_tool_payload(self.config, request)
         return self._generate_tool_payload(payload)
 
-
     def generate_tool_conversation(
         self,
         request: ToolConversationRequest,
@@ -289,7 +341,6 @@ class OpenAICompatibleProvider:
         """Submit ready history once; return the next turn without executing it."""
         payload = build_openai_tool_conversation_payload(self.config, request)
         return self._generate_tool_payload(payload)
-
 
     def generate_tool_conversation_with_timeout(
         self,
@@ -325,17 +376,29 @@ class OpenAICompatibleProvider:
 
         assert self.config.base_url is not None
         url = f"{self.config.base_url.rstrip('/')}/chat/completions"
-        headers = {"Authorization": f"Bearer {credential}"} if credential is not None else None
+        headers = (
+            {"Authorization": f"Bearer {credential}"}
+            if credential is not None
+            else None
+        )
         started = time.perf_counter()
         try:
             body = self.transport.post_json(
-                url, payload,
+                url,
+                payload,
                 min(self.config.timeout_seconds, timeout_seconds)
-                if timeout_seconds is not None else self.config.timeout_seconds,
+                if timeout_seconds is not None
+                else self.config.timeout_seconds,
                 headers=headers,
             )
-        except (urllib.error.HTTPError, urllib.error.URLError, OSError, ConnectionError,
-                json.JSONDecodeError, UnicodeError) as exc:
+        except (
+            urllib.error.HTTPError,
+            urllib.error.URLError,
+            OSError,
+            ConnectionError,
+            json.JSONDecodeError,
+            UnicodeError,
+        ) as exc:
             latency_ms = (time.perf_counter() - started) * 1000
             if isinstance(exc, (json.JSONDecodeError, UnicodeError)):
                 code = ToolProviderErrorCode.MALFORMED_JSON
@@ -349,7 +412,9 @@ class OpenAICompatibleProvider:
                     "server_error": ToolProviderErrorCode.SERVER_ERROR,
                     "network_error": ToolProviderErrorCode.NETWORK_ERROR,
                 }.get(_error_type(exc), ToolProviderErrorCode.INVALID_REQUEST)
-                if isinstance(exc, urllib.error.URLError) and isinstance(exc.reason, TimeoutError):
+                if isinstance(exc, urllib.error.URLError) and isinstance(
+                    exc.reason, TimeoutError
+                ):
                     code = ToolProviderErrorCode.TIMEOUT
             return ToolProviderResult(
                 status=ToolProviderStatus.REQUEST_FAILED,
@@ -396,7 +461,9 @@ def _tool_telemetry(body: object, latency_ms: float) -> ToolProviderTelemetry:
     )
 
 
-def create_provider(config: ModelConfig, transport: JsonTransport | None = None) -> Provider:
+def create_provider(
+    config: ModelConfig, transport: JsonTransport | None = None
+) -> Provider:
     if config.provider == "mock":
         return MockProvider(config)
     if config.provider == "lm_studio":
@@ -417,7 +484,12 @@ def _message_text(output: Any) -> str:
         if isinstance(content, str):
             messages.append(content)
         elif isinstance(content, list):
-            text_parts = [part.get("text", "") for part in content if isinstance(part, dict) and part.get("type") in {"text", "output_text"}]
+            text_parts = [
+                part.get("text", "")
+                for part in content
+                if isinstance(part, dict)
+                and part.get("type") in {"text", "output_text"}
+            ]
             messages.append("".join(text_parts))
     return "\n".join(text for text in messages if text)
 
@@ -439,10 +511,14 @@ def _read_credential(environment_variable: str | None) -> str | None:
     value = os.environ.get(environment_variable)
     if value:
         return value
-    raise _MissingCredentialError("Configured credential environment variable is missing or empty")
+    raise _MissingCredentialError(
+        "Configured credential environment variable is missing or empty"
+    )
 
 
-def _resolve_credential(environment_variable: str | None) -> str | None | ProviderResponse:
+def _resolve_credential(
+    environment_variable: str | None,
+) -> str | None | ProviderResponse:
     try:
         return _read_credential(environment_variable)
     except _MissingCredentialError:
@@ -463,14 +539,20 @@ def _resolve_credential(environment_variable: str | None) -> str | None | Provid
 def _openai_message(body: dict[str, Any]) -> tuple[str, str | None]:
     choices = body.get("choices")
     if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
-        raise ProviderProtocolError("missing_choices", "Provider response did not contain a valid choices array")
+        raise ProviderProtocolError(
+            "missing_choices", "Provider response did not contain a valid choices array"
+        )
     choice = choices[0]
     message = choice.get("message")
     if not isinstance(message, dict):
-        raise ProviderProtocolError("missing_choices", "Provider response choice did not contain a message")
+        raise ProviderProtocolError(
+            "missing_choices", "Provider response choice did not contain a message"
+        )
     content = message.get("content")
     if not isinstance(content, str) or not content.strip():
-        raise ProviderProtocolError("empty_message_content", "Provider response message content was empty")
+        raise ProviderProtocolError(
+            "empty_message_content", "Provider response message content was empty"
+        )
     return content, _string(choice, "finish_reason")
 
 
@@ -486,14 +568,18 @@ def _reasoning_observed(output: Any, reasoning_tokens: int | None) -> bool:
         if isinstance(content, str) and content.strip():
             return True
         if isinstance(content, list) and any(
-            isinstance(part, dict) and isinstance(part.get("text"), str) and part["text"].strip()
+            isinstance(part, dict)
+            and isinstance(part.get("text"), str)
+            and part["text"].strip()
             for part in content
         ):
             return True
     return False
 
 
-def _final_output_tokens(total_output_tokens: int | None, reasoning_output_tokens: int | None) -> int | None:
+def _final_output_tokens(
+    total_output_tokens: int | None, reasoning_output_tokens: int | None
+) -> int | None:
     if total_output_tokens is None or reasoning_output_tokens is None:
         return None
     if reasoning_output_tokens < 0 or reasoning_output_tokens > total_output_tokens:
@@ -613,10 +699,14 @@ def _provider_error_details(exc: Exception) -> dict[str, Any]:
                 details["provider_error_type"] = provider_type
             if provider_code is not None:
                 details["provider_error_code"] = provider_code
-            message = error.get("message") if isinstance(error.get("message"), str) else None
+            message = (
+                error.get("message") if isinstance(error.get("message"), str) else None
+            )
 
     if message:
-        details["provider_error_message"] = _sanitize_error_message(message, source_truncated)
+        details["provider_error_message"] = _sanitize_error_message(
+            message, source_truncated
+        )
     return details
 
 
@@ -633,9 +723,13 @@ def _looks_like_html(text: str) -> bool:
     )
 
 
-def _sanitize_error_message(message: str, source_truncated: bool, max_chars: int = _MAX_ERROR_MESSAGE_CHARS) -> str:
+def _sanitize_error_message(
+    message: str, source_truncated: bool, max_chars: int = _MAX_ERROR_MESSAGE_CHARS
+) -> str:
     sanitized = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", " ", message)
-    sanitized = re.sub(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+", "Bearer [REDACTED]", sanitized)
+    sanitized = re.sub(
+        r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+", "Bearer [REDACTED]", sanitized
+    )
     sanitized = re.sub(
         r"(?i)\b(api[-_ ]?key|authorization|token|secret|password)\b\s*[:=]\s*[^\s,;]+",
         lambda match: f"{match.group(1)}=[REDACTED]",

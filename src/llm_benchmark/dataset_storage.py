@@ -16,9 +16,7 @@ _SUPPORTED_FORMATS = frozenset({"csv", "jsonl"})
 _STORAGE_KEY_PATTERN = re.compile(
     r"upload://sha256/(?P<digest>[0-9a-f]{64})\.(?P<file_format>csv|jsonl)\Z"
 )
-_CHECKSUM_PATTERN = re.compile(
-    r"sha256:(?P<digest>[0-9a-f]{64})\Z"
-)
+_CHECKSUM_PATTERN = re.compile(r"sha256:(?P<digest>[0-9a-f]{64})\Z")
 
 
 class DatasetStorageError(Exception):
@@ -82,13 +80,9 @@ def parse_storage_key(
 ) -> ParsedDatasetStorageKey:
     """Parse and validate an uploaded dataset storage key."""
 
-    match = _STORAGE_KEY_PATTERN.fullmatch(
-        storage_key
-    )
+    match = _STORAGE_KEY_PATTERN.fullmatch(storage_key)
     if match is None:
-        raise InvalidStorageKeyError(
-            "Dataset storage key is invalid"
-        )
+        raise InvalidStorageKeyError("Dataset storage key is invalid")
 
     return ParsedDatasetStorageKey(
         digest=match.group("digest"),
@@ -107,9 +101,7 @@ def parse_checksum(
     match = _CHECKSUM_PATTERN.fullmatch(checksum)
 
     if match is None:
-        raise InvalidDatasetChecksumError(
-            "Dataset checksum metadata is invalid"
-        )
+        raise InvalidDatasetChecksumError("Dataset checksum metadata is invalid")
 
     return match.group("digest")
 
@@ -168,7 +160,9 @@ class LocalDatasetStorage:
                 )
                 temporary_path = Path(temporary.name)
             except OSError as error:
-                raise DatasetStorageWriteError("Dataset temporary storage could not be created") from error
+                raise DatasetStorageWriteError(
+                    "Dataset temporary storage could not be created"
+                ) from error
 
             try:
                 with temporary:
@@ -176,7 +170,9 @@ class LocalDatasetStorage:
                         try:
                             chunk = stream.read(self._policy.chunk_size_bytes)
                         except (OSError, ValueError) as error:
-                            raise DatasetStreamError("Dataset stream could not be read") from error
+                            raise DatasetStreamError(
+                                "Dataset stream could not be read"
+                            ) from error
                         if not isinstance(chunk, (bytes, bytearray, memoryview)):
                             raise DatasetStreamError("Dataset stream must return bytes")
                         if not chunk:
@@ -185,17 +181,23 @@ class LocalDatasetStorage:
                         chunk_bytes = bytes(chunk)
                         next_size = size_bytes + len(chunk_bytes)
                         if next_size > self._policy.max_file_size_bytes:
-                            raise DatasetFileTooLargeError("Dataset exceeds the configured byte limit")
+                            raise DatasetFileTooLargeError(
+                                "Dataset exceeds the configured byte limit"
+                            )
                         try:
                             temporary.write(chunk_bytes)
                         except OSError as error:
-                            raise DatasetStorageWriteError("Dataset temporary storage could not be written") from error
+                            raise DatasetStorageWriteError(
+                                "Dataset temporary storage could not be written"
+                            ) from error
                         digest.update(chunk_bytes)
                         size_bytes = next_size
             except DatasetStorageError:
                 raise
             except OSError as error:
-                raise DatasetStorageWriteError("Dataset temporary storage could not be closed") from error
+                raise DatasetStorageWriteError(
+                    "Dataset temporary storage could not be closed"
+                ) from error
 
             checksum = digest.hexdigest()
             storage_key = self._storage_key(checksum, normalized_format)
@@ -207,7 +209,9 @@ class LocalDatasetStorage:
             except FileExistsError:
                 created_new_file = False
             except OSError as error:
-                raise DatasetFinalizationError("Dataset could not be finalized") from error
+                raise DatasetFinalizationError(
+                    "Dataset could not be finalized"
+                ) from error
 
             return StoredDatasetFile(
                 storage_key=storage_key,
@@ -241,9 +245,8 @@ class LocalDatasetStorage:
 
         if parsed_key.digest != expected_digest:
             raise DatasetStorageIntegrityError(
-            "Dataset checksum metadata does not "
-            "match the storage key"
-        )
+                "Dataset checksum metadata does not match the storage key"
+            )
 
         path = self._path_from_parts(
             parsed_key.digest,
@@ -278,8 +281,7 @@ class LocalDatasetStorage:
 
         if digest.hexdigest() != parsed_key.digest:
             raise DatasetStorageIntegrityError(
-                "Stored dataset content failed "
-                "integrity validation"
+                "Stored dataset content failed integrity validation"
             )
 
         return path

@@ -55,9 +55,7 @@ def create_app(
     app.state.registry_lock = Lock()
     app.state.run_output_root = run_output_root
     app.state.dataset_storage_root = dataset_storage_root
-    dataset_loader = DatasetLoader(
-        LocalDatasetStorage(dataset_storage_root)
-    ).load
+    dataset_loader = DatasetLoader(LocalDatasetStorage(dataset_storage_root)).load
     app.state.dataset_loader = dataset_loader
     app.state.benchmark_executor = (
         partial(execute_benchmark, dataset_loader=dataset_loader)
@@ -75,7 +73,9 @@ def create_app(
 
 def _install_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(RequestValidationError)
-    async def request_validation(_: Request, error: RequestValidationError) -> JSONResponse:
+    async def request_validation(
+        _: Request, error: RequestValidationError
+    ) -> JSONResponse:
         safe_errors = [
             {
                 "loc": list(item.get("loc", ())),
@@ -94,9 +94,7 @@ def _install_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=413,
             content={
-                "detail": (
-                    "Dataset exceeds the upload size limit"
-                ),
+                "detail": ("Dataset exceeds the upload size limit"),
                 "code": "dataset_file_too_large",
             },
         )
@@ -135,9 +133,7 @@ def _install_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=422,
             content={
-                "detail": (
-                    "Dataset upload could not be read"
-                ),
+                "detail": ("Dataset upload could not be read"),
                 "code": "dataset_stream_failed",
             },
         )
@@ -146,10 +142,7 @@ def _install_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(DatasetFinalizationError)
     async def dataset_storage_failed(
         _: Request,
-        __: (
-            DatasetStorageWriteError
-            | DatasetFinalizationError
-        ),
+        __: (DatasetStorageWriteError | DatasetFinalizationError),
     ) -> JSONResponse:
         return JSONResponse(
             status_code=500,
@@ -167,34 +160,53 @@ def _install_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=404,
             content={
-                "detail": (
-                    f"{error.entity} record was not found"
-                ),
+                "detail": (f"{error.entity} record was not found"),
                 "record_id": error.record_id,
             },
         )
 
     @app.exception_handler(UniquenessConflictError)
-    async def uniqueness_conflict(_: Request, __: UniquenessConflictError) -> JSONResponse:
-        return JSONResponse(status_code=409, content={"detail": "Resource already exists"})
+    async def uniqueness_conflict(
+        _: Request, __: UniquenessConflictError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409, content={"detail": "Resource already exists"}
+        )
 
     @app.exception_handler(InactiveDependencyError)
-    async def inactive_dependency(_: Request, error: InactiveDependencyError) -> JSONResponse:
+    async def inactive_dependency(
+        _: Request, error: InactiveDependencyError
+    ) -> JSONResponse:
         return JSONResponse(
             status_code=409,
-            content={"detail": f"{error.entity} is inactive", "record_id": error.record_id},
+            content={
+                "detail": f"{error.entity} is inactive",
+                "record_id": error.record_id,
+            },
         )
 
     @app.exception_handler(RunConfigResolutionError)
-    async def run_config_resolution(_: Request, __: RunConfigResolutionError) -> JSONResponse:
-        return JSONResponse(status_code=409, content={"detail": "Registered run configuration is invalid"})
+    async def run_config_resolution(
+        _: Request, __: RunConfigResolutionError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={"detail": "Registered run configuration is invalid"},
+        )
 
     @app.exception_handler(RegistrationMismatchError)
-    async def registration_mismatch(_: Request, __: RegistrationMismatchError) -> JSONResponse:
-        return JSONResponse(status_code=409, content={"detail": "Run configuration conflicts with registrations"})
+    async def registration_mismatch(
+        _: Request, __: RegistrationMismatchError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={"detail": "Run configuration conflicts with registrations"},
+        )
 
     @app.exception_handler(RunGuardrailViolationError)
-    async def run_guardrail_violation(_: Request, __: RunGuardrailViolationError) -> JSONResponse:
+    async def run_guardrail_violation(
+        _: Request, __: RunGuardrailViolationError
+    ) -> JSONResponse:
         return JSONResponse(
             status_code=422,
             content={
@@ -204,7 +216,9 @@ def _install_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(RunSelectionValidationError)
-    async def run_selection_invalid(_: Request, __: RunSelectionValidationError) -> JSONResponse:
+    async def run_selection_invalid(
+        _: Request, __: RunSelectionValidationError
+    ) -> JSONResponse:
         return JSONResponse(
             status_code=422,
             content={
@@ -214,7 +228,9 @@ def _install_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(DatasetPreflightError)
-    async def dataset_preflight_failed(_: Request, __: DatasetPreflightError) -> JSONResponse:
+    async def dataset_preflight_failed(
+        _: Request, __: DatasetPreflightError
+    ) -> JSONResponse:
         return JSONResponse(
             status_code=409,
             content={
@@ -225,8 +241,12 @@ def _install_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RepositoryError)
     async def repository_failure(_: Request, __: RepositoryError) -> JSONResponse:
-        return JSONResponse(status_code=500, content={"detail": "Registry persistence failed"})
+        return JSONResponse(
+            status_code=500, content={"detail": "Registry persistence failed"}
+        )
 
     @app.exception_handler(Exception)
     async def unexpected_failure(_: Request, __: Exception) -> JSONResponse:
-        return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+        return JSONResponse(
+            status_code=500, content={"detail": "Internal server error"}
+        )

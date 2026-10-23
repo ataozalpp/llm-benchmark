@@ -22,7 +22,8 @@ def run_retrieval_suite(
     scenarios: tuple[RetrievalScenario, ...],
     retriever_factory: Callable[[tuple[Chunk, ...]], Retriever],
     k: int,
-    on_case_completed: Callable[[RankedRetrieval, RetrievalMetrics], None] | None = None,
+    on_case_completed: Callable[[RankedRetrieval, RetrievalMetrics], None]
+    | None = None,
 ) -> RetrievalSuiteResult:
     if type(k) is not int or k <= 0:
         raise ValueError("k must be a positive integer.")
@@ -39,10 +40,7 @@ def run_retrieval_suite(
     if not scenarios:
         raise ValueError("At least one scenario is required.")
 
-    if any(
-        not isinstance(scenario, RetrievalScenario)
-        for scenario in scenarios
-    ):
+    if any(not isinstance(scenario, RetrievalScenario) for scenario in scenarios):
         raise TypeError("Expected RetrievalScenario.")
 
     corpus_ids = frozenset(chunk.chunk_id for chunk in chunks)
@@ -50,9 +48,7 @@ def run_retrieval_suite(
     if len(corpus_ids) != len(chunks):
         raise ValueError("Corpus chunk IDs must be unique.")
 
-    query_ids = tuple(
-        scenario.query.query_id for scenario in scenarios
-    )
+    query_ids = tuple(scenario.query.query_id for scenario in scenarios)
 
     if len(query_ids) != len(set(query_ids)):
         raise ValueError("Scenario query IDs must be unique.")

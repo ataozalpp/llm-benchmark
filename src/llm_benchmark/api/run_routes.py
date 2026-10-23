@@ -52,12 +52,16 @@ def create_run(
 
 
 @router.get("", response_model=list[RunResponse])
-def list_runs(registry: RegistryRepositories = Depends(get_registry)) -> list[RunResponse]:
+def list_runs(
+    registry: RegistryRepositories = Depends(get_registry),
+) -> list[RunResponse]:
     return [RunResponse.from_record(record) for record in registry.runs.list_runs()]
 
 
 @router.get("/{run_id}", response_model=RunResponse)
-def get_run(run_id: int, registry: RegistryRepositories = Depends(get_registry)) -> RunResponse:
+def get_run(
+    run_id: int, registry: RegistryRepositories = Depends(get_registry)
+) -> RunResponse:
     return RunResponse.from_record(registry.runs.get_by_id(run_id))
 
 

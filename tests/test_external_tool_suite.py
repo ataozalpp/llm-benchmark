@@ -59,7 +59,8 @@ def test_external_suite_forwards_observers_and_completed_cases():
     observed, completed = [], []
     result = run_external_tool_suite(
         scenarios=create_example_tool_scenarios(),
-        descriptors=(calculator_descriptor(),), policy=admission_policy(),
+        descriptors=(calculator_descriptor(),),
+        policy=admission_policy(),
         provider_factory=DemoToolProvider,
         executor_factory=lambda request: ToolRuntime(create_example_tool_registry()),
         observer=lambda case_id, kind, data: observed.append((case_id, kind)),

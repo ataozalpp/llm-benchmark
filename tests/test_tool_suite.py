@@ -426,7 +426,9 @@ def test_repeated_descriptor_suites_preserve_inputs_and_results():
             scenarios=(scenario,),
             descriptors=available,
             executor_factory=executor_factory,
-            provider_factory=lambda: ScriptedProvider((successful_turn(content="READY"),)),
+            provider_factory=lambda: ScriptedProvider(
+                (successful_turn(content="READY"),)
+            ),
         )
 
     first, second = run(), run()

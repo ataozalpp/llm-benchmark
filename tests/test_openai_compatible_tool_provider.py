@@ -117,7 +117,9 @@ def test_conversation_timeout_is_clamped(remaining, expected):
         conversation=ToolConversation((UserMessage("Synthetic request"),)),
         registrations=request().registrations,
     )
-    result = provider.generate_tool_conversation_with_timeout(req, timeout_seconds=remaining)
+    result = provider.generate_tool_conversation_with_timeout(
+        req, timeout_seconds=remaining
+    )
     assert result.status is ToolProviderStatus.SUCCEEDED
     assert transport.calls[0][2] == expected
 

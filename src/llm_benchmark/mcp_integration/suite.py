@@ -32,6 +32,7 @@ async def run_calculator_mcp_suite(
         server_python=server_python,
         project_root=project_root,
     ) as runtime:
+
         def executor_factory(
             request: ToolConversationRequest,
         ) -> ToolExecutor:

@@ -20,7 +20,9 @@ def percentile(values: list[float], q: float) -> float | None:
     return ordered[lower] + (ordered[upper] - ordered[lower]) * (position - lower)
 
 
-def summarize(results: list[BenchmarkResult], run_wall_time_ms: float) -> dict[str, Any]:
+def summarize(
+    results: list[BenchmarkResult], run_wall_time_ms: float
+) -> dict[str, Any]:
     total = len(results)
     correct = sum(r.evaluation_status == "correct" for r in results)
     incorrect = sum(r.evaluation_status == "incorrect" for r in results)
@@ -33,13 +35,31 @@ def summarize(results: list[BenchmarkResult], run_wall_time_ms: float) -> dict[s
     total_completion = sum(r.completion_tokens or 0 for r in known)
     total_tokens = sum(r.total_tokens or 0 for r in known)
     known_input = [r.input_tokens for r in results if r.input_tokens is not None]
-    known_output = [r.total_output_tokens for r in results if r.total_output_tokens is not None]
-    known_reasoning = [r.reasoning_output_tokens for r in results if r.reasoning_output_tokens is not None]
-    known_final_output = [r.final_output_tokens for r in results if r.final_output_tokens is not None]
-    throughput = [r.tokens_per_second for r in results if r.tokens_per_second is not None]
-    ttft = [r.time_to_first_token_ms for r in results if r.time_to_first_token_ms is not None]
-    success_latencies = [r.logical_request_latency_ms for r in results if r.request_status == "succeeded"]
-    failure_latencies = [r.logical_request_latency_ms for r in results if r.request_status != "succeeded"]
+    known_output = [
+        r.total_output_tokens for r in results if r.total_output_tokens is not None
+    ]
+    known_reasoning = [
+        r.reasoning_output_tokens
+        for r in results
+        if r.reasoning_output_tokens is not None
+    ]
+    known_final_output = [
+        r.final_output_tokens for r in results if r.final_output_tokens is not None
+    ]
+    throughput = [
+        r.tokens_per_second for r in results if r.tokens_per_second is not None
+    ]
+    ttft = [
+        r.time_to_first_token_ms
+        for r in results
+        if r.time_to_first_token_ms is not None
+    ]
+    success_latencies = [
+        r.logical_request_latency_ms for r in results if r.request_status == "succeeded"
+    ]
+    failure_latencies = [
+        r.logical_request_latency_ms for r in results if r.request_status != "succeeded"
+    ]
     return {
         "total_samples": total,
         "correct_count": correct,
@@ -53,13 +73,19 @@ def summarize(results: list[BenchmarkResult], run_wall_time_ms: float) -> dict[s
         "answered_accuracy_denominator": parseable,
         "answered_accuracy": correct / parseable if parseable else None,
         "request_success_rate": request_successes / total if total else None,
-        "parse_success_rate": parseable / request_successes if request_successes else None,
-        "format_failure_rate": unparseable / request_successes if request_successes else None,
+        "parse_success_rate": parseable / request_successes
+        if request_successes
+        else None,
+        "format_failure_rate": unparseable / request_successes
+        if request_successes
+        else None,
         "total_prompt_tokens": total_prompt,
         "total_completion_tokens": total_completion,
         "total_tokens": total_tokens,
         "average_tokens_per_sample": total_tokens / total if total else None,
-        "average_tokens_per_successful_request": total_tokens / request_successes if request_successes else None,
+        "average_tokens_per_successful_request": total_tokens / request_successes
+        if request_successes
+        else None,
         "tokens_per_correct_answer": total_tokens / correct if correct else None,
         "token_usage_missing_count": total - len(known),
         "total_input_tokens": sum(known_input),
@@ -80,8 +106,12 @@ def summarize(results: list[BenchmarkResult], run_wall_time_ms: float) -> dict[s
         "latency_min_ms": min(success_latencies) if success_latencies else None,
         "latency_max_ms": max(success_latencies) if success_latencies else None,
         "failure_latency_count": len(failure_latencies),
-        "failure_latency_mean_ms": mean(failure_latencies) if failure_latencies else None,
+        "failure_latency_mean_ms": mean(failure_latencies)
+        if failure_latencies
+        else None,
         "logical_duration_sum_ms": sum(r.logical_request_latency_ms for r in results),
         "run_wall_time_ms": run_wall_time_ms,
-        "error_type_distribution": dict(Counter(r.error_type for r in results if r.error_type)),
+        "error_type_distribution": dict(
+            Counter(r.error_type for r in results if r.error_type)
+        ),
     }

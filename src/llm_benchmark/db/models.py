@@ -60,10 +60,17 @@ def portable_enum(enum_type: type[Enum], name: str) -> SqlEnum:
 
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False
+        DateTime(timezone=True),
+        default=utc_now,
+        server_default=func.now(),
+        nullable=False,
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, onupdate=utc_now, server_default=func.now(), nullable=False
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+        server_default=func.now(),
+        nullable=False,
     )
 
 
@@ -71,15 +78,21 @@ class ProviderEndpoint(TimestampMixin, Base):
     __tablename__ = "provider_endpoints"
     __table_args__ = (
         UniqueConstraint("name", name="uq_provider_endpoints_name"),
-        Index("ix_provider_endpoints_provider_type_active", "provider_type", "is_active"),
+        Index(
+            "ix_provider_endpoints_provider_type_active", "provider_type", "is_active"
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    provider_type: Mapped[ProviderType] = mapped_column(portable_enum(ProviderType, "provider_type"), nullable=False)
+    provider_type: Mapped[ProviderType] = mapped_column(
+        portable_enum(ProviderType, "provider_type"), nullable=False
+    )
     base_url: Mapped[str] = mapped_column(String(2048), nullable=False)
     credential_env_var: Mapped[str | None] = mapped_column(String(255))
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
 
     models: Mapped[list[RegisteredModel]] = relationship(back_populates="endpoint")
 
@@ -87,21 +100,33 @@ class ProviderEndpoint(TimestampMixin, Base):
 class RegisteredModel(TimestampMixin, Base):
     __tablename__ = "models"
     __table_args__ = (
-        UniqueConstraint("endpoint_id", "model_identifier", name="uq_models_endpoint_identifier"),
+        UniqueConstraint(
+            "endpoint_id", "model_identifier", name="uq_models_endpoint_identifier"
+        ),
         Index("ix_models_endpoint_active", "endpoint_id", "is_active"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     model_identifier: Mapped[str] = mapped_column(String(512), nullable=False)
-    endpoint_id: Mapped[int] = mapped_column(ForeignKey("provider_endpoints.id"), nullable=False)
+    endpoint_id: Mapped[int] = mapped_column(
+        ForeignKey("provider_endpoints.id"), nullable=False
+    )
     reasoning_policy: Mapped[ReasoningPolicy] = mapped_column(
         portable_enum(ReasoningPolicy, "reasoning_policy"), nullable=False
     )
-    capabilities_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
-    default_generation_config_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
-    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
+    capabilities_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    default_generation_config_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
 
     endpoint: Mapped[ProviderEndpoint] = relationship(back_populates="models")
     benchmark_runs: Mapped[list[BenchmarkRun]] = relationship(back_populates="model")
@@ -132,8 +157,12 @@ class RegisteredDataset(TimestampMixin, Base):
     adapter_type: Mapped[str] = mapped_column(String(255), nullable=False)
     license: Mapped[str | None] = mapped_column(String(255))
     checksum: Mapped[str | None] = mapped_column(String(255))
-    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
 
     benchmark_runs: Mapped[list[BenchmarkRun]] = relationship(back_populates="dataset")
 
@@ -151,7 +180,10 @@ class BenchmarkRun(Base):
     model_id: Mapped[int] = mapped_column(ForeignKey("models.id"), nullable=False)
     dataset_id: Mapped[int] = mapped_column(ForeignKey("datasets.id"), nullable=False)
     status: Mapped[RunStatus] = mapped_column(
-        portable_enum(RunStatus, "run_status"), nullable=False, default=RunStatus.QUEUED, server_default="queued"
+        portable_enum(RunStatus, "run_status"),
+        nullable=False,
+        default=RunStatus.QUEUED,
+        server_default="queued",
     )
     resolved_config_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     config_hash: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -160,7 +192,10 @@ class BenchmarkRun(Base):
     summary_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     artifact_directory: Mapped[str] = mapped_column(String(2048), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, server_default=func.now(), nullable=False
+        DateTime(timezone=True),
+        default=utc_now,
+        server_default=func.now(),
+        nullable=False,
     )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -183,7 +218,9 @@ class SampleResult(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    run_id: Mapped[int] = mapped_column(ForeignKey("benchmark_runs.id", ondelete="CASCADE"), nullable=False)
+    run_id: Mapped[int] = mapped_column(
+        ForeignKey("benchmark_runs.id", ondelete="CASCADE"), nullable=False
+    )
     sample_id: Mapped[str] = mapped_column(String(512), nullable=False)
     category: Mapped[str | None] = mapped_column(String(255))
     correct_answer: Mapped[str | None] = mapped_column(String(128))

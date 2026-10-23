@@ -71,7 +71,7 @@ def test_server_rejects_invalid_arguments(server_python):
             "operation": "multiply",
             "left": True,
             "right": 23,
-        }
+        },
     )
 
     async def check():
@@ -166,6 +166,7 @@ def test_executor_maps_real_tool_error(server_python):
             assert result.error_code is ToolErrorCode.TOOL_EXECUTION_FAILED
             assert result.call_id == call.call_id
             assert result.output is None
+
     asyncio.run(check())
 
 
@@ -180,9 +181,7 @@ def test_server_exit_during_call_is_transport_failure(server_python):
     from llm_benchmark.tool_use.runtime import ToolCall
 
     project_root = Path(__file__).resolve().parents[1]
-    server_script = (
-        project_root / "tests" / "fixtures" / "mcp_disconnect_server.py"
-    )
+    server_script = project_root / "tests" / "fixtures" / "mcp_disconnect_server.py"
 
     parameters = StdioServerParameters(
         command=str(server_python),
@@ -260,15 +259,13 @@ def test_mcp_tool_run_writes_artifacts(
     manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
     results = [
         json.loads(line)
-        for line in (
-            directory / "results.jsonl"
-        ).read_text(encoding="utf-8").splitlines()
+        for line in (directory / "results.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
     ]
     trace = [
         json.loads(line)
-        for line in (
-            directory / "trace.jsonl"
-        ).read_text(encoding="utf-8").splitlines()
+        for line in (directory / "trace.jsonl").read_text(encoding="utf-8").splitlines()
     ]
 
     assert manifest["status"] == "completed"

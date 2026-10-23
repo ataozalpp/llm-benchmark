@@ -29,7 +29,9 @@ from llm_benchmark.runner import PipelineExecution, execute_benchmark
 
 @pytest.fixture
 def service_context(tmp_path: Path) -> dict[str, Any]:
-    engine = create_db_engine(f"sqlite:///{(tmp_path / 'application.sqlite').as_posix()}")
+    engine = create_db_engine(
+        f"sqlite:///{(tmp_path / 'application.sqlite').as_posix()}"
+    )
     Base.metadata.create_all(engine)
     session_factory = create_session_factory(engine)
     endpoints = ProviderEndpointRepository(session_factory)
@@ -60,7 +62,9 @@ def fixture_config(tmp_path: Path, *, scenario: str | None = None) -> RunConfig:
     model = source.models[0]
     if scenario is not None:
         model = model.model_copy(update={"scenario_cycle": [scenario]})
-    return source.model_copy(update={"models": [model], "output_dir": tmp_path / "outputs"})
+    return source.model_copy(
+        update={"models": [model], "output_dir": tmp_path / "outputs"}
+    )
 
 
 def register_config(context: dict[str, Any], config: RunConfig) -> tuple[Any, Any, Any]:
@@ -80,7 +84,9 @@ def register_config(context: dict[str, Any], config: RunConfig) -> tuple[Any, An
     dataset = context["datasets"].create(
         name=config.dataset.name,
         source_type=config.dataset.source,
-        source_uri=config.dataset.path.as_posix() if config.dataset.path else config.dataset.name,
+        source_uri=config.dataset.path.as_posix()
+        if config.dataset.path
+        else config.dataset.name,
         revision=config.dataset.revision,
         split=config.dataset.split,
         task_type="multiple_choice",
@@ -127,7 +133,9 @@ def enqueue_and_claim(
 
 def update_run_record(context: dict[str, Any], run_id: int, **values: Any) -> Any:
     with context["session_factory"]() as session, session.begin():
-        session.execute(update(BenchmarkRun).where(BenchmarkRun.id == run_id).values(**values))
+        session.execute(
+            update(BenchmarkRun).where(BenchmarkRun.id == run_id).values(**values)
+        )
     return context["runs"].get_by_id(run_id)
 
 
@@ -194,7 +202,9 @@ def test_execute_claimed_reconstructs_config_and_completes(
     service_context: dict[str, Any], tmp_path: Path
 ) -> None:
     config = fixture_config(tmp_path)
-    _, _, _, running = enqueue_and_claim(service_context, config, selected_sample_count=8)
+    _, _, _, running = enqueue_and_claim(
+        service_context, config, selected_sample_count=8
+    )
 
     result = service_context["service"].execute_claimed(running)
 
@@ -334,7 +344,9 @@ def test_successful_registered_execution_persists_run_samples_and_artifacts(
         .read_text(encoding="utf-8")
         .splitlines()
     ]
-    assert [item.sample_id for item in result.samples] == [item["sample_id"] for item in artifact_rows]
+    assert [item.sample_id for item in result.samples] == [
+        item["sample_id"] for item in artifact_rows
+    ]
     for persisted, artifact in zip(result.samples, artifact_rows, strict=True):
         assert persisted.raw_response == artifact["raw_response"]
         assert persisted.parse_status == artifact["parse_status"]
@@ -394,7 +406,9 @@ def test_inactive_registration_is_rejected_before_run_creation(
         "endpoint": service_context["endpoints"],
         "model": service_context["models"],
         "dataset": service_context["datasets"],
-    }[dependency].soft_delete({"endpoint": endpoint.id, "model": model.id, "dataset": dataset.id}[dependency])
+    }[dependency].soft_delete(
+        {"endpoint": endpoint.id, "model": model.id, "dataset": dataset.id}[dependency]
+    )
 
     with pytest.raises(InactiveDependencyError):
         service_context["service"].execute(
@@ -471,12 +485,16 @@ def test_sample_outcomes_complete_the_claimed_benchmark(
     service_context: dict[str, Any], tmp_path: Path, scenario: str
 ) -> None:
     config = fixture_config(tmp_path, scenario=scenario)
-    _, _, _, running = enqueue_and_claim(service_context, config, selected_sample_count=8)
+    _, _, _, running = enqueue_and_claim(
+        service_context, config, selected_sample_count=8
+    )
     result = service_context["service"].execute_claimed(running)
     assert result.run.status is RunStatus.COMPLETED
     assert all(item.evaluation_status == scenario for item in result.samples)
     if scenario == "unparseable":
-        assert all(item.parse_status == "ambiguous_multiple_answers" for item in result.samples)
+        assert all(
+            item.parse_status == "ambiguous_multiple_answers" for item in result.samples
+        )
 
 
 def test_sample_persistence_failure_is_atomic_and_marks_run_failed(

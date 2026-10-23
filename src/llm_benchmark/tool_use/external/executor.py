@@ -112,7 +112,9 @@ class ValidatingExternalToolExecutor:
             remaining = deadline - time.monotonic()
 
             if remaining <= 0:
-                raise ToolExecutionTimeout("Tool budget expired during argument validation.")
+                raise ToolExecutionTimeout(
+                    "Tool budget expired during argument validation."
+                )
 
             timed_execute = getattr(self._delegate, "execute_with_timeout", None)
 

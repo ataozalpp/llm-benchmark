@@ -21,10 +21,16 @@ def get_database_url(environment: Mapping[str, str] | None = None) -> str:
 def create_db_engine(database_url: str | None = None, *, echo: bool = False) -> Engine:
     url = database_url or get_database_url()
     parsed = make_url(url)
-    if parsed.drivername.startswith("sqlite") and parsed.database not in (None, "", ":memory:"):
+    if parsed.drivername.startswith("sqlite") and parsed.database not in (
+        None,
+        "",
+        ":memory:",
+    ):
         Path(parsed.database).expanduser().parent.mkdir(parents=True, exist_ok=True)
 
-    connect_args = {"check_same_thread": False} if parsed.drivername.startswith("sqlite") else {}
+    connect_args = (
+        {"check_same_thread": False} if parsed.drivername.startswith("sqlite") else {}
+    )
     engine = create_engine(url, echo=echo, connect_args=connect_args)
     if parsed.drivername.startswith("sqlite"):
         _enable_sqlite_foreign_keys(engine)

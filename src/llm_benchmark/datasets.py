@@ -23,8 +23,12 @@ class LocalJsonlDatasetSource:
         try:
             lines = config.path.read_text(encoding="utf-8").splitlines()
         except OSError as exc:
-            raise RuntimeError(f"cannot load local dataset {config.path}: {exc}") from exc
-        examples = [DatasetExample(**json.loads(line)) for line in lines if line.strip()]
+            raise RuntimeError(
+                f"cannot load local dataset {config.path}: {exc}"
+            ) from exc
+        examples = [
+            DatasetExample(**json.loads(line)) for line in lines if line.strip()
+        ]
         return examples
 
 
@@ -33,9 +37,13 @@ class HuggingFaceMMLUProSource:
         try:
             from datasets import load_dataset
         except ImportError as exc:
-            raise RuntimeError("MMLU-Pro requires the optional 'huggingface' dependencies") from exc
+            raise RuntimeError(
+                "MMLU-Pro requires the optional 'huggingface' dependencies"
+            ) from exc
         try:
-            rows = load_dataset(config.name, split=config.split, revision=config.revision)
+            rows = load_dataset(
+                config.name, split=config.split, revision=config.revision
+            )
         except Exception as exc:
             raise RuntimeError(
                 f"failed to load {config.name}@{config.revision} split={config.split}; check network/cache and revision: {exc}"
@@ -73,7 +81,9 @@ class UploadedDatasetSource:
             path = self._storage.verify(config.storage_key, config.checksum)
             return load_tabular_examples(path, file_format)
         except (DatasetStorageError, DatasetAdapterError) as error:
-            raise UploadedDatasetLoadError("Uploaded dataset could not be loaded") from error
+            raise UploadedDatasetLoadError(
+                "Uploaded dataset could not be loaded"
+            ) from error
 
 
 class DatasetLoader:
@@ -99,23 +109,35 @@ def normalize_mmlu_rows(rows: Iterable[dict[str, Any]]) -> list[DatasetExample]:
         answer = row["answer"]
         if isinstance(answer, int):
             answer = chr(65 + answer)
-        examples.append(DatasetExample(
-            sample_id=str(row.get("question_id", row.get("sample_id", index))),
-            question=str(row["question"]),
-            options=options,
-            correct_answer=str(answer).strip().upper(),
-            category=str(row.get("category", "unknown")),
-        ))
+        examples.append(
+            DatasetExample(
+                sample_id=str(row.get("question_id", row.get("sample_id", index))),
+                question=str(row["question"]),
+                options=options,
+                correct_answer=str(answer).strip().upper(),
+                category=str(row.get("category", "unknown")),
+            )
+        )
     return examples
 
 
-def sample_examples(examples: list[DatasetExample], config: DatasetConfig, seed: int) -> list[DatasetExample]:
-    filtered = [e for e in examples if not config.category_filter or e.category in config.category_filter]
+def sample_examples(
+    examples: list[DatasetExample], config: DatasetConfig, seed: int
+) -> list[DatasetExample]:
+    filtered = [
+        e
+        for e in examples
+        if not config.category_filter or e.category in config.category_filter
+    ]
     if config.sample_ids:
         by_id = {example.sample_id: example for example in filtered}
-        missing = [sample_id for sample_id in config.sample_ids if sample_id not in by_id]
+        missing = [
+            sample_id for sample_id in config.sample_ids if sample_id not in by_id
+        ]
         if missing:
-            raise ValueError(f"configured sample IDs were not found after filtering: {', '.join(missing)}")
+            raise ValueError(
+                f"configured sample IDs were not found after filtering: {', '.join(missing)}"
+            )
         return [by_id[sample_id] for sample_id in config.sample_ids]
     if config.profile == "full":
         return filtered
@@ -173,14 +195,18 @@ def load_and_sample(
         "selected_sample_categories": {e.sample_id: e.category for e in selected},
         "source_file_sha256": source_hash,
         "dataset_license": "MIT" if is_mmlu_pro else "project-owned synthetic fixture",
-        "dataset_homepage": "https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro" if is_mmlu_pro else None,
+        "dataset_homepage": "https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro"
+        if is_mmlu_pro
+        else None,
         "dataset_citation": "MMLU-Pro, arXiv:2406.01574" if is_mmlu_pro else None,
     }
     if config.source == "uploaded":
-        manifest.update({
-            "storage_key": config.storage_key,
-            "adapter_type": config.adapter_type,
-            "checksum": config.checksum,
-            "dataset_license": config.license,
-        })
+        manifest.update(
+            {
+                "storage_key": config.storage_key,
+                "adapter_type": config.adapter_type,
+                "checksum": config.checksum,
+                "dataset_license": config.license,
+            }
+        )
     return selected, manifest

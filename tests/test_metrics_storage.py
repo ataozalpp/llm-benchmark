@@ -12,14 +12,44 @@ def result(status: str, latency: float, tokens: int | None = 10) -> BenchmarkRes
     request_status = "failed" if status == "request_failed" else "succeeded"
     parse_status = "no_answer_found" if status == "unparseable" else "normalized_label"
     return BenchmarkResult(
-        "run", status, "fixture", "test", "cat", "mock", "local", "model", "model", "raw", "A" if status in {"correct", "incorrect"} else None,
-        "A", status == "correct", status, parse_status, request_status, "server_error" if status == "request_failed" else None,
-        tokens, tokens, tokens, None, 1, latency, latency, "start", "end", "v1", "v1"
+        "run",
+        status,
+        "fixture",
+        "test",
+        "cat",
+        "mock",
+        "local",
+        "model",
+        "model",
+        "raw",
+        "A" if status in {"correct", "incorrect"} else None,
+        "A",
+        status == "correct",
+        status,
+        parse_status,
+        request_status,
+        "server_error" if status == "request_failed" else None,
+        tokens,
+        tokens,
+        tokens,
+        None,
+        1,
+        latency,
+        latency,
+        "start",
+        "end",
+        "v1",
+        "v1",
     )
 
 
 def test_metrics_accuracy_tokens_and_latency() -> None:
-    results = [result("correct", 10), result("incorrect", 20), result("unparseable", 30, None), result("request_failed", 40, None)]
+    results = [
+        result("correct", 10),
+        result("incorrect", 20),
+        result("unparseable", 30, None),
+        result("request_failed", 40, None),
+    ]
     summary = summarize(results, 99)
     assert summary["accuracy"] == pytest.approx(0.25)
     assert summary["answered_accuracy"] == pytest.approx(0.5)

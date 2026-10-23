@@ -43,7 +43,9 @@ def _validate_postgres_test_url(database_url: str) -> str:
     if not parsed.drivername.startswith("postgresql"):
         raise ValueError("PostgreSQL integration tests require a PostgreSQL URL")
     if parsed.database is None or not parsed.database.endswith("_test"):
-        raise ValueError("PostgreSQL integration tests require a database ending in _test")
+        raise ValueError(
+            "PostgreSQL integration tests require a database ending in _test"
+        )
     return database_url
 
 
@@ -110,7 +112,9 @@ def test_postgres_validation_rejects_unsafe_database_urls(database_url: str) -> 
 
 
 def test_postgres_validation_accepts_explicit_test_database() -> None:
-    database_url = "postgresql+psycopg://user:development@127.0.0.1:5432/llm_benchmark_test"
+    database_url = (
+        "postgresql+psycopg://user:development@127.0.0.1:5432/llm_benchmark_test"
+    )
     assert _validate_postgres_test_url(database_url) == database_url
 
 
@@ -140,7 +144,9 @@ def test_postgresql_migration_upgrade_downgrade_reupgrade(
         engine = create_db_engine(database_url)
         try:
             with engine.connect() as connection:
-                revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
+                revision = connection.scalar(
+                    text("SELECT version_num FROM alembic_version")
+                )
         finally:
             engine.dispose()
         assert revision == EXPECTED_REVISION
@@ -191,7 +197,9 @@ def test_postgresql_schema_constraints(postgres_database_url: str) -> None:
         assert any(name.endswith("_reasoning_policy") for name in check_names)
         assert any(name.endswith("_run_status") for name in check_names)
 
-        sample_columns = {column["name"]: column for column in inspector.get_columns("sample_results")}
+        sample_columns = {
+            column["name"]: column for column in inspector.get_columns("sample_results")
+        }
         assert sample_columns["ttft_ms"]["nullable"] is True
         assert sample_columns["throughput_tokens_per_second"]["nullable"] is True
 
@@ -228,7 +236,9 @@ def _sample(sample_id: str, *, ttft_ms: float | None = None) -> SampleResultCrea
 
 
 @pytest.mark.postgres
-def test_postgresql_repository_crud_json_history_and_samples(postgres_database_url: str) -> None:
+def test_postgresql_repository_crud_json_history_and_samples(
+    postgres_database_url: str,
+) -> None:
     registry = create_registry_repositories(postgres_database_url)
     suffix = uuid4().hex
     endpoint = registry.endpoints.create(
@@ -258,7 +268,9 @@ def test_postgresql_repository_crud_json_history_and_samples(postgres_database_u
         metadata={"categories": ["logic"]},
     )
     assert registry.datasets.get_by_id(dataset.id).revision is None
-    assert registry.models.get_by_id(model.id).metadata_json == {"runtime": "postgres-test"}
+    assert registry.models.get_by_id(model.id).metadata_json == {
+        "runtime": "postgres-test"
+    }
 
     run = registry.runs.create_queued(
         experiment_name="postgres-repository",
@@ -378,7 +390,11 @@ def test_postgresql_fastapi_uploaded_dataset_mock_run(
     with TestClient(app) as client:
         endpoint_response = client.post(
             "/api/v1/endpoints",
-            json={"name": "postgres-mock", "provider_type": "mock", "base_url": "mock://provider"},
+            json={
+                "name": "postgres-mock",
+                "provider_type": "mock",
+                "base_url": "mock://provider",
+            },
         )
         assert endpoint_response.status_code == 201
         model_response = client.post(

@@ -26,7 +26,10 @@ def run_external_tool_suite(
     policy: ExternalToolPolicy,
     provider_factory: Callable[[], ConversationProvider],
     executor_factory: Callable[[ToolConversationRequest], ToolExecutor],
-    on_case_completed: Callable[[ToolScenario, ToolLoopResult, ToolEvaluationResult], None] | None = None,
+    on_case_completed: Callable[
+        [ToolScenario, ToolLoopResult, ToolEvaluationResult], None
+    ]
+    | None = None,
     observer: Callable[[str, str, dict[str, object]], None] | None = None,
 ) -> ToolSuiteResult:
     """Admit the catalog before the suite calls execution factories.

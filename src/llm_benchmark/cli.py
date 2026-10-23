@@ -10,14 +10,24 @@ from .runner import run_benchmark
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="llm-benchmark", description="Run reproducible LLM benchmarks")
+    parser = argparse.ArgumentParser(
+        prog="llm-benchmark", description="Run reproducible LLM benchmarks"
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
     run = subparsers.add_parser("run", help="run a benchmark")
     run.add_argument("--config", type=Path, required=True)
-    run.add_argument("--set", action="append", default=[], metavar="KEY=VALUE", help="override a config value")
+    run.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="override a config value",
+    )
     tool_run = subparsers.add_parser("tool-run", help="run the versioned tool suite")
     tool_run.add_argument("--config", type=Path, required=True)
-    retrieval_run = subparsers.add_parser("retrieval-run", help="run a retrieval evaluation")
+    retrieval_run = subparsers.add_parser(
+        "retrieval-run", help="run a retrieval evaluation"
+    )
     retrieval_run.add_argument("--config", type=Path, required=True)
     return parser
 
@@ -34,11 +44,22 @@ def main(argv: list[str] | None = None) -> None:
             from .retrieval.run_config import load_retrieval_run_config
             from .retrieval.run_service import run_retrieval_benchmark
 
-            run_dir, summary = run_retrieval_benchmark(load_retrieval_run_config(args.config))
+            run_dir, summary = run_retrieval_benchmark(
+                load_retrieval_run_config(args.config)
+            )
         else:
             config = load_config(args.config, args.set)
             run_dir, summary = run_benchmark(config)
     except (ValueError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
-    print(json.dumps({"run_id": summary["run_id"], "output_dir": str(run_dir), "overall": summary.get("overall", summary)}, indent=2))
+    print(
+        json.dumps(
+            {
+                "run_id": summary["run_id"],
+                "output_dir": str(run_dir),
+                "overall": summary.get("overall", summary),
+            },
+            indent=2,
+        )
+    )

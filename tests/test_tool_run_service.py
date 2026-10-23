@@ -245,7 +245,9 @@ def test_invalid_runtime_config_is_rejected(values):
 def test_local_config_snapshot_preserves_legacy_fields():
     config = ToolRunConfig()
 
-    snapshot = config.model_dump(mode="json", exclude={"output_dir", "runtime", "mcp_profile"})
+    snapshot = config.model_dump(
+        mode="json", exclude={"output_dir", "runtime", "mcp_profile"}
+    )
 
     assert set(snapshot) == {
         "schema_version",

@@ -45,7 +45,10 @@ def alembic_config(database_url: str) -> Config:
 
 def test_database_url_uses_runtime_default_and_environment_override() -> None:
     assert get_database_url({}) == DEFAULT_DATABASE_URL
-    assert get_database_url({DATABASE_URL_ENV: "sqlite:///custom.db"}) == "sqlite:///custom.db"
+    assert (
+        get_database_url({DATABASE_URL_ENV: "sqlite:///custom.db"})
+        == "sqlite:///custom.db"
+    )
 
 
 def test_database_imports_do_not_create_runtime_files(tmp_path: Path) -> None:
@@ -115,7 +118,10 @@ def test_initial_migration_creates_registry_schema(tmp_path: Path) -> None:
         revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
     assert revision == "20260817_0001"
 
-def test_alembic_honors_database_url_environment_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+
+def test_alembic_honors_database_url_environment_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     database_path = tmp_path / "environment-selected.sqlite"
     database_url = sqlite_url(database_path)
 
@@ -139,18 +145,25 @@ def test_alembic_honors_database_url_environment_override(tmp_path: Path, monkey
     finally:
         engine.dispose()
 
+
 def test_initial_migration_supports_upgrade_downgrade_reupgrade(tmp_path: Path) -> None:
     database_url = sqlite_url(tmp_path / "migration-cycle.sqlite")
     config = alembic_config(database_url)
 
     command.upgrade(config, "head")
-    assert EXPECTED_TABLES <= set(inspect(create_db_engine(database_url)).get_table_names())
+    assert EXPECTED_TABLES <= set(
+        inspect(create_db_engine(database_url)).get_table_names()
+    )
 
     command.downgrade(config, "base")
-    assert EXPECTED_TABLES.isdisjoint(inspect(create_db_engine(database_url)).get_table_names())
+    assert EXPECTED_TABLES.isdisjoint(
+        inspect(create_db_engine(database_url)).get_table_names()
+    )
 
     command.upgrade(config, "head")
-    assert EXPECTED_TABLES <= set(inspect(create_db_engine(database_url)).get_table_names())
+    assert EXPECTED_TABLES <= set(
+        inspect(create_db_engine(database_url)).get_table_names()
+    )
 
 
 def test_migration_has_expected_foreign_keys_and_uniqueness(tmp_path: Path) -> None:
@@ -161,35 +174,45 @@ def test_migration_has_expected_foreign_keys_and_uniqueness(tmp_path: Path) -> N
     inspector = inspect(create_db_engine(database_url))
 
     model_foreign_keys = inspector.get_foreign_keys("models")
-    assert {(item["referred_table"], tuple(item["constrained_columns"])) for item in model_foreign_keys} == {
-        ("provider_endpoints", ("endpoint_id",))
-    }
+    assert {
+        (item["referred_table"], tuple(item["constrained_columns"]))
+        for item in model_foreign_keys
+    } == {("provider_endpoints", ("endpoint_id",))}
 
     run_foreign_keys = inspector.get_foreign_keys("benchmark_runs")
-    assert {(item["referred_table"], tuple(item["constrained_columns"])) for item in run_foreign_keys} == {
+    assert {
+        (item["referred_table"], tuple(item["constrained_columns"]))
+        for item in run_foreign_keys
+    } == {
         ("datasets", ("dataset_id",)),
         ("models", ("model_id",)),
     }
 
     result_foreign_keys = inspector.get_foreign_keys("sample_results")
-    assert {(item["referred_table"], tuple(item["constrained_columns"])) for item in result_foreign_keys} == {
-        ("benchmark_runs", ("run_id",))
-    }
+    assert {
+        (item["referred_table"], tuple(item["constrained_columns"]))
+        for item in result_foreign_keys
+    } == {("benchmark_runs", ("run_id",))}
 
     endpoint_uniques = {
-        tuple(item["column_names"]) for item in inspector.get_unique_constraints("provider_endpoints")
+        tuple(item["column_names"])
+        for item in inspector.get_unique_constraints("provider_endpoints")
     }
     model_uniques = {
-        tuple(item["column_names"]) for item in inspector.get_unique_constraints("models")
+        tuple(item["column_names"])
+        for item in inspector.get_unique_constraints("models")
     }
     result_uniques = {
-        tuple(item["column_names"]) for item in inspector.get_unique_constraints("sample_results")
+        tuple(item["column_names"])
+        for item in inspector.get_unique_constraints("sample_results")
     }
     assert ("name",) in endpoint_uniques
     assert ("endpoint_id", "model_identifier") in model_uniques
     assert ("run_id", "sample_id") in result_uniques
 
-    result_columns = {item["name"]: item for item in inspector.get_columns("sample_results")}
+    result_columns = {
+        item["name"]: item for item in inspector.get_columns("sample_results")
+    }
     assert result_columns["ttft_ms"]["nullable"] is True
     assert result_columns["throughput_tokens_per_second"]["nullable"] is True
 
@@ -203,12 +226,27 @@ def test_historical_foreign_keys_do_not_cascade(tmp_path: Path) -> None:
     assert inspector.get_foreign_keys("models")[0]["options"].get("ondelete") is None
     for foreign_key in inspector.get_foreign_keys("benchmark_runs"):
         assert foreign_key["options"].get("ondelete") is None
-    assert inspector.get_foreign_keys("sample_results")[0]["options"].get("ondelete") == "CASCADE"
+    assert (
+        inspector.get_foreign_keys("sample_results")[0]["options"].get("ondelete")
+        == "CASCADE"
+    )
 
 
-def test_registry_schema_has_no_secret_value_columns_and_uses_portable_enums(tmp_path: Path) -> None:
-    forbidden_columns = {"api_key", "bearer_token", "password", "secret", "secret_value"}
-    orm_columns = {column.name for table in Base.metadata.tables.values() for column in table.columns}
+def test_registry_schema_has_no_secret_value_columns_and_uses_portable_enums(
+    tmp_path: Path,
+) -> None:
+    forbidden_columns = {
+        "api_key",
+        "bearer_token",
+        "password",
+        "secret",
+        "secret_value",
+    }
+    orm_columns = {
+        column.name
+        for table in Base.metadata.tables.values()
+        for column in table.columns
+    }
     assert forbidden_columns.isdisjoint(orm_columns)
     assert "credential_env_var" in orm_columns
 

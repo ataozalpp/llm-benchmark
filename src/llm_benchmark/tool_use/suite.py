@@ -48,7 +48,10 @@ def run_tool_suite(
     provider_factory: Callable[[], ConversationProvider],
     descriptors: tuple[ToolDescriptor, ...] = (),
     executor_factory: (Callable[[ToolConversationRequest], ToolExecutor] | None) = None,
-    on_case_completed: Callable[[ToolScenario, ToolLoopResult, ToolEvaluationResult], None] | None = None,
+    on_case_completed: Callable[
+        [ToolScenario, ToolLoopResult, ToolEvaluationResult], None
+    ]
+    | None = None,
     observer: Callable[[str, str, dict[str, object]], None] | None = None,
 ) -> ToolSuiteResult:
     """Prepare all requests, then execute sequentially.
@@ -147,7 +150,8 @@ def run_tool_suite(
             executor=executor,
             observer=(
                 (lambda kind, data: observer(scenario.case_id, kind, data))
-                if observer is not None else None
+                if observer is not None
+                else None
             ),
         )
 

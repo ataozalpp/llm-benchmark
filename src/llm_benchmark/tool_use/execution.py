@@ -17,8 +17,7 @@ class ToolExecutor(Protocol):
     provide sandboxing, cancellation or transport behaviour.
     """
 
-    def execute(self, call: ToolCall) -> ToolResult:
-        ...
+    def execute(self, call: ToolCall) -> ToolResult: ...
 
 
 class ToolExecutionTimeout(RuntimeError):
@@ -33,5 +32,4 @@ class TimedToolExecutor(ToolExecutor, Protocol):
         call: ToolCall,
         *,
         timeout_seconds: float,
-    ) -> ToolResult:
-        ...
+    ) -> ToolResult: ...

@@ -15,11 +15,13 @@ def test_single_page_catalog_admission(cursor):
         async def list_tools(self):
             return SimpleNamespace(
                 next_cursor=cursor,
-                tools=[SimpleNamespace(
-                    name="calculator",
-                    description="Synthetic calculator.",
-                    input_schema=CalculatorArguments.model_json_schema(),
-                )],
+                tools=[
+                    SimpleNamespace(
+                        name="calculator",
+                        description="Synthetic calculator.",
+                        input_schema=CalculatorArguments.model_json_schema(),
+                    )
+                ],
             )
 
     if cursor is None:

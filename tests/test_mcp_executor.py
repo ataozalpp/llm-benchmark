@@ -198,9 +198,7 @@ def test_executor_deadline(mcp_dependencies, call):
 def test_unexpected_error_propagates(mcp_dependencies, call):
     deps = mcp_dependencies
     original = ValueError("unexpected implementation failure.")
-    executor = deps.executor(
-        client=FakeClient(error=original)
-    )
+    executor = deps.executor(client=FakeClient(error=original))
 
     with pytest.raises(ValueError) as caught:
         execute_in_worker(deps, executor, call)
@@ -270,4 +268,6 @@ def test_per_call_timeout_is_clamped(
     result = asyncio.run(run())
 
     assert result.output == {"result": 391}
-    assert client.calls == [("calculator", call.arguments, expected),]
+    assert client.calls == [
+        ("calculator", call.arguments, expected),
+    ]

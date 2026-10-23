@@ -74,7 +74,7 @@ def test_csv_adapter_rejects_non_contiguous_option_columns(tmp_path: Path) -> No
 def test_csv_adapter_requires_at_least_two_options(tmp_path: Path) -> None:
     dataset_path = tmp_path / "one-option.csv"
     dataset_path.write_text(
-         "sample_id,question,option_A,correct_answer,category\n"
+        "sample_id,question,option_A,correct_answer,category\n"
         "001,Choose a letter,Alpha,A,test\n",
         encoding="utf-8",
     )
@@ -104,7 +104,7 @@ def test_csv_adapter_rejects_empty_question(tmp_path: Path) -> None:
 def test_csv_adapter_rejects_empty_option(tmp_path: Path) -> None:
     dataset_path = tmp_path / "empty-option.csv"
     dataset_path.write_text(
-         "sample_id,question,option_A,option_B,correct_answer,category\n"
+        "sample_id,question,option_A,option_B,correct_answer,category\n"
         "001,Choose a letter,Alpha,   ,A,test\n",
         encoding="utf-8",
     )
@@ -134,7 +134,7 @@ def test_csv_adapter_rejects_genuinely_missing_field(tmp_path: Path) -> None:
 def test_csv_adapter_rejects_sample_id(tmp_path: Path) -> None:
     dataset_path = tmp_path / "empty-sample-id.csv"
     dataset_path.write_text(
-         "sample_id,question,option_A,option_B,correct_answer,category\n"
+        "sample_id,question,option_A,option_B,correct_answer,category\n"
         "   ,Choose a letter,Alpha,Beta,A,test\n",
         encoding="utf-8",
     )
@@ -149,7 +149,7 @@ def test_csv_adapter_rejects_sample_id(tmp_path: Path) -> None:
 def test_csv_adapters_rejects_empty_category(tmp_path: Path) -> None:
     dataset_path = tmp_path / "empty-category.csv"
     dataset_path.write_text(
-         "sample_id,question,option_A,option_B,correct_answer,category\n"
+        "sample_id,question,option_A,option_B,correct_answer,category\n"
         "001,Choose a letter,Alpha,Beta,A,   \n",
         encoding="utf-8",
     )
@@ -164,7 +164,7 @@ def test_csv_adapters_rejects_empty_category(tmp_path: Path) -> None:
 def test_csv_adapeter_rejects_out_of_range_answer(tmp_path: Path) -> None:
     dataset_path = tmp_path / "invalid-answer.csv"
     dataset_path.write_text(
-         "sample_id,question,option_A,option_B,correct_answer,category\n"
+        "sample_id,question,option_A,option_B,correct_answer,category\n"
         "001,Choose a letter,Alpha,Beta,C,test\n",
         encoding="utf-8",
     )
@@ -179,7 +179,7 @@ def test_csv_adapeter_rejects_out_of_range_answer(tmp_path: Path) -> None:
 def test_csv_adapter_normalizes_answer_to_uppercase(tmp_path: Path) -> None:
     dataset_path = tmp_path / "lowercase-answer.csv"
     dataset_path.write_text(
-         "sample_id,question,option_A,option_B,correct_answer,category\n"
+        "sample_id,question,option_A,option_B,correct_answer,category\n"
         "001,Choose a letter,Alpha,Beta,b,test\n",
         encoding="utf-8",
     )
@@ -222,8 +222,16 @@ def test_csv_adapter_accepts_options_through_j(tmp_path: Path) -> None:
     examples = load_tabular_examples(dataset_path, "csv")
 
     assert examples[0].allowed_labels == [
-        "A", "B", "C", "D", "E",
-        "F", "G", "H", "I", "J",
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G",
+        "H",
+        "I",
+        "J",
     ]
     assert examples[0].correct_answer == "J"
 
@@ -237,7 +245,7 @@ def test_csv_adapter_rejects_option_beyond_j(tmp_path: Path) -> None:
         "correct_answer,category\n"
         "001,Choose a letter,"
         "A,B,C,D,E,F,G,H,I,J,K,K,test\n",
-        encoding="utf-8"
+        encoding="utf-8",
     )
 
     with pytest.raises(
@@ -260,9 +268,7 @@ def test_adapter_rejects_unknown_format(tmp_path: Path) -> None:
 
 def test_csv_adapter_wraps_parsing_error(tmp_path: Path) -> None:
     dataset_path = tmp_path / "empty.csv"
-    dataset_path.write_text(
-        "", encoding="utf-8"
-    )
+    dataset_path.write_text("", encoding="utf-8")
 
     with pytest.raises(
         DatasetAdapterError,
@@ -271,8 +277,7 @@ def test_csv_adapter_wraps_parsing_error(tmp_path: Path) -> None:
         load_tabular_examples(dataset_path, "csv")
 
 
-def test_jsonl_adapter_preserves_ids_and_option_order(
-    tmp_path: Path) -> None:
+def test_jsonl_adapter_preserves_ids_and_option_order(tmp_path: Path) -> None:
     dataset_path = tmp_path / "questions.jsonl"
     dataset_path.write_text(
         '{"sample_id":"001","question":"Choose a letter",'
@@ -369,9 +374,7 @@ def test_non_scalar_text_field_is_rejected(non_scalar: object) -> None:
         _require_non_empty(non_scalar, "question", "test")
 
 
-def test_jsonl_adapter_rejects_missing_required_field(
-        tmp_path: Path
-) -> None:
+def test_jsonl_adapter_rejects_missing_required_field(tmp_path: Path) -> None:
     dataset_path = tmp_path / "missing-category.jsonl"
     dataset_path.write_text(
         '{"sample_id":"001","question":"Question",'
@@ -380,11 +383,7 @@ def test_jsonl_adapter_rejects_missing_required_field(
         encoding="utf-8",
     )
 
-    with pytest.raises(
-        DatasetAdapterError,
-        match="missing required columns"
-    ):
-
+    with pytest.raises(DatasetAdapterError, match="missing required columns"):
         load_tabular_examples(dataset_path, "jsonl")
 
 
@@ -466,8 +465,7 @@ def test_csv_adapter_rejects_dataset_without_rows(
 ) -> None:
     dataset_path = tmp_path / "empty.csv"
     dataset_path.write_text(
-        "sample_id,question,option_A,option_B,"
-        "correct_answer,category\n",
+        "sample_id,question,option_A,option_B,correct_answer,category\n",
         encoding="utf-8",
     )
 

@@ -63,7 +63,7 @@ ConversationMessage: TypeAlias = (
 
 @dataclass(frozen=True)
 class ToolConversation:
-    messages: tuple[ConversationMessage, ...] = field(repr= False)
+    messages: tuple[ConversationMessage, ...] = field(repr=False)
 
     def __post_init__(self) -> None:
         if type(self.messages) is not tuple:

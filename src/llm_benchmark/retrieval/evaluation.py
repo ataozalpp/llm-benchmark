@@ -51,11 +51,9 @@ def evaluate_retrieval(
         relevant_count=len(relevant),
         relevant_retrieved_count=hits,
         hit_at_k=float(hits > 0),
-        precision_at_k= hits / k,
-        recall_at_k= hits / len(relevant),
+        precision_at_k=hits / k,
+        recall_at_k=hits / len(relevant),
         reciprocal_rank_at_k=(
-            0.0
-            if first_relevant_rank is None
-            else 1.0 / first_relevant_rank
+            0.0 if first_relevant_rank is None else 1.0 / first_relevant_rank
         ),
     )

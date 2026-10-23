@@ -29,7 +29,6 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-
     result = asyncio.run(
         run_calculator_mcp_suite(
             scenarios=create_example_tool_scenarios(),

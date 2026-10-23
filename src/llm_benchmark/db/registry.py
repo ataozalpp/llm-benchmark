@@ -23,7 +23,9 @@ class RegistryRepositories:
     samples: SampleResultRepository
 
 
-def create_registry_repositories(database_url: str | None = None) -> RegistryRepositories:
+def create_registry_repositories(
+    database_url: str | None = None,
+) -> RegistryRepositories:
     """Create repositories using the configured database without running migrations."""
 
     engine = create_db_engine(database_url)

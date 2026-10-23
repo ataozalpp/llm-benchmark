@@ -63,8 +63,7 @@ class ConversationProvider(Protocol):
     def generate_tool_conversation(
         self,
         request: ToolConversationRequest,
-    ) -> ToolProviderResult:
-        ...
+    ) -> ToolProviderResult: ...
 
 
 @dataclass(frozen=True)
@@ -73,7 +72,7 @@ class ToolLoopResult:
     conversation: ToolConversation = field(repr=False)
     provider_results: tuple[ToolProviderResult, ...] = field(repr=False)
     tool_results: tuple[ToolResult, ...] = field(repr=False)
-    final_text: str | None = field(default=None ,repr=False)
+    final_text: str | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if type(self.stop_reason) is not ToolLoopStopReason:
@@ -86,18 +85,14 @@ class ToolLoopResult:
             raise TypeError("Provider results must be a tuple.")
 
         if any(
-            type(result) is not ToolProviderResult
-            for result in self.provider_results
+            type(result) is not ToolProviderResult for result in self.provider_results
         ):
             raise TypeError("Invalid provider result.")
 
         if type(self.tool_results) is not tuple:
             raise TypeError("Tool results must be a tuple.")
 
-        if any(
-            type(result) is not ToolResult
-            for result in self.tool_results
-        ):
+        if any(type(result) is not ToolResult for result in self.tool_results):
             raise TypeError("Invalid tool result.")
 
         if self.stop_reason is ToolLoopStopReason.FINAL_RESPONSE:
@@ -116,7 +111,7 @@ class ToolLoopResult:
 
         turn = last_message.turn
 
-        if(
+        if (
             turn.tool_calls
             or turn.content != self.final_text
             or turn.finish_reason != "stop"
@@ -195,7 +190,7 @@ def run_tool_loop(
         )
 
     def finish(
-        reason:ToolLoopStopReason,
+        reason: ToolLoopStopReason,
         *,
         final_text: str | None = None,
     ) -> ToolLoopResult:
@@ -220,7 +215,9 @@ def run_tool_loop(
 
         emit("model_request", turn=len(provider_results) + 1)
         provider_started = clock()
-        timed_generate = getattr(provider, "generate_tool_conversation_with_timeout", None)
+        timed_generate = getattr(
+            provider, "generate_tool_conversation_with_timeout", None
+        )
         if policy.max_wall_time_seconds is not None and callable(timed_generate):
             remaining = policy.max_wall_time_seconds - (clock() - started)
             if remaining <= 0:
@@ -234,12 +231,16 @@ def run_tool_loop(
 
         provider_results.append(provider_result)
         emit(
-            "model_response", status=provider_result.status.value,
+            "model_response",
+            status=provider_result.status.value,
             latency_ms=max(0.0, (clock() - provider_started) * 1000),
-            error_code=(provider_result.error_code.value if provider_result.error_code else None),
+            error_code=(
+                provider_result.error_code.value if provider_result.error_code else None
+            ),
             normalization_error_code=(
                 provider_result.normalization_error_code.value
-                if provider_result.normalization_error_code else None
+                if provider_result.normalization_error_code
+                else None
             ),
         )
         if expired():
@@ -273,19 +274,12 @@ def run_tool_loop(
                     final_text=turn.content,
                 )
 
-            return finish(
-                ToolLoopStopReason.COMPLETION_UNCONFIRMED
-            )
+            return finish(ToolLoopStopReason.COMPLETION_UNCONFIRMED)
 
-        if any(
-            call.tool_name not in allowed_names
-            for call in turn.tool_calls
-        ):
+        if any(call.tool_name not in allowed_names for call in turn.tool_calls):
             return finish(ToolLoopStopReason.TOOL_NOT_ALLOWED)
 
-        remaining_calls = (
-            policy.max_tool_calls - len(tool_results)
-        )
+        remaining_calls = policy.max_tool_calls - len(tool_results)
 
         if len(turn.tool_calls) > remaining_calls:
             return finish(ToolLoopStopReason.TOOL_CALL_LIMIT)
@@ -301,10 +295,7 @@ def run_tool_loop(
             timed_execute = getattr(active_executor, "execute_with_timeout", None)
 
             try:
-                if (
-                    policy.max_wall_time_seconds is not None
-                    and callable(timed_execute)
-                ):
+                if policy.max_wall_time_seconds is not None and callable(timed_execute):
                     remaining = policy.max_wall_time_seconds - (clock() - started)
 
                     if remaining <= 0:
@@ -326,17 +317,19 @@ def run_tool_loop(
                 tool_result.call_id != call.call_id
                 or tool_result.tool_name != call.tool_name
             ):
-                raise ValueError(
-                    "Executor result does not match the requested call."
-                )
+                raise ValueError("Executor result does not match the requested call.")
 
             tool_results.append(tool_result)
 
             conversation = conversation.append(ToolResultMessage(tool_result))
             emit(
-                "tool_result", call_id=call.call_id, tool_name=call.tool_name,
+                "tool_result",
+                call_id=call.call_id,
+                tool_name=call.tool_name,
                 status=tool_result.status.value,
-                error_code=tool_result.error_code.value if tool_result.error_code else None,
+                error_code=tool_result.error_code.value
+                if tool_result.error_code
+                else None,
                 latency_ms=max(0.0, (clock() - tool_started) * 1000),
             )
             if expired():

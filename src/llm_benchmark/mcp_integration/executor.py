@@ -18,7 +18,7 @@ from llm_benchmark.tool_use.runtime import ToolCall, ToolResult
 
 class MCPToolExecutor:
     """Execute through an existing client from an anyio worker thread.
-    
+
     The caller owns the client lifetime and argument validation.
     Known request failures become infrastructure exceptions.
     """
@@ -74,7 +74,9 @@ class MCPToolExecutor:
             effective_timeout,
         )
 
-    async def _execute_async(self, call: ToolCall, timeout_seconds: float) -> ToolResult:
+    async def _execute_async(
+        self, call: ToolCall, timeout_seconds: float
+    ) -> ToolResult:
         try:
             with anyio.fail_after(timeout_seconds):
                 response = await self._client.call_tool(
@@ -84,15 +86,11 @@ class MCPToolExecutor:
                 )
 
         except TimeoutError:
-            raise McpExecutionTimeout(
-                "MCP tool request timed out."
-            ) from None
+            raise McpExecutionTimeout("MCP tool request timed out.") from None
 
         except MCPError as error:
             if error.code == REQUEST_TIMEOUT:
-                raise McpExecutionTimeout(
-                    "MCP tool request timed out."
-                ) from None
+                raise McpExecutionTimeout("MCP tool request timed out.") from None
 
             if error.code == CONNECTION_CLOSED:
                 raise MCPTransportFailure(

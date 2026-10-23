@@ -22,10 +22,13 @@ class DatasetConfig(StrictModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
-    adapter_type: Literal[
-        "tabular_mcq_csv_v1",
-        "tabular_mcq_jsonl_v1",
-    ] | None = Field(
+    adapter_type: (
+        Literal[
+            "tabular_mcq_csv_v1",
+            "tabular_mcq_jsonl_v1",
+        ]
+        | None
+    ) = Field(
         default=None,
         exclude_if=lambda value: value is None,
     )
@@ -43,7 +46,9 @@ class DatasetConfig(StrictModel):
     sample_size: int | None = Field(default=None, gt=0)
     samples_per_category: int = Field(default=10, gt=0)
     category_filter: list[str] = Field(default_factory=list)
-    sample_ids: list[str] = Field(default_factory=list, exclude_if=lambda value: not value)
+    sample_ids: list[str] = Field(
+        default_factory=list, exclude_if=lambda value: not value
+    )
 
     @model_validator(mode="after")
     def validate_source(self) -> "DatasetConfig":
@@ -85,13 +90,17 @@ class DatasetConfig(StrictModel):
                     "uploaded dataset adapter_type does not match storage format"
                 )
             if self.checksum != f"sha256:{parsed_key.digest}":
-                raise ValueError(
-                    "uploaded dataset checksum does not match storage_key"
-                )
+                raise ValueError("uploaded dataset checksum does not match storage_key")
         if len(self.sample_ids) != len(set(self.sample_ids)):
             raise ValueError("dataset sample_ids must be unique")
-        if self.sample_ids and self.sample_size is not None and self.sample_size != len(self.sample_ids):
-            raise ValueError("dataset sample_size must equal the number of explicit sample_ids")
+        if (
+            self.sample_ids
+            and self.sample_size is not None
+            and self.sample_size != len(self.sample_ids)
+        ):
+            raise ValueError(
+                "dataset sample_size must equal the number of explicit sample_ids"
+            )
         return self
 
 
@@ -100,19 +109,36 @@ class ModelConfig(StrictModel):
     endpoint_alias: str = "mock-local"
     model_id: str
     base_url: str | None = None
-    credential_env_var: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    credential_env_var: str | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     reasoning: Literal["off", "on", "auto"] | None = None
     temperature: float = Field(default=0, ge=0)
-    top_p: float | None = Field(default=None, ge=0, le=1, exclude_if=lambda value: value is None)
-    top_k: int | None = Field(default=None, ge=0, exclude_if=lambda value: value is None)
-    min_p: float | None = Field(default=None, ge=0, le=1, exclude_if=lambda value: value is None)
-    repeat_penalty: float | None = Field(default=None, gt=0, exclude_if=lambda value: value is None)
+    top_p: float | None = Field(
+        default=None, ge=0, le=1, exclude_if=lambda value: value is None
+    )
+    top_k: int | None = Field(
+        default=None, ge=0, exclude_if=lambda value: value is None
+    )
+    min_p: float | None = Field(
+        default=None, ge=0, le=1, exclude_if=lambda value: value is None
+    )
+    repeat_penalty: float | None = Field(
+        default=None, gt=0, exclude_if=lambda value: value is None
+    )
     max_output_tokens: int | None = Field(default=None, gt=0)
     timeout_seconds: float = Field(default=120, gt=0)
-    scenario_cycle: list[Literal["correct", "incorrect", "unparseable", "request_failed", "missing_usage"]] = Field(
-        default_factory=lambda: ["correct"]
-    )
-    scenario_overrides: dict[str, Literal["correct", "incorrect", "unparseable", "request_failed", "missing_usage"]] = Field(default_factory=dict)
+    scenario_cycle: list[
+        Literal[
+            "correct", "incorrect", "unparseable", "request_failed", "missing_usage"
+        ]
+    ] = Field(default_factory=lambda: ["correct"])
+    scenario_overrides: dict[
+        str,
+        Literal[
+            "correct", "incorrect", "unparseable", "request_failed", "missing_usage"
+        ],
+    ] = Field(default_factory=dict)
     mock_latency_ms: float = Field(default=12.5, ge=0)
 
     @property
@@ -125,7 +151,9 @@ class ModelConfig(StrictModel):
             if not self.base_url:
                 raise ValueError("lm_studio provider requires base_url")
             if self.reasoning is None:
-                raise ValueError("lm_studio provider requires an explicit reasoning mode")
+                raise ValueError(
+                    "lm_studio provider requires an explicit reasoning mode"
+                )
             if not self.base_url.startswith(("http://", "https://")):
                 raise ValueError("lm_studio base_url must use http or https")
         if self.provider == "openai_compatible":
@@ -133,7 +161,10 @@ class ModelConfig(StrictModel):
                 raise ValueError("openai_compatible provider requires base_url")
             if not self.base_url.startswith(("http://", "https://")):
                 raise ValueError("openai_compatible base_url must use http or https")
-        if self.credential_env_var is not None and not self.credential_env_var.isidentifier():
+        if (
+            self.credential_env_var is not None
+            and not self.credential_env_var.isidentifier()
+        ):
             raise ValueError("credential_env_var must be an environment-variable name")
         return self
 
@@ -187,4 +218,9 @@ def load_config(path: Path, overrides: list[str] | None = None) -> RunConfig:
 
 
 def canonical_config(config: RunConfig) -> str:
-    return json.dumps(config.model_dump(mode="json"), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return json.dumps(
+        config.model_dump(mode="json"),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )

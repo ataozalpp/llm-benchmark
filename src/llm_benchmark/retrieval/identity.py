@@ -1,4 +1,4 @@
-"""Canonical identities for keyword retrieval evaluation."""
+"""Canonical identities for retrieval evaluation."""
 
 import hashlib
 import json

@@ -1,4 +1,4 @@
-"""Versioned description of the keyword retrieval baseline."""
+"""Versioned descriptions of keyword and dense retrieval profiles."""
 
 from dataclasses import dataclass, field
 
@@ -86,8 +86,13 @@ class DenseRetrievalProfile:
             if type(value) is not int or value <= 0:
                 raise ValueError(f"{field_name} must be a positive integer.")
 
-        if self.truncation_policy not in {"reject", "truncate"}:
+        if not isinstance(
+            self.truncation_policy, str
+        ) or self.truncation_policy not in {"reject", "truncate"}:
             raise ValueError("Unsupported truncation policy.")
+
+        if self.model_revision != self.model_revision.strip():
+            raise ValueError("Model revision must not contain surrounding whitespace.")
 
         if self.model_revision.casefold() in {"main", "master", "latest"}:
             raise ValueError(

@@ -1451,6 +1451,158 @@ Run those separately before merging, and record the
 actual results. No qualitative findings about the sampled SciFact cases are
 claimed by this checkpoint.
 
+## Dense CPU smoke evidence (recorded 2026-10-25)
+
+This checkpoint records a successful smoke report supplied by the user.
+The JSON report does not contain an execution timestamp or invocation flags;
+the date above is the recording date. The model was not rerun while adding
+this record. The user subsequently confirmed a successful pinned offline run.
+The automated test results below were independently rerun against the working
+tree on 2026-10-25; the real model was not rerun during that verification.
+
+### Model and retrieval profile
+
+| Setting | Recorded value |
+| --- | --- |
+| Status | `passed` |
+| Model | `sentence-transformers/all-MiniLM-L6-v2` |
+| Model revision | `1110a243fdf4706b3f48f1d95db1a4f5529b4d41` |
+| Retriever | `dense-exact-cosine`, version `1` |
+| Adapter | `smoke-sentence-transformers-cpu`, version `1` |
+| Device / precision | `cpu` / `float32` |
+| Embedding dimension | `384` |
+| Maximum sequence length | `256` |
+| Batch size | `8` |
+| Query / document prefixes | Both empty |
+| Normalization | `l2-scaled-v1` |
+| Similarity | `cosine` |
+| Tie-break | `chunk-id-ascending` |
+| Score filter | `none` |
+| Truncation policy | `reject` |
+
+Reported retriever profile hash (copied from the supplied output):
+
+```text
+559c5fd48fbbaca8435308a46bbe2e77a6b9b333382ec3694143384b63127f4d
+```
+
+### Observed model behavior
+
+| Observation | Recorded value |
+| --- | --- |
+| Model device | `cpu` |
+| Model embedding dimension | `384` |
+| Model sequence limit | `256` |
+| Floating-point parameter dtypes | `["torch.float32"]` |
+| Embedding output dtype | `float32` |
+| Tokenizer class | `transformers.models.bert.tokenization_bert.BertTokenizer` |
+| Tokenizer `is_fast` | `true` |
+| CPU threads / interop threads | `4` / `4` |
+| Exact-query ranking | `cat`, `bread`, `space` |
+| Paraphrase-query ranking | `cat`, `bread`, `space` |
+| Long input rejected | `true` |
+| Long-input token count | `514` |
+| Repeated-encoding maximum absolute difference | `0.0` |
+| Batched-encoding maximum absolute difference | `1.564621925354004e-07` |
+
+The exact query was `A cat is sleeping on the sofa.`; the paraphrase
+was `A kitten naps on the couch.`. Both ranked the expected `cat` document
+first in the three-document corpus. The long input contained 514 tokens,
+exceeded the 256-token limit, and was rejected.
+
+For the probe text, repeated encoding within the process produced no observed
+numeric difference. Encoding it alongside the other documents produced a
+nonzero maximum absolute difference of approximately `1.56e-7`. This value
+is diagnostic, not a configured acceptance threshold or evidence of general
+batch independence.
+
+Reported probe vector hash (copied from the supplied output):
+
+```text
+5f2fb87878bd29ba47c6cbfe89286d6bd2c8e460cfdb106f6668c12204a4a616
+```
+
+These hashes are recorded as reported, not independently recomputed in this
+documentation update. The probe vector hash describes one vector, not the
+complete corpus embedding set or model files.
+
+### Runtime package versions
+
+```json
+{
+  "torch": "2.14.1+cpu",
+  "sentence-transformers": "6.2.0",
+  "transformers": "5.20.2",
+  "huggingface-hub": "1.33.0",
+  "tokenizers": "0.23.3",
+  "numpy": "2.5.2"
+}
+```
+
+### Reproduction and follow-up commands
+
+Commands use the repository root. Evidence sources are identified below;
+pytest results are from actual reruns, not inferred from the supplied JSON.
+
+Pinned offline smoke (requires the revision to be cached):
+
+```powershell
+.\.venv\Scripts\python.exe scripts/smoke_dense_cpu.py `
+  --offline `
+  --revision "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
+```
+
+The user confirmed that the pinned offline command completed successfully.
+This is user-reported offline validation, separate from the automated pytest
+reruns below. It does not establish bit-identical vectors between processes.
+
+Additional dependency and scoped lint commands (not rerun for this update):
+
+```powershell
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m ruff check scripts/smoke_dense_cpu.py tests/test_smoke_dense_cpu.py src/llm_benchmark/retrieval/profile.py src/llm_benchmark/retrieval/identity.py tests/test_dense_profile.py
+```
+
+Smoke unit tests executed on 2026-10-25:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q tests/test_smoke_dense_cpu.py
+```
+
+Result: **13 passed in 0.08 seconds**, exit code 0; no failures or skips.
+
+Focused retrieval regression executed on 2026-10-25:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q `
+  tests/test_dense_profile.py `
+  tests/test_retrieval_identity.py `
+  tests/test_dense_retriever.py `
+  tests/test_retrieval_run.py `
+  tests/test_retrieval_review.py `
+  tests/test_smoke_dense_cpu.py
+```
+
+Result: **190 passed in 6.31 seconds**, exit code 0; no failures or skips.
+
+The focused regression includes the 13 smoke unit tests; their counts must
+not be added together. Fake-model unit tests validate control flow without
+loading the real embedding model. These are scoped checks, not a new
+full-project regression.
+
+### Interpretation and next boundary
+
+The supplied result supports CPU model integration, the checked profile and
+output properties, expected ranking for two small examples, and the long-input
+rejection path. It does not establish SciFact retrieval quality, bit-identical
+embeddings across environments, model artifact integrity, large-corpus
+performance, hybrid retrieval quality, or RAG answer quality.
+
+Dense retrieval is not yet connected to the benchmark CLI. The next increment
+is to extract the validated embedding bridge into a package adapter, preserve
+its tests, and then integrate dense configuration, profile-aware run identity,
+runtime metadata, and artifact reporting.
+
 ## Licensing note
 
 No project license has been selected yet. MMLU-Pro attribution and its dataset

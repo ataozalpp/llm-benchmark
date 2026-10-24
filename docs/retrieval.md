@@ -393,21 +393,22 @@ Invalid vectors, dimension mismatches and zero vectors are rejected.
 Tests use fixed vectors and do not download a model or access a network.
 They validate retrieval mechanics, not embedding-model quailty.
 
-A concrete model adapter, versioned dense profile and CLI config are not
-part of this initial core.
+The dense core includes a versioned profile and profile-aware run
+identity. A standalone CPU smoke script validates real embeddings.
+Dense retrieval is not yet integrated into the benchmark CLI.
 
 The current implementation is an exact, in-memory reference retriever.
 It does not claim large-corpus scalability.
 
-Embedding adapters must return tuples of Python numeric values and 
-preserve docuement order. Adapters own model-specific batching, 
+Embedding adapters must return tuples of Python numeric values and
+preserve document order. Adapters own model-specific batching,
 array/tensor conversion, query/document instructions and truncation.
 
 Dense CLI integration requires a versioned embedding profile and 
 profile-aware run identity. The current keyword run identity must not
 be reused unchanged for dense runs.
 
-Embedding reporducibility depends on the model and execution
+Embedding reproducibility depends on the model and execution
 environment; deterministic ranking code alone does not guarantee
 bit-identical embeddings.
 
@@ -429,3 +430,19 @@ The concrete adapter must validate the effective settings and record
 runtime provenance.
 
 The profile and identity layer do not yet enable dense CLI execution.
+
+### CPU embedding smoke
+
+`scripts/smoke_dense_cpu.py` checks a real CPU embedding model against
+the existing dense retriever.
+
+The checks cover model/profile consistency, float32 output, exact-text
+and paraphrase retrieval, and rejection of inputs exceeding the token
+limit. The report records runtime versions, CPU thread counts, and
+diagnostic differences between repeated and batched encoding.
+
+This is a small integration check. It does not establish SciFact
+retrieval quality or guarantee identical embeddings across environments.
+
+The smoke script is separate from the benchmark CLI and does not
+produce benchmark run artifacts.

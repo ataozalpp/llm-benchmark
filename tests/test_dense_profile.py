@@ -32,17 +32,24 @@ def test_profile_preserves_prefix_whitespace():
 @pytest.mark.parametrize(
     ("field_name", "value"),
     [
-        ("model_id", "")("model_revision", "main"),
+        ("model_id", ""),
+        ("model_revision", "main"),
         ("model_revision", "latest"),
+        ("model_revision", " main "),
         ("embedding_dimension", 0),
         ("embedding_dimension", True),
         ("embedding_dimension", -1),
+        ("max_sequence_length", 0),
+        ("max_sequence_length", -1),
+        ("max_sequence_length", True),
         ("batch_size", "8"),
         ("batch_size", False),
         ("query_prefix", None),
         ("document_prefix", "\x00"),
         ("adapter_version", " "),
         ("truncation_policy", "silent"),
+        ("truncation_policy", None),
+        ("truncation_policy", []),
     ],
 )
 def test_invalid_profile_fields(field_name, value):

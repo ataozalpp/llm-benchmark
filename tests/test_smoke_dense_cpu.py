@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from llm_benchmark.retrieval.local_embeddings import SentenceTransformerCpuEmbedder
 from llm_benchmark.retrieval.profile import DenseRetrievalProfile
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "smoke_dense_cpu.py"
@@ -68,49 +69,6 @@ class FakeModel:
         return FakeMatrix(len(texts), self.dtype)
 
 
-def test_empty_input_does_not_encode(smoke):
-    model = FakeModel()
-    embedder = smoke["SmokeEmbedder"](model, make_profile())
-
-    assert embedder.encode_documents(()) == ()
-    assert model.encode_calls == 0
-
-
-def test_over_limit_input_is_rejected_before_encoding(smoke):
-    model = FakeModel()
-    embedder = smoke["SmokeEmbedder"](model, make_profile())
-
-    with pytest.raises(ValueError, match="token limit"):
-        embedder.encode_query("one two three")
-
-    assert model.encode_calls == 0
-
-
-def test_exact_token_limit_is_accepted(smoke):
-    model = FakeModel()
-    embedder = smoke["SmokeEmbedder"](model, make_profile())
-
-    assert embedder.encode_query("one two") == (1.0, 0.0)
-    assert model.encode_calls == 1
-
-
-def test_wrong_output_dtype_is_rejected(smoke):
-    model = FakeModel()
-    model.dtype = "float64"
-    embedder = smoke["SmokeEmbedder"](model, make_profile())
-
-    with pytest.raises(ValueError, match="dtype"):
-        embedder.encode_query("one")
-
-
-def test_model_dimension_must_match_profile(smoke):
-    model = FakeModel()
-    model.get_embedding_dimension = lambda: 3
-
-    with pytest.raises(ValueError, match="dimension"):
-        smoke["SmokeEmbedder"](model, make_profile())
-
-
 def test_max_abs_difference(smoke):
     result = smoke["max_abs_difference"](
         (1.0, 2.0),
@@ -139,7 +97,7 @@ def test_long_input_fixture_must_actually_exceed_limit(smoke):
             return {"input_ids": [[1, 2, 3] for _ in texts]}
 
     model = CollapsingTokenizerModel()
-    embedder = smoke["SmokeEmbedder"](model, make_profile())
+    embedder = SentenceTransformerCpuEmbedder(model, make_profile())
 
     with pytest.raises(RuntimeError, match="fixture did not exceed"):
         smoke["check_long_input_rejection"](embedder)
@@ -201,7 +159,7 @@ def test_cli_prints_valid_json(smoke, monkeypatch, capsys):
 
 def test_long_input_fixture_exceeds_limit_and_is_rejected(smoke):
     model = FakeModel()
-    embedder = smoke["SmokeEmbedder"](model, make_profile())
+    embedder = SentenceTransformerCpuEmbedder(model, make_profile())
 
     count = smoke["check_long_input_rejection"](embedder)
 
@@ -215,7 +173,7 @@ def test_long_input_fixture_at_limit_is_invalid(smoke):
             return {"input_ids": [list(range(self.max_seq_length)) for _ in texts]}
 
     model = ExactLimitTokenizerModel()
-    embedder = smoke["SmokeEmbedder"](model, make_profile())
+    embedder = SentenceTransformerCpuEmbedder(model, make_profile())
 
     with pytest.raises(RuntimeError, match="fixture did not exceed"):
         smoke["check_long_input_rejection"](embedder)

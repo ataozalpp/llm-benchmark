@@ -446,3 +446,13 @@ retrieval quality or guarantee identical embeddings across environments.
 
 The smoke script is separate from the benchmark CLI and does not
 produce benchmark run artifacts.
+
+The CPU embedding bridge is implemented in
+`llm_benchmark.retrieval.local_embeddings.SentenceTransformerCpuEmbedder`.
+The smoke script loads and validates the model, then injects it into
+the adapter.
+
+The initial adapter supports CPU float32 execution, empty prefixes,
+and rejection of inputs exceeding the token limit. Model loading
+remains outside the adapter. Dense benchmark CLI integration is
+still pending.

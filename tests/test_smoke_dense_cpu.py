@@ -179,3 +179,16 @@ def test_long_input_fixture_at_limit_is_invalid(smoke):
         smoke["check_long_input_rejection"](embedder)
 
     assert model.encode_calls == 0
+
+
+def test_long_input_check_propagates_unrelated_value_error(smoke):
+    class BrokenEmbedder:
+        def __init__(self):
+            self.model = FakeModel()
+            self.profile = make_profile()
+
+        def encode_query(self, text):
+            raise ValueError("Unexpected backend failure.")
+
+    with pytest.raises(ValueError, match="Unexpected backend failure"):
+        smoke["check_long_input_rejection"](BrokenEmbedder())

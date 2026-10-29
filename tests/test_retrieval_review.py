@@ -1,10 +1,13 @@
+import builtins
 import json
 import runpy
 import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
+from llm_benchmark.retrieval import run_service
 from llm_benchmark.retrieval.evaluation import evaluate_retrieval
 from llm_benchmark.retrieval.models import (
     RankedRetrieval,
@@ -378,3 +381,154 @@ def test_cli_failure_is_sanitized(review_run, monkeypatch, capsys, error_type):
     assert "Review failed" in captured.err
     assert "private internal details" not in captured.err
     assert not (directory / "review.json").exists()
+
+
+@pytest.fixture
+def dense_review_run(tmp_path, monkeypatch):
+    root = Path(__file__).resolve().parents[1]
+    suite = tmp_path / "suite.json"
+    suite.write_bytes((root / "examples/retrieval/keyword_smoke.json").read_bytes())
+    config = tmp_path / "dense.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "schema_version": 1,
+                "suite_path": "suite.json",
+                "retriever": "dense",
+                "k": 2,
+                "output_dir": "runs",
+                "embedding": {
+                    "model_id": "test/encoder",
+                    "model_revision": "a" * 40,
+                    "embedding_dimension": 2,
+                    "max_sequence_length": 256,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class Embedder:
+        model = object()
+
+        def __init__(self):
+            self.document_count = 0
+            self.query_count = 0
+
+        def encode_documents(self, texts):
+            self.document_count += len(texts)
+            return ((1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0))
+
+        def encode_query(self, text):
+            vector = {
+                "refund period": (1.0, 0.0),
+                "password reset": (-1.0, 0.0),
+                "delivery": (0.0, 1.0),
+                "invoice": (0.0, -1.0),
+            }[text]
+            self.query_count += 1
+            return vector
+
+        def input_statistics(self):
+            return {
+                "schema_version": 1,
+                "encoded_document_count": self.document_count,
+                "over_limit_document_count": 0,
+                "encoded_query_count": self.query_count,
+                "over_limit_query_count": 0,
+            }
+
+    monkeypatch.setattr(run_service, "load_cpu_embedder", lambda *a, **k: Embedder())
+    monkeypatch.setattr(
+        run_service, "collect_embedding_runtime", lambda model: {"schema_version": 1}
+    )
+    directory, _ = run_retrieval_benchmark(load_retrieval_run_config(config))
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Recorded dense review must not run a retriever or load a model.")
+
+    monkeypatch.setattr(run_service, "load_cpu_embedder", forbidden)
+    original_import = builtins.__import__
+
+    def guarded_import(name, *args, **kwargs):
+        if name.split(".")[0] in {
+            "torch",
+            "sentence_transformers",
+            "transformers",
+            "huggingface_hub",
+        }:
+            pytest.fail("Recorded review must not import model dependencies.")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+    api = runpy.run_path(str(root / "scripts/review_retrieval_run.py"))
+    monkeypatch.setitem(api["build_review"].__globals__, "KeywordRetriever", forbidden)
+    return suite, directory, api
+
+
+def test_dense_review_recomputes_recorded_results_without_model(dense_review_run):
+    suite, directory, api = dense_review_run
+    before = {path.name: path.read_bytes() for path in directory.iterdir()}
+    report = api["build_review"](suite, directory)
+    manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
+    assert report["population_counts"] == {"rank_1": 4, "rank_2_to_k": 0, "miss": 0}
+    assert report["retrieval_replay"] == "not_requested"
+    assert report["retriever_profile"] == manifest["retriever_profile"]
+    assert report["retriever_profile_hash"] == manifest["retriever_profile_hash"]
+    assert report["run_fingerprint"] == manifest["run_fingerprint"]
+    assert {path.name: path.read_bytes() for path in directory.iterdir()} == before
+
+
+def test_dense_review_rejects_replay_without_model_load(dense_review_run):
+    suite, directory, api = dense_review_run
+    with pytest.raises(ValueError, match="Dense replay is not supported"):
+        api["build_review"](suite, directory, verify_retrieval=True)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("model_revision", "b" * 40),
+        ("similarity", "dot-product"),
+        ("version", "999"),
+    ],
+)
+def test_dense_review_rejects_modified_profile(dense_review_run, field, value):
+    suite, directory, api = dense_review_run
+    path = directory / "manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    manifest["retriever_profile"][field] = value
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="identity|Unsupported recorded profile"):
+        api["build_review"](suite, directory)
+
+
+def test_dense_review_rejects_incorrect_recorded_metrics(dense_review_run):
+    suite, directory, api = dense_review_run
+    path = directory / "results.jsonl"
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    rows[0]["metrics"]["hit_at_k"] = 0.0
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    with pytest.raises(ValueError, match="Stored metrics"):
+        api["build_review"](suite, directory)
+
+
+def test_dense_review_cli_writes_report_and_rejects_replay(
+    dense_review_run, monkeypatch, capsys
+):
+    suite, directory, api = dense_review_run
+    args = ["review", "--suite", str(suite), "--run-dir", str(directory)]
+    monkeypatch.setattr(sys, "argv", args)
+    api["main"]()
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert json.loads(output.out)["population_counts"]["rank_1"] == 4
+    report_path = directory / "review.json"
+    before = report_path.read_bytes()
+    assert json.loads(before)["retrieval_replay"] == "not_requested"
+    monkeypatch.setattr(sys, "argv", args + ["--verify-retrieval"])
+    with pytest.raises(SystemExit) as caught:
+        api["main"]()
+    assert caught.value.code == 2
+    assert "Review failed" in capsys.readouterr().err
+    assert report_path.read_bytes() == before

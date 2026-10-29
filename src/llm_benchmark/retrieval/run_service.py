@@ -1,5 +1,6 @@
-"""Run keyword retrieval with content identity, timings, and local artifacts."""
+"""Run retrieval benchmarks with content identity, timings, and local artifacts."""
 
+import sys
 import platform
 import time
 from dataclasses import asdict
@@ -9,9 +10,12 @@ from uuid import uuid4
 
 from .artifacts import RetrievalArtifactWriter
 from .dataset import load_retrieval_dataset
-from .identity import build_keyword_run_identity
+from .dense import DenseRetriever
+from .embedding_loader import load_cpu_embedder
+from .embedding_runtime import collect_embedding_runtime
+from .identity import build_retrieval_run_identity
 from .keyword import KeywordRetriever
-from .profile import KEYWORD_PROFILE
+from .profile import KEYWORD_PROFILE, DenseRetrievalProfile
 from .run_config import LoadedRetrievalRunConfig
 from .suite import run_retrieval_suite
 
@@ -25,16 +29,28 @@ def run_retrieval_benchmark(
 ) -> tuple[Path, dict[str, object]]:
     started = time.perf_counter()
     dataset = load_retrieval_dataset(loaded.suite_path)
-    identity = build_keyword_run_identity(
-        chunks=dataset.chunks, scenarios=dataset.scenarios, k=loaded.config.k
+
+    if loaded.config.retriever == "keyword":
+        profile = KEYWORD_PROFILE
+    else:
+        if loaded.config.embedding is None:
+            raise ValueError("Dense embedding settings are missing.")
+        profile = loaded.config.embedding.to_profile()
+
+    identity = build_retrieval_run_identity(
+        chunks=dataset.chunks,
+        scenarios=dataset.scenarios,
+        k=loaded.config.k,
+        profile=profile,
     )
+
     run_id = uuid4().hex
     manifest = {
         **identity,
         "artifact_schema_version": 1,
         "run_id": run_id,
         "suite_id": dataset.suite_id,
-        "retriever_profile": asdict(KEYWORD_PROFILE),
+        "retriever_profile": asdict(profile),
         "python_version": platform.python_version(),
         "k": loaded.config.k,
         "scenario_ids": [item.query.query_id for item in dataset.scenarios],
@@ -44,14 +60,59 @@ def run_retrieval_benchmark(
     }
     writer = None
     latencies: dict[str, float] = {}
+    model_load_time_ms = 0.0
     index_time_ms = 0.0
+    dense_embedder = None
+
+    def update_embedding_statistics():
+        if dense_embedder is not None:
+            manifest["embedding_input_statistics"] = (
+                dense_embedder.input_statistics()
+            )
 
     class TimedRetriever:
         def __init__(self, chunks):
-            nonlocal index_time_ms
+            nonlocal model_load_time_ms, index_time_ms, dense_embedder
+
+            if loaded.config.retriever == "keyword":
+                before = time.perf_counter()
+                self.delegate = KeywordRetriever(chunks)
+                index_time_ms = (time.perf_counter() - before) * 1000
+                return
+
+            embedding_config = loaded.config.embedding
+            if embedding_config is None:
+                raise ValueError("Dense embedding settings are missing.")
+
+            if not isinstance(profile, DenseRetrievalProfile):
+                raise TypeError("Dense retrieval requires a dense profile.")
+
             before = time.perf_counter()
-            self.delegate = KeywordRetriever(chunks)
+            embedder = load_cpu_embedder(
+                profile,
+                local_files_only=embedding_config.local_files_only,
+            )
+            model_load_time_ms = (time.perf_counter() - before) * 1000
+
+            dense_embedder = embedder
+            update_embedding_statistics()
+
+            manifest["embedding_runtime"] = collect_embedding_runtime(embedder.model)
+            manifest["embedding_load_policy"] = {
+                "local_files_only": embedding_config.local_files_only,
+            }
+
+            if writer is None:
+                raise RuntimeError("Artifact writer is not initialized.")
+
+            writer.write_json("manifest.json", manifest)
+
+            before = time.perf_counter()
+            self.delegate = DenseRetriever(chunks, embedder=embedder)
             index_time_ms = (time.perf_counter() - before) * 1000
+
+            update_embedding_statistics()
+            writer.write_json("manifest.json", manifest)
 
         def retrieve(self, query, *, top_k):
             before = time.perf_counter()
@@ -71,6 +132,15 @@ def run_retrieval_benchmark(
             }
         )
         manifest["completed_case_count"] += 1
+        completed = manifest["completed_case_count"]
+        total = len(dataset.scenarios)
+
+        if completed % 25 == 0 or completed == total:
+            print(
+                f"[retrieval] Completed {completed}/{total} queries",
+                file=sys.stderr,
+                flush=True,
+            )
 
     try:
         writer = RetrievalArtifactWriter(loaded.output_dir / run_id)
@@ -85,21 +155,37 @@ def run_retrieval_benchmark(
         summary = {
             **asdict(result.summary),
             "run_id": run_id,
+            "model_load_ms": model_load_time_ms,
             "index_build_ms": index_time_ms,
             "retrieval_total_ms": sum(latencies.values()),
             "retrieval_mean_ms": sum(latencies.values()) / len(latencies),
             "wall_time_ms": (time.perf_counter() - started) * 1000,
         }
         writer.write_json("summary.json", summary)
+        update_embedding_statistics()
         manifest.update(status="completed", completed_at=_now())
         writer.write_json("manifest.json", manifest)
         return writer.directory, summary
+    except KeyboardInterrupt:
+        if writer is not None:
+            manifest.update(
+                status="failed",
+                completed_at=_now(),
+                error_code="retrieval_run_interrupted",
+            )
+            try:
+                update_embedding_statistics()
+                writer.write_json("manifest.json", manifest)
+            except OSError:
+                pass
+        raise
     except Exception:
         if writer is not None:
             manifest.update(
                 status="failed", completed_at=_now(), error_code="retrieval_run_failed"
             )
             try:
+                update_embedding_statistics()
                 writer.write_json("manifest.json", manifest)
             except OSError:
                 pass  # Best effort only when storage itself has failed.

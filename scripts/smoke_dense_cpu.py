@@ -9,8 +9,12 @@ from importlib.metadata import version
 from typing import Any
 
 from llm_benchmark.retrieval.dense import DenseRetriever
+from llm_benchmark.retrieval.embedding_loader import load_cpu_embedder
 from llm_benchmark.retrieval.identity import fingerprint
-from llm_benchmark.retrieval.local_embeddings import SentenceTransformerCpuEmbedder
+from llm_benchmark.retrieval.local_embeddings import (
+    EmbeddingInputTooLongError,
+    SentenceTransformerCpuEmbedder,
+)
 from llm_benchmark.retrieval.models import Chunk, RetrievalQuery
 from llm_benchmark.retrieval.profile import DenseRetrievalProfile
 
@@ -58,9 +62,8 @@ def check_long_input_rejection(
 
     try:
         embedder.encode_query(long_text)
-    except ValueError as exc:
-        if str(exc) != "Smoke inputs must fit the model token limit.":
-            raise
+    except EmbeddingInputTooLongError:
+        pass
     else:
         raise RuntimeError("Long input was not rejected.")
 
@@ -70,7 +73,6 @@ def check_long_input_rejection(
 def run_smoke(args: argparse.Namespace) -> dict[str, Any]:
     import torch
     from huggingface_hub import HfApi
-    from sentence_transformers import SentenceTransformer
 
     revision = args.revision
     if revision is None:
@@ -79,28 +81,30 @@ def run_smoke(args: argparse.Namespace) -> dict[str, Any]:
     if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
         raise ValueError("Use a full model commit SHA as the revision.")
 
-    model = SentenceTransformer(
-        MODEL_ID,
-        revision=revision,
+    profile = DenseRetrievalProfile(
+        model_id=MODEL_ID,
+        model_revision=revision,
+        embedding_dimension=EXPECTED_DIMENSION,
+        max_sequence_length=EXPECTED_MAX_SEQUENCE_LENGTH,
+        query_prefix="",
+        document_prefix="",
         device="cpu",
-        local_files_only=args.offline,
-        trust_remote_code=False,
+        precision="float32",
+        batch_size=BATCH_SIZE,
+        adapter_id="smoke-sentence-transformers-cpu",
+        adapter_version="1",
+        truncation_policy="reject",
     )
-    model.float()
-    model.eval()
+
+    embedder = load_cpu_embedder(
+        profile,
+        local_files_only=args.offline,
+    )
+    model = embedder.model
 
     observed_dimension = model.get_embedding_dimension()
     observed_limit = model.max_seq_length
     observed_device = str(model.device)
-
-    if observed_dimension != EXPECTED_DIMENSION:
-        raise ValueError("Unexpected model embedding dimension.")
-
-    if observed_limit != EXPECTED_MAX_SEQUENCE_LENGTH:
-        raise ValueError("Unexpected model sequence limit.")
-
-    if observed_device != "cpu":
-        raise ValueError("The model is not running on CPU.")
 
     parameter_dtypes = sorted(
         {
@@ -109,25 +113,6 @@ def run_smoke(args: argparse.Namespace) -> dict[str, Any]:
             if parameter.is_floating_point()
         }
     )
-    if parameter_dtypes != ["torch.float32"]:
-        raise ValueError(f"Unexpected model parameter dtypes: {parameter_dtypes}")
-
-    profile = DenseRetrievalProfile(
-        model_id=MODEL_ID,
-        model_revision=revision,
-        embedding_dimension=observed_dimension,
-        max_sequence_length=observed_limit,
-        query_prefix="",
-        document_prefix="",
-        device=observed_device,
-        precision="float32",
-        batch_size=BATCH_SIZE,
-        adapter_id="smoke-sentence-transformers-cpu",
-        adapter_version="1",
-        truncation_policy="reject",
-    )
-
-    embedder = SentenceTransformerCpuEmbedder(model, profile)
 
     chunks = (
         Chunk(

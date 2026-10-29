@@ -32,7 +32,7 @@ def provider_response(
 
 
 def test_multiple_choice_adapter_preserves_existing_prompt(
-        example: DatasetExample,
+    example: DatasetExample,
 ) -> None:
     adapter = MultipleChoiceTaskAdapter()
 
@@ -40,7 +40,7 @@ def test_multiple_choice_adapter_preserves_existing_prompt(
 
 
 def test_multiple_choice_adapter_evaluates_correct_answer(
-        example: DatasetExample,
+    example: DatasetExample,
 ) -> None:
     outcome = MultipleChoiceTaskAdapter().evaluate_response(
         example,
@@ -71,9 +71,7 @@ def test_multiple_choice_adapter_preserves_unparseable_status(
 ) -> None:
     outcome = MultipleChoiceTaskAdapter().evaluate_response(
         example,
-        provider_response(
-            raw_response="Mars is the correct planet."
-        ),
+        provider_response(raw_response="Mars is the correct planet."),
     )
 
     assert outcome.parsed_answer is None
@@ -100,7 +98,7 @@ def test_multiple_choice_adapter_preserves_request_failure(
 
 
 def test_multiple_choice_adapter_preserves_ambiguous_response(
-        example: DatasetExample,
+    example: DatasetExample,
 ) -> None:
     outcome = MultipleChoiceTaskAdapter().evaluate_response(
         example,

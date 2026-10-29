@@ -1,7 +1,9 @@
 """Local retrieval ingestion, CLI, and durable run lifecycle contracts."""
 
 import json
+from dataclasses import asdict
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -9,6 +11,8 @@ import yaml
 from llm_benchmark.cli import main
 from llm_benchmark.retrieval import dataset, run_config, run_service
 from llm_benchmark.retrieval.artifacts import RetrievalArtifactWriter
+from llm_benchmark.retrieval.identity import fingerprint
+from llm_benchmark.retrieval.local_embeddings import EmbeddingInputTooLongError
 
 EXAMPLE = Path(__file__).parents[1] / "examples/retrieval/keyword_smoke.json"
 
@@ -243,7 +247,7 @@ def test_cli(config_path, capsys):
     response = json.loads(captured.out)
     assert response["overall"]["hit_rate_at_k"] == 0.75
     assert Path(response["output_dir"]).is_dir()
-    assert captured.err == ""
+    assert captured.err == "[retrieval] Completed 4/4 queries\n"
 
 
 def test_cli_invalid_config(config_path, capsys):
@@ -254,3 +258,436 @@ def test_cli_invalid_config(config_path, capsys):
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == "error: Invalid retrieval run configuration.\n"
+
+
+@pytest.fixture
+def dense_config_path(config_path):
+    payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    payload.update(
+        retriever="dense",
+        embedding={
+            "model_id": "test/encoder",
+            "model_revision": "a" * 40,
+            "embedding_dimension": 2,
+            "max_sequence_length": 256,
+            "batch_size": 8,
+            "local_files_only": True,
+        },
+    )
+    config_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    return config_path
+
+
+@pytest.fixture(autouse=True)
+def fake_embedding_runtime(monkeypatch):
+    calls = []
+    metadata = {
+        "schema_version": 1,
+        "runtime_versions": {"test-backend": "1"},
+    }
+
+    def collect(model):
+        calls.append(model)
+        return metadata.copy()
+
+    monkeypatch.setattr(run_service, "collect_embedding_runtime", collect)
+
+    return calls
+
+
+class FixedEmbedder:
+    def __init__(self):
+        self.document_calls = 0
+        self.query_calls = 0
+        self.model = object()
+
+    def encode_documents(self, texts):
+        self.document_calls += 1
+        assert len(texts) == 4
+        return ((1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0))
+
+    def encode_query(self, text):
+        self.query_calls += 1
+        return {
+            "refund period": (1.0, 0.0),
+            "password reset": (-1.0, 0.0),
+            "delivery": (0.0, 1.0),
+            "invoice": (0.0, -1.0),
+        }[text]
+
+    def input_statistics(self):
+        return {
+            "schema_version": 1,
+            "encoded_document_count": self.document_calls * 4,
+            "over_limit_document_count": 0,
+            "encoded_query_count": self.query_calls,
+            "over_limit_query_count": 0,
+        }
+
+
+def read_results(directory):
+    path = directory / "results.jsonl"
+    return (
+        [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+        if path.exists()
+        else []
+    )
+
+
+@pytest.mark.parametrize("offline", [True, False])
+def test_dense_artifacts_use_dense_profile_and_load_once(
+    dense_config_path, monkeypatch, offline, fake_embedding_runtime
+):
+    payload = yaml.safe_load(dense_config_path.read_text(encoding="utf-8"))
+    payload["embedding"]["local_files_only"] = offline
+    dense_config_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    loaded = run_config.load_retrieval_run_config(dense_config_path)
+    embedder = FixedEmbedder()
+    calls = []
+
+    def load(profile, *, local_files_only):
+        calls.append((profile, local_files_only))
+        (directory,) = loaded.output_dir.iterdir()
+        assert read_json(directory / "manifest.json")["status"] == "running"
+        return embedder
+
+    def forbid_keyword(*args, **kwargs):
+        pytest.fail("Dense execution must not use KeywordRetriever.")
+
+    monkeypatch.setattr(run_service, "load_cpu_embedder", load)
+    monkeypatch.setattr(run_service, "KeywordRetriever", forbid_keyword)
+    directory, summary = run_service.run_retrieval_benchmark(loaded)
+    manifest = read_json(directory / "manifest.json")
+    rows = read_results(directory)
+    profile = loaded.config.embedding.to_profile()
+
+    assert calls == [(profile, offline)]
+    assert fake_embedding_runtime == [embedder.model]
+    assert manifest["embedding_runtime"] == {
+        "schema_version": 1,
+        "runtime_versions": {"test-backend": "1"},
+    }
+    assert manifest["embedding_load_policy"] == {"local_files_only": offline}
+    assert embedder.document_calls == 1
+    assert embedder.query_calls == 4
+    assert manifest["retriever_profile"] == asdict(profile)
+    assert manifest["retriever_profile_hash"] == fingerprint(asdict(profile))
+    assert manifest["status"] == "completed"
+    assert manifest["completed_case_count"] == len(rows) == 4
+    assert [row["query_id"] for row in rows] == manifest["scenario_ids"]
+    assert [row["retrieved_chunk_ids"][0] for row in rows] == [
+        "refund",
+        "account",
+        "shipping",
+        "payment",
+    ]
+    assert all(row["run_id"] == manifest["run_id"] for row in rows)
+    assert summary["hit_rate_at_k"] == summary["mrr_at_k"] == 1.0
+    assert summary["mean_precision_at_k"] == 0.5
+    assert read_json(directory / "summary.json") == summary
+    assert manifest["embedding_input_statistics"] == {
+        "schema_version": 1,
+        "encoded_document_count": 4,
+        "over_limit_document_count": 0,
+        "encoded_query_count": 4,
+        "over_limit_query_count": 0,
+    }
+
+
+def test_keyword_does_not_load_embedding_model(
+    config_path, monkeypatch, fake_embedding_runtime
+):
+    def forbidden(*args, **kwargs):
+        pytest.fail("Keyword runs must not load an embedding model.")
+
+    monkeypatch.setattr(run_service, "load_cpu_embedder", forbidden)
+    directory, summary = run_service.run_retrieval_benchmark(
+        run_config.load_retrieval_run_config(config_path)
+    )
+    assert summary["model_load_ms"] == 0.0
+    assert summary["hit_rate_at_k"] == 0.75
+    assert fake_embedding_runtime == []
+    manifest = read_json(directory / "manifest.json")
+    assert "embedding_runtime" not in manifest
+    assert "embedding_load_policy" not in manifest
+    assert "embedding_input_statistics" not in manifest
+
+
+@pytest.mark.parametrize("stage,completed", [("load", 0), ("index", 0), ("query", 1)])
+def test_dense_failures_preserve_lifecycle(
+    dense_config_path, monkeypatch, stage, completed
+):
+    class FailingEmbedder(FixedEmbedder):
+        def encode_documents(self, texts):
+            if stage == "index":
+                raise EmbeddingInputTooLongError("private backend secret")
+            return super().encode_documents(texts)
+
+        def encode_query(self, text):
+            if stage == "query" and self.query_calls == 1:
+                raise RuntimeError("private backend secret")
+            return super().encode_query(text)
+
+    def load(*args, **kwargs):
+        if stage == "load":
+            raise OSError("private backend secret")
+        return FailingEmbedder()
+
+    monkeypatch.setattr(run_service, "load_cpu_embedder", load)
+    loaded = run_config.load_retrieval_run_config(dense_config_path)
+    with pytest.raises(RuntimeError, match="Retrieval run failed") as caught:
+        run_service.run_retrieval_benchmark(loaded)
+
+    (directory,) = loaded.output_dir.iterdir()
+    manifest = read_json(directory / "manifest.json")
+    if stage == "load":
+        assert "embedding_input_statistics" not in manifest
+    else:
+        assert manifest["embedding_input_statistics"] == {
+            "schema_version": 1,
+            "encoded_document_count": 0 if stage == "index" else 4,
+            "over_limit_document_count": 0,
+            "encoded_query_count": completed,
+            "over_limit_query_count": 0,
+        }
+    assert manifest["status"] == "failed"
+    assert manifest["error_code"] == "retrieval_run_failed"
+    assert manifest["completed_case_count"] == completed
+    if stage == "load":
+        assert "embedding_runtime" not in manifest
+    else:
+        assert manifest["embedding_runtime"]["runtime_versions"] == {
+            "test-backend": "1"
+        }
+        assert manifest["embedding_load_policy"] == {"local_files_only": True}
+    assert len(read_results(directory)) == completed
+    assert not (directory / "summary.json").exists()
+    assert "secret" not in str(caught.value)
+    assert all(
+        "secret" not in path.read_text(encoding="utf-8") for path in directory.iterdir()
+    )
+
+
+def test_dense_timing_separates_loading_index_and_queries(
+    dense_config_path, monkeypatch
+):
+    clock = SimpleNamespace(now=0.0)
+    monkeypatch.setattr(
+        run_service, "time", SimpleNamespace(perf_counter=lambda: clock.now)
+    )
+
+    class TimedEmbedder(FixedEmbedder):
+        def encode_documents(self, texts):
+            clock.now += 3.0
+            return super().encode_documents(texts)
+
+        def encode_query(self, text):
+            clock.now += 0.25
+            return super().encode_query(text)
+
+    def load(*args, **kwargs):
+        clock.now += 2.0
+        return TimedEmbedder()
+
+    def collect(model):
+        clock.now += 0.5
+        return {"schema_version": 1}
+
+    monkeypatch.setattr(run_service, "collect_embedding_runtime", collect)
+    monkeypatch.setattr(run_service, "load_cpu_embedder", load)
+    directory, summary = run_service.run_retrieval_benchmark(
+        run_config.load_retrieval_run_config(dense_config_path)
+    )
+    assert summary["model_load_ms"] == 2000.0
+    assert summary["index_build_ms"] == 3000.0
+    assert summary["retrieval_total_ms"] == 1000.0
+    assert summary["retrieval_mean_ms"] == 250.0
+    assert summary["wall_time_ms"] == 6500.0
+    assert [row["retrieval_latency_ms"] for row in read_results(directory)] == [
+        250.0
+    ] * 4
+
+
+def test_dense_revision_changes_run_identity(dense_config_path, monkeypatch):
+    monkeypatch.setattr(
+        run_service, "load_cpu_embedder", lambda *a, **k: FixedEmbedder()
+    )
+    first, _ = run_service.run_retrieval_benchmark(
+        run_config.load_retrieval_run_config(dense_config_path)
+    )
+    payload = yaml.safe_load(dense_config_path.read_text(encoding="utf-8"))
+    payload["embedding"]["model_revision"] = "b" * 40
+    dense_config_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    second, _ = run_service.run_retrieval_benchmark(
+        run_config.load_retrieval_run_config(dense_config_path)
+    )
+    left, right = (
+        read_json(first / "manifest.json"),
+        read_json(second / "manifest.json"),
+    )
+    assert left["corpus_hash"] == right["corpus_hash"]
+    assert left["suite_hash"] == right["suite_hash"]
+    assert left["retriever_profile_hash"] != right["retriever_profile_hash"]
+    assert left["run_fingerprint"] != right["run_fingerprint"]
+
+
+def test_dense_cli_success(dense_config_path, monkeypatch, capsys):
+    monkeypatch.setattr(
+        run_service, "load_cpu_embedder", lambda *a, **k: FixedEmbedder()
+    )
+    main(["retrieval-run", "--config", str(dense_config_path)])
+    captured = capsys.readouterr()
+    response = json.loads(captured.out)
+    manifest = read_json(Path(response["output_dir"]) / "manifest.json")
+    assert response["run_id"] == manifest["run_id"]
+    assert response["overall"]["hit_rate_at_k"] == 1.0
+    assert manifest["retriever_profile"]["name"] == "dense-exact-cosine"
+    assert captured.err == "[retrieval] Completed 4/4 queries\n"
+    assert manifest["embedding_runtime"] == {
+        "schema_version": 1,
+        "runtime_versions": {"test-backend": "1"},
+    }
+    assert manifest["embedding_load_policy"] == {
+        "local_files_only": True,
+    }
+
+
+def test_dense_cli_load_failure_exits_two(dense_config_path, monkeypatch, capsys):
+    def fail(*args, **kwargs):
+        raise OSError("private cache secret")
+
+    monkeypatch.setattr(run_service, "load_cpu_embedder", fail)
+    with pytest.raises(SystemExit) as caught:
+        main(["retrieval-run", "--config", str(dense_config_path)])
+    assert caught.value.code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Retrieval run failed" in captured.err
+    assert "secret" not in captured.err
+
+
+def test_runtime_is_persisted_before_index_encoding(dense_config_path, monkeypatch):
+    loaded = run_config.load_retrieval_run_config(dense_config_path)
+
+    class InspectingEmbedder(FixedEmbedder):
+        def encode_documents(self, texts):
+            (directory,) = loaded.output_dir.iterdir()
+            manifest = read_json(directory / "manifest.json")
+            assert manifest["status"] == "running"
+            assert manifest["completed_case_count"] == 0
+            assert manifest["embedding_runtime"]["runtime_versions"] == {
+                "test-backend": "1"
+            }
+            assert manifest["embedding_load_policy"] == {"local_files_only": True}
+            return super().encode_documents(texts)
+
+    monkeypatch.setattr(
+        run_service, "load_cpu_embedder", lambda *a, **k: InspectingEmbedder()
+    )
+    run_service.run_retrieval_benchmark(loaded)
+
+
+def test_runtime_collection_failure_stops_before_encoding(
+    dense_config_path, monkeypatch
+):
+    embedder = FixedEmbedder()
+    monkeypatch.setattr(run_service, "load_cpu_embedder", lambda *a, **k: embedder)
+
+    def fail(model):
+        assert model is embedder.model
+        raise RuntimeError("private runtime secret")
+
+    monkeypatch.setattr(run_service, "collect_embedding_runtime", fail)
+    loaded = run_config.load_retrieval_run_config(dense_config_path)
+    with pytest.raises(RuntimeError, match="Retrieval run failed") as caught:
+        run_service.run_retrieval_benchmark(loaded)
+
+    (directory,) = loaded.output_dir.iterdir()
+    manifest = read_json(directory / "manifest.json")
+    assert manifest["status"] == "failed"
+    assert manifest["completed_case_count"] == 0
+    assert "embedding_runtime" not in manifest
+    assert embedder.document_calls == embedder.query_calls == 0
+    assert read_results(directory) == []
+    assert not (directory / "summary.json").exists()
+    assert "secret" not in str(caught.value)
+    assert "secret" not in json.dumps(manifest)
+
+
+def test_runtime_manifest_write_failure_stops_before_encoding(
+    dense_config_path, monkeypatch
+):
+    embedder = FixedEmbedder()
+    monkeypatch.setattr(run_service, "load_cpu_embedder", lambda *a, **k: embedder)
+    original = RetrievalArtifactWriter.write_json
+    failed_writes = []
+
+    def fail_runtime_write(self, filename, value):
+        if (
+            filename == "manifest.json"
+            and value.get("status") == "running"
+            and "embedding_runtime" in value
+        ):
+            failed_writes.append(filename)
+            raise OSError("private storage secret")
+        return original(self, filename, value)
+
+    monkeypatch.setattr(RetrievalArtifactWriter, "write_json", fail_runtime_write)
+    loaded = run_config.load_retrieval_run_config(dense_config_path)
+    with pytest.raises(RuntimeError, match="Retrieval run failed"):
+        run_service.run_retrieval_benchmark(loaded)
+
+    (directory,) = loaded.output_dir.iterdir()
+    manifest = read_json(directory / "manifest.json")
+    assert failed_writes == ["manifest.json"]
+    assert manifest["status"] == "failed"
+    assert manifest["completed_case_count"] == 0
+    assert "embedding_runtime" in manifest
+    assert embedder.document_calls == embedder.query_calls == 0
+    assert not (directory / "summary.json").exists()
+    assert "secret" not in json.dumps(manifest)
+
+
+def test_truncate_policy_and_statistics_reach_manifest(
+    dense_config_path, monkeypatch
+):
+    payload = yaml.safe_load(
+        dense_config_path.read_text(encoding="utf-8")
+    )
+    payload["embedding"]["truncation_policy"] = "truncate"
+    dense_config_path.write_text(
+        yaml.safe_dump(payload),
+        encoding="utf-8",
+    )
+
+    class TruncatingEmbedder(FixedEmbedder):
+        def input_statistics(self):
+            return {
+                "schema_version": 1,
+                "encoded_document_count": self. document_calls * 4,
+                "over_limit_document_count": self.document_calls * 2,
+                "encoded_query_count": self.query_calls,
+                "over_limit_query_count": min(self.query_calls, 1),
+            }
+
+    def load(profile, *, local_files_only):
+        assert profile.truncation_policy == "truncate"
+        assert local_files_only is True
+        return TruncatingEmbedder()
+
+    monkeypatch.setattr(run_service, "load_cpu_embedder", load)
+
+    directory, _ = run_service.run_retrieval_benchmark(
+        run_config.load_retrieval_run_config(dense_config_path)
+    )
+    manifest = read_json(directory / "manifest.json")
+
+    assert manifest["status"] == "completed"
+    assert manifest["retriever_profile"]["truncation_policy"] == "truncate"
+    assert manifest["embedding_input_statistics"] == {
+        "schema_version": 1,
+        "encoded_document_count": 4,
+        "over_limit_document_count": 2,
+        "encoded_query_count": 4,
+        "over_limit_query_count": 1,
+    }

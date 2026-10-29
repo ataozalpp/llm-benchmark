@@ -17,9 +17,7 @@ from llm_benchmark.trace import (
 
 
 def test_in_memory_trace_recorder_preserves_event_order() -> None:
-    recorder = InMemoryTraceRecorder(
-        clock=lambda: "2026-09-01T10:00:00+00:00"
-    )
+    recorder = InMemoryTraceRecorder(clock=lambda: "2026-09-01T10:00:00+00:00")
 
     first = recorder.record(
         TraceEventType.SCENARIO_STARTED,
@@ -40,9 +38,7 @@ def test_in_memory_trace_recorder_preserves_event_order() -> None:
 
 
 def test_trace_recorder_uses_injected_clock() -> None:
-    recorder = InMemoryTraceRecorder(
-        clock=lambda: "2026-09-01T10:00:00+00:00"
-    )
+    recorder = InMemoryTraceRecorder(clock=lambda: "2026-09-01T10:00:00+00:00")
 
     event = recorder.record(
         TraceEventType.SCENARIO_STARTED,
@@ -248,7 +244,5 @@ def test_write_jsonl_preserves_utf8_and_cleans_temporary_file(tmp_path) -> None:
 
     write_jsonl(path, [{"message": "Türkçe doğrulama"}])
 
-    assert path.read_text(encoding="utf-8") == (
-        '{"message": "Türkçe doğrulama"}\n'
-    )
+    assert path.read_text(encoding="utf-8") == ('{"message": "Türkçe doğrulama"}\n')
     assert not path.with_suffix(".jsonl.tmp").exists()

@@ -18,12 +18,17 @@ Question: {question}
 
 
 def build_prompt(example: DatasetExample) -> str:
-    options = "\n".join(f"{label}. {text}" for label, text in zip(example.allowed_labels, example.options, strict=True))
+    options = "\n".join(
+        f"{label}. {text}"
+        for label, text in zip(example.allowed_labels, example.options, strict=True)
+    )
     return PROMPT_TEMPLATE.format(
         question=example.question,
         options=options,
         allowed_labels=", ".join(example.allowed_labels),
-        example_label="B" if "B" in example.allowed_labels else example.allowed_labels[0],
+        example_label="B"
+        if "B" in example.allowed_labels
+        else example.allowed_labels[0],
     )
 
 

@@ -62,10 +62,7 @@ async def run_smoke(
                 raise RuntimeError("Tool call identity was not preserved.")
 
             protocol_version = client.protocol_version
-    print(
-        "MCP stdio smoke passed. "
-        f"Protocol: {protocol_version}; result: 391."
-    )
+    print(f"MCP stdio smoke passed. Protocol: {protocol_version}; result: 391.")
 
 
 def main() -> None:

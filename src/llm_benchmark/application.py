@@ -79,7 +79,9 @@ class RunWriter(Protocol):
 
 
 class SampleWriter(Protocol):
-    def add_many(self, run_id: int, samples: list[SampleResultCreate]) -> list[SampleResultRecord]: ...
+    def add_many(
+        self, run_id: int, samples: list[SampleResultCreate]
+    ) -> list[SampleResultRecord]: ...
 
 
 class BenchmarkServiceResult(BaseModel):
@@ -143,16 +145,22 @@ class BenchmarkApplicationService:
 
     def execute_claimed(self, run: BenchmarkRunRecord) -> BenchmarkServiceResult:
         if run.status is not RunStatus.RUNNING:
-            raise ClaimedRunStateError("Claimed execution requires a running benchmark run")
+            raise ClaimedRunStateError(
+                "Claimed execution requires a running benchmark run"
+            )
 
         pipeline_execution: PipelineExecution | None = None
         try:
             try:
                 config = RunConfig.model_validate(run.resolved_config_json)
             except (TypeError, ValueError) as error:
-                raise PersistedRunConfigError("Persisted run configuration is invalid") from error
+                raise PersistedRunConfigError(
+                    "Persisted run configuration is invalid"
+                ) from error
             if canonical_hash(config.model_dump(mode="json")) != run.config_hash:
-                raise PersistedRunConfigError("Persisted run configuration hash does not match")
+                raise PersistedRunConfigError(
+                    "Persisted run configuration hash does not match"
+                )
 
             model = self._models.get_by_id(run.model_id)
             endpoint = self._endpoints.get_by_id(model.endpoint_id)
@@ -161,7 +169,9 @@ class BenchmarkApplicationService:
             self._validate_identity(config, endpoint, model, dataset)
 
             pipeline_execution = self._executor(config)
-            sample_inputs = [_to_sample_input(result) for result in pipeline_execution.results]
+            sample_inputs = [
+                _to_sample_input(result) for result in pipeline_execution.results
+            ]
             persisted_samples = self._samples.add_many(run.id, sample_inputs)
             run = self._runs.transition_status(
                 run.id,
@@ -177,7 +187,9 @@ class BenchmarkApplicationService:
             )
         except Exception as error:
             artifact_directory = (
-                str(pipeline_execution.run_dir) if pipeline_execution is not None else run.artifact_directory
+                str(pipeline_execution.run_dir)
+                if pipeline_execution is not None
+                else run.artifact_directory
             )
             run = self._runs.transition_status(
                 run.id,
@@ -227,7 +239,9 @@ class BenchmarkApplicationService:
         dataset: DatasetRecord,
     ) -> None:
         if len(config.models) != 1:
-            raise RegistrationMismatchError("Registered execution requires exactly one configured model")
+            raise RegistrationMismatchError(
+                "Registered execution requires exactly one configured model"
+            )
         configured_model = config.models[0]
         expected_provider = {
             "mock": "mock",
@@ -243,7 +257,9 @@ class BenchmarkApplicationService:
             mismatches.append("model.endpoint_alias")
         if configured_model.model_id != model.model_identifier:
             mismatches.append("model.model_id")
-        if configured_model.base_url is not None and configured_model.base_url.rstrip("/") != endpoint.base_url.rstrip("/"):
+        if configured_model.base_url is not None and configured_model.base_url.rstrip(
+            "/"
+        ) != endpoint.base_url.rstrip("/"):
             mismatches.append("model.base_url")
         if config.dataset.name != dataset.name:
             mismatches.append("dataset.name")
@@ -275,7 +291,8 @@ class BenchmarkApplicationService:
                 mismatches.append("dataset.license")
         if mismatches:
             raise RegistrationMismatchError(
-                "Configuration conflicts with selected registrations: " + ", ".join(mismatches)
+                "Configuration conflicts with selected registrations: "
+                + ", ".join(mismatches)
             )
 
 
@@ -308,7 +325,9 @@ def _to_sample_input(result: object) -> SampleResultCreate:
         parse_status=result.parse_status,
         evaluation_status=result.evaluation_status,
         is_correct=result.is_correct,
-        input_tokens=result.input_tokens if result.input_tokens is not None else result.prompt_tokens,
+        input_tokens=result.input_tokens
+        if result.input_tokens is not None
+        else result.prompt_tokens,
         output_tokens=(
             result.total_output_tokens
             if result.total_output_tokens is not None

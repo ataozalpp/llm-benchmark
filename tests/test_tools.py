@@ -28,10 +28,10 @@ def runtime() -> ToolRuntime:
         ("multiply", -4, 3, -12),
         ("add", 0, 0, 0),
         ("add", 1_000_000, -1_000_000, 0),
-    ]
+    ],
 )
 def test_calculator_operations(
-    runtime:ToolRuntime,
+    runtime: ToolRuntime,
     operation: str,
     left: int,
     right: int,
@@ -115,9 +115,7 @@ def test_division_by_zero_is_normalized(runtime: ToolRuntime) -> None:
     ],
 )
 def test_city_lookup(
-    runtime: ToolRuntime,
-    city: str,
-    expected_code: str | None
+    runtime: ToolRuntime, city: str, expected_code: str | None
 ) -> None:
     result = runtime.execute(
         ToolCall(

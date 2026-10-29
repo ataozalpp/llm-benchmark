@@ -25,9 +25,7 @@ def upload_api_client(
     tmp_path: Path,
 ) -> Iterator[tuple[TestClient, Path]]:
     database_path = tmp_path / "upload-api.sqlite"
-    database_url = (
-        f"sqlite:///{database_path.as_posix()}"
-    )
+    database_url = f"sqlite:///{database_path.as_posix()}"
 
     alembic_config = Config("alembic.ini")
     alembic_config.set_main_option(
@@ -81,39 +79,26 @@ def test_upload_csv_registers_and_stores_dataset(
 
     assert payload["name"] == "uploaded-science"
     assert payload["source_type"] == "uploaded"
-    assert payload["source_uri"].startswith(
-        "upload://sha256/"
-    )
+    assert payload["source_uri"].startswith("upload://sha256/")
     assert payload["source_uri"].endswith(".csv")
     assert payload["revision"] is None
     assert payload["split"] == "test"
     assert payload["task_type"] == "multiple_choice"
-    assert (
-        payload["adapter_type"]
-        == "tabular_mcq_csv_v1"
-    )
+    assert payload["adapter_type"] == "tabular_mcq_csv_v1"
     assert payload["checksum"].startswith("sha256:")
     assert payload["metadata"]["format"] == "csv"
     assert payload["metadata"]["sample_count"] == 1
-    assert payload["metadata"]["categories"] == [
-        "science"
-    ]
-    assert payload["metadata"]["size_bytes"] == len(
-        content
-    )
+    assert payload["metadata"]["categories"] == ["science"]
+    assert payload["metadata"]["size_bytes"] == len(content)
     assert payload["is_active"] is True
 
     storage = LocalDatasetStorage(storage_root)
-    stored_path = storage.resolve(
-        payload["source_uri"]
-    )
+    stored_path = storage.resolve(payload["source_uri"])
 
     assert stored_path.read_bytes() == content
     assert stored_path.is_relative_to(storage_root)
 
-    retrieved = client.get(
-        f"/api/v1/datasets/{payload['id']}"
-    )
+    retrieved = client.get(f"/api/v1/datasets/{payload['id']}")
 
     assert retrieved.status_code == 200
     assert retrieved.json() == payload
@@ -121,10 +106,7 @@ def test_upload_csv_registers_and_stores_dataset(
     listed = client.get("/api/v1/datasets")
 
     assert listed.status_code == 200
-    assert [
-        item["id"]
-        for item in listed.json()
-    ] == [payload["id"]]
+    assert [item["id"] for item in listed.json()] == [payload["id"]]
 
     serialized = response.text.lower()
 
@@ -168,31 +150,19 @@ def test_upload_jsonl_registers_and_stores_dataset(
 
     assert payload["name"] == "uploaded-jsonl"
     assert payload["source_type"] == "uploaded"
-    assert payload["source_uri"].startswith(
-        "upload://sha256/"
-    )
+    assert payload["source_uri"].startswith("upload://sha256/")
     assert payload["source_uri"].endswith(".jsonl")
     assert payload["revision"] == "revision-1"
     assert payload["split"] == "validation"
     assert payload["license"] == "CC0-1.0"
-    assert (
-        payload["adapter_type"]
-        == "tabular_mcq_jsonl_v1"
-    )
+    assert payload["adapter_type"] == "tabular_mcq_jsonl_v1"
     assert payload["metadata"]["format"] == "jsonl"
     assert payload["metadata"]["sample_count"] == 1
-    assert payload["metadata"]["categories"] == [
-        "logic"
-    ]
+    assert payload["metadata"]["categories"] == ["logic"]
 
     storage = LocalDatasetStorage(storage_root)
 
-    assert (
-        storage.resolve(
-            payload["source_uri"]
-        ).read_bytes()
-        == content
-    )
+    assert storage.resolve(payload["source_uri"]).read_bytes() == content
 
 
 def test_invalid_csv_creates_no_registration_or_file(
@@ -229,11 +199,7 @@ def test_invalid_csv_creates_no_registration_or_file(
     assert datasets.json() == []
 
     if storage_root.exists():
-        assert [
-            path
-            for path in storage_root.rglob("*")
-            if path.is_file()
-        ] == []
+        assert [path for path in storage_root.rglob("*") if path.is_file()] == []
 
     serialized = response.text.lower()
 
@@ -246,10 +212,7 @@ def test_empty_csv_creates_no_registration_or_file(
     upload_api_client: tuple[TestClient, Path],
 ) -> None:
     client, storage_root = upload_api_client
-    content = (
-        b"sample_id,question,option_A,option_B,"
-        b"correct_answer,category\n"
-    )
+    content = b"sample_id,question,option_A,option_B,correct_answer,category\n"
 
     response = client.post(
         "/api/v1/datasets/upload",
@@ -272,16 +235,10 @@ def test_empty_csv_creates_no_registration_or_file(
         "code": "invalid_uploaded_dataset",
     }
 
-    assert client.get(
-        "/api/v1/datasets"
-    ).json() == []
+    assert client.get("/api/v1/datasets").json() == []
 
     if storage_root.exists():
-        assert [
-            path
-            for path in storage_root.rglob("*")
-            if path.is_file()
-        ] == []
+        assert [path for path in storage_root.rglob("*") if path.is_file()] == []
 
 
 @pytest.mark.parametrize(
@@ -340,8 +297,8 @@ def test_upload_storage_errors_are_safely_mapped(
 
     storage_root = tmp_path / "datasets"
     app = create_app(dataset_storage_root=storage_root)
-    app.dependency_overrides[get_dataset_ingestion_service] = (
-        lambda: FailingIngestionService()
+    app.dependency_overrides[get_dataset_ingestion_service] = lambda: (
+        FailingIngestionService()
     )
 
     with TestClient(app, raise_server_exceptions=False) as client:
@@ -393,18 +350,13 @@ def test_upload_rejects_unsupported_format_before_ingestion(
             "file": (
                 "questions.xlsx",
                 b"not-an-excel-file",
-                (
-                    "application/vnd.openxmlformats-"
-                    "officedocument.spreadsheetml.sheet"
-                ),
+                ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
             ),
         },
     )
 
     assert response.status_code == 422
-    assert client.get(
-        "/api/v1/datasets"
-    ).json() == []
+    assert client.get("/api/v1/datasets").json() == []
     assert not storage_root.exists()
 
 
@@ -458,9 +410,7 @@ def test_upload_rejects_server_controlled_fields(
         }
     ]
 
-    assert client.get(
-        "/api/v1/datasets"
-    ).json() == []
+    assert client.get("/api/v1/datasets").json() == []
 
     assert not storage_root.exists()
 
@@ -542,19 +492,12 @@ def test_upload_openapi_and_factory_have_no_storage_side_effects(
 
     document = app.openapi()
 
-    assert (
-        "/api/v1/datasets/upload"
-        in document["paths"]
-    )
-    request_schema = document["paths"][
-        "/api/v1/datasets/upload"
-    ]["post"]["requestBody"]["content"][
-        "multipart/form-data"
-    ]["schema"]
+    assert "/api/v1/datasets/upload" in document["paths"]
+    request_schema = document["paths"]["/api/v1/datasets/upload"]["post"][
+        "requestBody"
+    ]["content"]["multipart/form-data"]["schema"]
     schema_name = request_schema["$ref"].rsplit("/", 1)[-1]
-    properties = document["components"]["schemas"][
-        schema_name
-    ]["properties"]
+    properties = document["components"]["schemas"][schema_name]["properties"]
 
     assert set(properties) == {
         "file",
@@ -594,20 +537,14 @@ def test_empty_jsonl_creates_no_registration_or_file(
         "code": "invalid_uploaded_dataset",
     }
 
-    assert client.get(
-        "/api/v1/datasets"
-    ).json() == []
+    assert client.get("/api/v1/datasets").json() == []
 
     if storage_root.exists():
-        assert [
-            path
-            for path in storage_root.rglob("*")
-            if path.is_file()
-        ] == []
+        assert [path for path in storage_root.rglob("*") if path.is_file()] == []
 
 
 def test_duplicate_upload_preserves_reused_file(
-        upload_api_client: tuple[TestClient, Path],
+    upload_api_client: tuple[TestClient, Path],
 ) -> None:
     client, storage_root = upload_api_client
     content = (
@@ -643,19 +580,13 @@ def test_duplicate_upload_preserves_reused_file(
     )
 
     assert second.status_code == 409
-    assert second.json() == {
-        "detail": "Resource already exists"
-    }
+    assert second.json() == {"detail": "Resource already exists"}
 
     source_uri = first.json()["source_uri"]
-    stored_path = LocalDatasetStorage(
-        storage_root
-    ).resolve(source_uri)
+    stored_path = LocalDatasetStorage(storage_root).resolve(source_uri)
 
     assert stored_path.read_bytes() == content
 
-    registered = client.get(
-        "/api/v1/datasets"
-    ).json()
+    registered = client.get("/api/v1/datasets").json()
 
     assert len(registered) == 1

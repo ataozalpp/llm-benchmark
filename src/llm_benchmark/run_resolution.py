@@ -121,12 +121,14 @@ class RegisteredRunConfigResolver:
         if dataset.source_type == "local":
             dataset_values["path"] = Path(dataset.source_uri)
         elif dataset.source_type == "uploaded":
-            dataset_values.update({
-                "storage_key": dataset.source_uri,
-                "adapter_type": dataset.adapter_type,
-                "checksum": dataset.checksum,
-                "license": dataset.license,
-            })
+            dataset_values.update(
+                {
+                    "storage_key": dataset.source_uri,
+                    "adapter_type": dataset.adapter_type,
+                    "checksum": dataset.checksum,
+                    "license": dataset.license,
+                }
+            )
 
         try:
             config = RunConfig(
@@ -139,7 +141,9 @@ class RegisteredRunConfigResolver:
                 evaluation=EvaluationConfig(),
             )
         except (ValidationError, ValueError) as error:
-            raise RunConfigResolutionError("Registered resources cannot produce a valid run configuration") from error
+            raise RunConfigResolutionError(
+                "Registered resources cannot produce a valid run configuration"
+            ) from error
         return ResolvedRegisteredRun(
             endpoint_id=endpoint.id,
             model_id=model.id,
@@ -163,6 +167,13 @@ class RegisteredRunConfigResolver:
     @staticmethod
     def _validate_dataset(dataset: DatasetRecord) -> None:
         if dataset.task_type != "multiple_choice":
-            raise RunConfigResolutionError("Only multiple-choice datasets are supported")
-        if (dataset.source_type, dataset.adapter_type) not in _SUPPORTED_DATASET_ADAPTERS:
-            raise RunConfigResolutionError("Dataset source and adapter are not supported")
+            raise RunConfigResolutionError(
+                "Only multiple-choice datasets are supported"
+            )
+        if (
+            dataset.source_type,
+            dataset.adapter_type,
+        ) not in _SUPPORTED_DATASET_ADAPTERS:
+            raise RunConfigResolutionError(
+                "Dataset source and adapter are not supported"
+            )

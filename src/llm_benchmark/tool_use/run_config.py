@@ -46,6 +46,7 @@ class ToolRunConfig(BaseModel):
 
         return self
 
+
 def load_tool_run_config(path: Path) -> ToolRunConfig:
     try:
         payload = yaml.safe_load(path.read_text(encoding="utf-8"))

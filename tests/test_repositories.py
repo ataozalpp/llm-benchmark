@@ -29,7 +29,9 @@ from llm_benchmark.db.repositories import (
 
 @pytest.fixture
 def repositories(tmp_path: Path) -> dict[str, Any]:
-    engine = create_db_engine(f"sqlite:///{(tmp_path / 'repositories.sqlite').as_posix()}")
+    engine = create_db_engine(
+        f"sqlite:///{(tmp_path / 'repositories.sqlite').as_posix()}"
+    )
     Base.metadata.create_all(engine)
     session_factory = create_session_factory(engine)
     return {
@@ -43,7 +45,9 @@ def repositories(tmp_path: Path) -> dict[str, Any]:
     }
 
 
-def create_dependencies(repositories: dict[str, Any], suffix: str = "") -> tuple[Any, Any, Any]:
+def create_dependencies(
+    repositories: dict[str, Any], suffix: str = ""
+) -> tuple[Any, Any, Any]:
     endpoint = repositories["endpoints"].create(
         name=f"endpoint{suffix}",
         provider_type="lm_studio_native",
@@ -107,7 +111,9 @@ def sample(sample_id: str, *, ttft_ms: float | None = None) -> SampleResultCreat
     )
 
 
-def test_endpoint_crud_active_listing_soft_delete_and_conflict(repositories: dict[str, Any]) -> None:
+def test_endpoint_crud_active_listing_soft_delete_and_conflict(
+    repositories: dict[str, Any],
+) -> None:
     repository = repositories["endpoints"]
     endpoint = repository.create(
         name="local",
@@ -118,7 +124,9 @@ def test_endpoint_crud_active_listing_soft_delete_and_conflict(repositories: dic
     assert repository.get_by_id(endpoint.id).name == "local"
     assert [item.id for item in repository.list_active()] == [endpoint.id]
 
-    updated = repository.update(endpoint.id, name="local-updated", credential_env_var=None)
+    updated = repository.update(
+        endpoint.id, name="local-updated", credential_env_var=None
+    )
     assert updated.name == "local-updated"
     assert updated.credential_env_var is None
     assert updated.updated_at >= endpoint.updated_at
@@ -139,7 +147,9 @@ def test_endpoint_crud_active_listing_soft_delete_and_conflict(repositories: dic
         repository.get_by_id(999_999)
 
 
-def test_model_crud_capability_validation_and_soft_delete(repositories: dict[str, Any]) -> None:
+def test_model_crud_capability_validation_and_soft_delete(
+    repositories: dict[str, Any],
+) -> None:
     endpoint = repositories["endpoints"].create(
         name="model-endpoint", provider_type="mock", base_url="mock://provider"
     )
@@ -229,7 +239,9 @@ def test_dataset_crud_and_both_identity_policies(repositories: dict[str, Any]) -
     assert repository.get_by_id(unversioned.id).is_active is False
 
 
-def test_inactive_dependencies_reject_new_models_and_runs(repositories: dict[str, Any]) -> None:
+def test_inactive_dependencies_reject_new_models_and_runs(
+    repositories: dict[str, Any],
+) -> None:
     endpoint, model, dataset = create_dependencies(repositories, "-inactive")
     repositories["endpoints"].soft_delete(endpoint.id)
     with pytest.raises(InactiveDependencyError):
@@ -280,7 +292,9 @@ def test_inactive_dependencies_reject_new_models_and_runs(repositories: dict[str
         )
 
 
-def test_queued_run_persists_immutable_inputs_and_lists(repositories: dict[str, Any]) -> None:
+def test_queued_run_persists_immutable_inputs_and_lists(
+    repositories: dict[str, Any],
+) -> None:
     _, model, dataset = create_dependencies(repositories, "-run")
     resolved_config = {"schema_version": 1, "provider": {"type": "mock"}}
     run = repositories["runs"].create_queued(
@@ -303,7 +317,9 @@ def test_queued_run_persists_immutable_inputs_and_lists(repositories: dict[str, 
     assert [item.id for item in repositories["runs"].list_runs()] == [run.id]
 
 
-def test_claim_next_queued_returns_none_for_empty_queue(repositories: dict[str, Any]) -> None:
+def test_claim_next_queued_returns_none_for_empty_queue(
+    repositories: dict[str, Any],
+) -> None:
     assert repositories["runs"].claim_next_queued() is None
 
 
@@ -346,7 +362,9 @@ def test_claim_next_queued_skips_nonqueued_runs(repositories: dict[str, Any]) ->
     assert repositories["runs"].claim_next_queued() is None
 
 
-def test_claim_next_queued_rolls_back_failed_write(repositories: dict[str, Any]) -> None:
+def test_claim_next_queued_rolls_back_failed_write(
+    repositories: dict[str, Any],
+) -> None:
     queued = create_run(repositories, "-claim-rollback")
 
     def fail_claim(
@@ -373,19 +391,27 @@ def test_claim_next_queued_rolls_back_failed_write(repositories: dict[str, Any])
     assert persisted.started_at is None
 
 
-def test_competing_claims_return_a_queued_run_only_once(repositories: dict[str, Any]) -> None:
+def test_competing_claims_return_a_queued_run_only_once(
+    repositories: dict[str, Any],
+) -> None:
     queued = create_run(repositories, "-claim-race")
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        claims = list(executor.map(lambda _: repositories["runs"].claim_next_queued(), range(2)))
+        claims = list(
+            executor.map(lambda _: repositories["runs"].claim_next_queued(), range(2))
+        )
 
     claimed = [item for item in claims if item is not None]
     assert [item.id for item in claimed] == [queued.id]
     assert repositories["runs"].get_by_id(queued.id).status is RunStatus.RUNNING
 
 
-@pytest.mark.parametrize("terminal", [RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED])
-def test_valid_running_to_terminal_transitions(repositories: dict[str, Any], terminal: RunStatus) -> None:
+@pytest.mark.parametrize(
+    "terminal", [RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED]
+)
+def test_valid_running_to_terminal_transitions(
+    repositories: dict[str, Any], terminal: RunStatus
+) -> None:
     run = create_run(repositories, f"-{terminal.value}")
     running = repositories["runs"].transition_status(run.id, RunStatus.RUNNING)
     assert running.started_at is not None
@@ -397,7 +423,9 @@ def test_valid_running_to_terminal_transitions(repositories: dict[str, Any], ter
         summary={"accuracy": 0.5},
         artifact_directory=f"outputs/{terminal.value}",
         error_type="server_error" if terminal is RunStatus.FAILED else None,
-        error_message="authorization = sensitive-value\nprovider failed" if terminal is RunStatus.FAILED else None,
+        error_message="authorization = sensitive-value\nprovider failed"
+        if terminal is RunStatus.FAILED
+        else None,
     )
     assert terminal_run.completed_at is not None
     assert terminal_run.summary_json == {"accuracy": 0.5}
@@ -408,7 +436,9 @@ def test_valid_running_to_terminal_transitions(repositories: dict[str, Any], ter
 
 
 @pytest.mark.parametrize("terminal", [RunStatus.FAILED, RunStatus.CANCELLED])
-def test_valid_queued_to_terminal_transitions(repositories: dict[str, Any], terminal: RunStatus) -> None:
+def test_valid_queued_to_terminal_transitions(
+    repositories: dict[str, Any], terminal: RunStatus
+) -> None:
     run = create_run(repositories, f"-queued-{terminal.value}")
     result = repositories["runs"].transition_status(run.id, terminal)
     assert result.status is terminal
@@ -421,12 +451,16 @@ def test_invalid_and_terminal_run_transitions(repositories: dict[str, Any]) -> N
     with pytest.raises(InvalidStateTransitionError):
         repositories["runs"].transition_status(run.id, RunStatus.QUEUED)
     completed = repositories["runs"].transition_status(run.id, RunStatus.RUNNING)
-    completed = repositories["runs"].transition_status(completed.id, RunStatus.COMPLETED)
+    completed = repositories["runs"].transition_status(
+        completed.id, RunStatus.COMPLETED
+    )
     with pytest.raises(InvalidStateTransitionError):
         repositories["runs"].transition_status(completed.id, RunStatus.FAILED)
 
 
-def test_soft_delete_preserves_referenced_history_and_foreign_keys(repositories: dict[str, Any]) -> None:
+def test_soft_delete_preserves_referenced_history_and_foreign_keys(
+    repositories: dict[str, Any],
+) -> None:
     endpoint, model, dataset = create_dependencies(repositories, "-history")
     run = repositories["runs"].create_queued(
         experiment_name="history",
@@ -446,10 +480,14 @@ def test_soft_delete_preserves_referenced_history_and_foreign_keys(repositories:
     with repositories["session_factory"]() as session:
         with pytest.raises(IntegrityError):
             with session.begin():
-                session.execute(delete(ProviderEndpoint).where(ProviderEndpoint.id == endpoint.id))
+                session.execute(
+                    delete(ProviderEndpoint).where(ProviderEndpoint.id == endpoint.id)
+                )
 
 
-def test_single_and_bulk_sample_results_preserve_nullable_metrics(repositories: dict[str, Any]) -> None:
+def test_single_and_bulk_sample_results_preserve_nullable_metrics(
+    repositories: dict[str, Any],
+) -> None:
     run = create_run(repositories, "-samples")
     first = repositories["samples"].add_one(run.id, sample("one"))
     assert first.ttft_ms is None
@@ -472,8 +510,12 @@ def test_single_and_bulk_sample_results_preserve_nullable_metrics(repositories: 
     assert "sensitive-value" not in (persisted[2].provider_error_message or "")
 
 
-def test_bulk_sample_failure_rolls_back_entire_transaction(repositories: dict[str, Any]) -> None:
+def test_bulk_sample_failure_rolls_back_entire_transaction(
+    repositories: dict[str, Any],
+) -> None:
     run = create_run(repositories, "-rollback")
     with pytest.raises(UniquenessConflictError):
-        repositories["samples"].add_many(run.id, [sample("duplicate"), sample("duplicate")])
+        repositories["samples"].add_many(
+            run.id, [sample("duplicate"), sample("duplicate")]
+        )
     assert repositories["samples"].list_by_run_id(run.id) == []

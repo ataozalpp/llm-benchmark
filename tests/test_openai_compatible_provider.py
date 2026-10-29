@@ -27,7 +27,9 @@ def example() -> DatasetExample:
 
 
 class FakeTransport:
-    def __init__(self, response: dict[str, Any] | None = None, error: Exception | None = None) -> None:
+    def __init__(
+        self, response: dict[str, Any] | None = None, error: Exception | None = None
+    ) -> None:
         self.response = response or {}
         self.error = error
         self.calls: list[tuple[str, dict[str, Any], float, dict[str, str] | None]] = []
@@ -61,7 +63,9 @@ def config(**updates: Any) -> ModelConfig:
 def success_body() -> dict[str, Any]:
     return {
         "model": "returned-model",
-        "choices": [{"message": {"role": "assistant", "content": "B"}, "finish_reason": "stop"}],
+        "choices": [
+            {"message": {"role": "assistant", "content": "B"}, "finish_reason": "stop"}
+        ],
         "usage": {
             "prompt_tokens": 20,
             "completion_tokens": 7,
@@ -83,9 +87,9 @@ def http_error(status: int, body: bytes) -> urllib.error.HTTPError:
 
 def test_exact_request_and_success_normalization(example: DatasetExample) -> None:
     transport = FakeTransport(success_body())
-    response = OpenAICompatibleProvider(config(max_output_tokens=128, top_p=0.9), transport).generate(
-        "prompt text", example
-    )
+    response = OpenAICompatibleProvider(
+        config(max_output_tokens=128, top_p=0.9), transport
+    ).generate("prompt text", example)
 
     assert transport.calls == [
         (
@@ -115,7 +119,9 @@ def test_exact_request_and_success_normalization(example: DatasetExample) -> Non
     assert response.tokens_per_second is None
 
 
-def test_omits_optional_output_limit_top_p_authorization_and_native_fields(example: DatasetExample) -> None:
+def test_omits_optional_output_limit_top_p_authorization_and_native_fields(
+    example: DatasetExample,
+) -> None:
     transport = FakeTransport(success_body())
     model = config(reasoning="on", top_k=20, min_p=0.1, repeat_penalty=1.1)
     OpenAICompatibleProvider(model, transport).generate("prompt", example)
@@ -159,9 +165,7 @@ def test_credential_value_never_reaches_resolved_config_or_result_artifact(
         models=[model],
     )
     provider = OpenAICompatibleProvider(model, FakeTransport(success_body()))
-    trace_recorder = InMemoryTraceRecorder(
-        clock=lambda: "2026-09-01T10:00:00+00:00"
-    )
+    trace_recorder = InMemoryTraceRecorder(clock=lambda: "2026-09-01T10:00:00+00:00")
 
     result = _evaluate(
         "run",
@@ -210,14 +214,18 @@ def test_missing_credential_fails_before_transport_call(
 def test_invalid_success_responses_are_provider_failures(
     example: DatasetExample, body: dict[str, Any], provider_error_type: str
 ) -> None:
-    response = OpenAICompatibleProvider(config(), FakeTransport(body)).generate("prompt", example)
+    response = OpenAICompatibleProvider(config(), FakeTransport(body)).generate(
+        "prompt", example
+    )
     assert response.request_status == "failed"
     assert response.error_type == "provider_error"
     assert response.provider_error_type == provider_error_type
     assert response.raw_response is None
 
 
-def test_reasoning_content_is_never_used_as_final_message(example: DatasetExample) -> None:
+def test_reasoning_content_is_never_used_as_final_message(
+    example: DatasetExample,
+) -> None:
     body = {
         "choices": [
             {
@@ -226,7 +234,9 @@ def test_reasoning_content_is_never_used_as_final_message(example: DatasetExampl
             }
         ]
     }
-    response = OpenAICompatibleProvider(config(), FakeTransport(body)).generate("prompt", example)
+    response = OpenAICompatibleProvider(config(), FakeTransport(body)).generate(
+        "prompt", example
+    )
     assert response.request_status == "failed"
     assert response.provider_error_type == "empty_message_content"
     assert response.raw_response is None
@@ -234,7 +244,9 @@ def test_reasoning_content_is_never_used_as_final_message(example: DatasetExampl
 
 def test_malformed_json_is_normalized(example: DatasetExample) -> None:
     error = json.JSONDecodeError("invalid", "not-json", 0)
-    response = OpenAICompatibleProvider(config(), FakeTransport(error=error)).generate("prompt", example)
+    response = OpenAICompatibleProvider(config(), FakeTransport(error=error)).generate(
+        "prompt", example
+    )
     assert response.request_status == "failed"
     assert response.error_type == "provider_error"
     assert response.provider_error_type == "malformed_json"
@@ -256,11 +268,17 @@ def test_http_error_mapping_and_secret_redaction(
     example: DatasetExample, status: int, expected: str
 ) -> None:
     body = json.dumps(
-        {"error": {"message": "Bearer private-token api_key=private-key", "type": "api_error", "code": status}}
+        {
+            "error": {
+                "message": "Bearer private-token api_key=private-key",
+                "type": "api_error",
+                "code": status,
+            }
+        }
     ).encode()
-    response = OpenAICompatibleProvider(config(), FakeTransport(error=http_error(status, body))).generate(
-        "private prompt", example
-    )
+    response = OpenAICompatibleProvider(
+        config(), FakeTransport(error=http_error(status, body))
+    ).generate("private prompt", example)
     assert response.request_status == "failed"
     assert response.error_type == expected
     assert response.http_status_code == status
@@ -274,10 +292,17 @@ def test_http_error_mapping_and_secret_redaction(
 
 @pytest.mark.parametrize(
     ("error", "expected"),
-    [(socket.timeout("slow"), "timeout"), (urllib.error.URLError("offline"), "network_error")],
+    [
+        (socket.timeout("slow"), "timeout"),
+        (urllib.error.URLError("offline"), "network_error"),
+    ],
 )
-def test_transport_error_mapping(example: DatasetExample, error: Exception, expected: str) -> None:
-    response = OpenAICompatibleProvider(config(), FakeTransport(error=error)).generate("prompt", example)
+def test_transport_error_mapping(
+    example: DatasetExample, error: Exception, expected: str
+) -> None:
+    response = OpenAICompatibleProvider(config(), FakeTransport(error=error)).generate(
+        "prompt", example
+    )
     assert response.request_status == "failed"
     assert response.error_type == expected
 

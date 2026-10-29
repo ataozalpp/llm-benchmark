@@ -15,10 +15,12 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
+
 def get_migration_database_url() -> str:
     if DATABASE_URL_ENV in os.environ:
         return os.environ[DATABASE_URL_ENV]
     return config.get_main_option("sqlalchemy.url")
+
 
 def run_migrations_offline() -> None:
     url = get_migration_database_url()
@@ -37,7 +39,11 @@ def run_migrations_online() -> None:
     connectable = create_db_engine(get_migration_database_url())
     try:
         with connectable.connect() as connection:
-            context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
+            context.configure(
+                connection=connection,
+                target_metadata=target_metadata,
+                compare_type=True,
+            )
             with context.begin_transaction():
                 context.run_migrations()
     finally:

@@ -41,9 +41,7 @@ def test_uploaded_dataset_config_accepts_valid_provenance() -> None:
     dataset = _uploaded_dataset(license="CC0-1.0")
 
     assert dataset.source == "uploaded"
-    assert dataset.storage_key == (
-        f"upload://sha256/{_CSV_DIGEST}.csv"
-    )
+    assert dataset.storage_key == (f"upload://sha256/{_CSV_DIGEST}.csv")
     assert dataset.adapter_type == "tabular_mcq_csv_v1"
     assert dataset.checksum == f"sha256:{_CSV_DIGEST}"
     assert dataset.license == "CC0-1.0"
@@ -145,24 +143,23 @@ def test_uploaded_dataset_rejects_invalid_storage_keys(
 
 def test_uploaded_canonical_config_contains_only_portable_provenance() -> None:
     parsed = json.loads(
-        canonical_config(
-            _run_config(_uploaded_dataset(license="CC0-1.0"))
-        )
+        canonical_config(_run_config(_uploaded_dataset(license="CC0-1.0")))
     )
     dataset = parsed["dataset"]
 
-    assert dataset["storage_key"] == (
-        f"upload://sha256/{_CSV_DIGEST}.csv"
-    )
+    assert dataset["storage_key"] == (f"upload://sha256/{_CSV_DIGEST}.csv")
     assert dataset["adapter_type"] == "tabular_mcq_csv_v1"
     assert dataset["checksum"] == f"sha256:{_CSV_DIGEST}"
     assert dataset["license"] == "CC0-1.0"
     assert dataset["path"] is None
-    assert not {
-        "resolved_path",
-        "storage_root",
-        "runtime_dataset_path",
-    } & dataset.keys()
+    assert (
+        not {
+            "resolved_path",
+            "storage_root",
+            "runtime_dataset_path",
+        }
+        & dataset.keys()
+    )
     for value in dataset.values():
         if isinstance(value, str):
             lowered = value.lower()
@@ -184,12 +181,15 @@ def test_existing_dataset_canonical_mapping_omits_uploaded_fields(
 ) -> None:
     parsed = json.loads(canonical_config(load_config(Path(config_path))))
 
-    assert not {
-        "storage_key",
-        "adapter_type",
-        "checksum",
-        "license",
-    } & parsed["dataset"].keys()
+    assert (
+        not {
+            "storage_key",
+            "adapter_type",
+            "checksum",
+            "license",
+        }
+        & parsed["dataset"].keys()
+    )
 
 
 def test_valid_config_and_cli_override() -> None:
@@ -221,7 +221,9 @@ def test_reasoning_on_fixture_config_is_separate_and_bounded() -> None:
 
 def test_mmlu_reasoning_on_config_preserves_baseline_except_expected_fields() -> None:
     baseline = load_config(Path("configs/mmlu_pro_lm_studio_smoke.yaml"))
-    reasoning_on = load_config(Path("configs/mmlu_pro_lm_studio_reasoning_on_smoke.yaml"))
+    reasoning_on = load_config(
+        Path("configs/mmlu_pro_lm_studio_reasoning_on_smoke.yaml")
+    )
     assert reasoning_on.dataset == baseline.dataset
     assert reasoning_on.seed == baseline.seed == 42
     assert reasoning_on.output_dir == baseline.output_dir
@@ -244,7 +246,9 @@ def test_mmlu_reasoning_on_config_preserves_baseline_except_expected_fields() ->
 
 
 def test_reasoning_on_2048_calibration_config_selects_one_fixed_sample() -> None:
-    config = load_config(Path("configs/mmlu_pro_lm_studio_reasoning_on_2048_calibration.yaml"))
+    config = load_config(
+        Path("configs/mmlu_pro_lm_studio_reasoning_on_2048_calibration.yaml")
+    )
     assert config.dataset.sample_ids == ["2019"]
     assert config.dataset.sample_size == 1
     model = config.models[0]
@@ -254,7 +258,9 @@ def test_reasoning_on_2048_calibration_config_selects_one_fixed_sample() -> None
 
 
 def test_sampling_calibration_config_validates_supported_fields() -> None:
-    config = load_config(Path("configs/mmlu_pro_lm_studio_reasoning_on_sampling_calibration.yaml"))
+    config = load_config(
+        Path("configs/mmlu_pro_lm_studio_reasoning_on_sampling_calibration.yaml")
+    )
     model = config.models[0]
     assert model.temperature == 1.0
     assert model.top_p == 0.95
@@ -265,7 +271,9 @@ def test_sampling_calibration_config_validates_supported_fields() -> None:
 
 
 def test_context_bounded_calibration_uses_provider_default_output_budget() -> None:
-    config = load_config(Path("configs/mmlu_pro_lm_studio_reasoning_on_context_bounded_calibration.yaml"))
+    config = load_config(
+        Path("configs/mmlu_pro_lm_studio_reasoning_on_context_bounded_calibration.yaml")
+    )
     assert config.dataset.sample_ids == ["2019"]
     assert config.dataset.sample_size == 1
     model = config.models[0]
@@ -276,8 +284,12 @@ def test_context_bounded_calibration_uses_provider_default_output_budget() -> No
     assert config.model_dump(mode="json")["models"][0]["max_output_tokens"] is None
 
 
-def test_context_bounded_mini_is_an_ordered_three_sample_operational_calibration() -> None:
-    config = load_config(Path("configs/mmlu_pro_lm_studio_reasoning_on_context_bounded_mini.yaml"))
+def test_context_bounded_mini_is_an_ordered_three_sample_operational_calibration() -> (
+    None
+):
+    config = load_config(
+        Path("configs/mmlu_pro_lm_studio_reasoning_on_context_bounded_mini.yaml")
+    )
     assert config.experiment_name.endswith("mini_operational_calibration")
     assert config.dataset.sample_ids == ["215", "6232", "2019"]
     assert config.dataset.sample_size == 3
@@ -295,17 +307,24 @@ def test_max_output_tokens_rejects_non_positive_values(value: int) -> None:
         ModelConfig(model_id="mock", max_output_tokens=value)
 
 
-@pytest.mark.parametrize(("field", "value"), [
-    ("top_p", -0.01),
-    ("top_p", 1.01),
-    ("top_k", -1),
-    ("min_p", -0.01),
-    ("min_p", 1.01),
-    ("repeat_penalty", 0),
-])
-def test_sampling_fields_reject_out_of_range_values(tmp_path: Path, field: str, value: float) -> None:
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("top_p", -0.01),
+        ("top_p", 1.01),
+        ("top_k", -1),
+        ("min_p", -0.01),
+        ("min_p", 1.01),
+        ("repeat_penalty", 0),
+    ],
+)
+def test_sampling_fields_reject_out_of_range_values(
+    tmp_path: Path, field: str, value: float
+) -> None:
     text = Path("configs/lm_studio_fixture_smoke.yaml").read_text(encoding="utf-8")
-    text = text.replace("    temperature: 0", f"    temperature: 0\n    {field}: {value}")
+    text = text.replace(
+        "    temperature: 0", f"    temperature: 0\n    {field}: {value}"
+    )
     path = tmp_path / "invalid-sampling.yaml"
     path.write_text(text, encoding="utf-8")
     with pytest.raises(ValueError, match="config validation failed"):
@@ -313,7 +332,9 @@ def test_sampling_fields_reject_out_of_range_values(tmp_path: Path, field: str, 
 
 
 def test_unset_sampling_fields_do_not_change_existing_resolved_config() -> None:
-    config = load_config(Path("configs/mmlu_pro_lm_studio_reasoning_on_2048_calibration.yaml"))
+    config = load_config(
+        Path("configs/mmlu_pro_lm_studio_reasoning_on_2048_calibration.yaml")
+    )
     resolved_model = config.model_dump(mode="json")["models"][0]
     assert not {"top_p", "top_k", "min_p", "repeat_penalty"} & resolved_model.keys()
 
@@ -367,19 +388,33 @@ def test_openai_compatible_fixture_smoke_is_one_provider_managed_request() -> No
     assert "retry" not in type(config).model_fields
 
 
-@pytest.mark.parametrize(("config_path", "expected_hash"), [
-    ("configs/mmlu_pro_lm_studio_smoke.yaml", "d007c0d070d70648d4affa994f981116ba4955dc5a69392ffb71f493c0b52ac0"),
-    ("configs/mmlu_pro_lm_studio_reasoning_on_smoke.yaml", "9cb104a7c63df2df50b17f7c7c82da3f4f7582c1e086f17c1a37c28ce4419b7e"),
-])
-def test_existing_config_hashes_remain_stable(config_path: str, expected_hash: str) -> None:
+@pytest.mark.parametrize(
+    ("config_path", "expected_hash"),
+    [
+        (
+            "configs/mmlu_pro_lm_studio_smoke.yaml",
+            "d007c0d070d70648d4affa994f981116ba4955dc5a69392ffb71f493c0b52ac0",
+        ),
+        (
+            "configs/mmlu_pro_lm_studio_reasoning_on_smoke.yaml",
+            "9cb104a7c63df2df50b17f7c7c82da3f4f7582c1e086f17c1a37c28ce4419b7e",
+        ),
+    ],
+)
+def test_existing_config_hashes_remain_stable(
+    config_path: str, expected_hash: str
+) -> None:
     config = load_config(Path(config_path))
     assert canonical_hash(config.model_dump(mode="json")) == expected_hash
 
 
-@pytest.mark.parametrize("text", [
-    "schema_version: 2\nexperiment_name: x\ndataset: {}\nmodels: []\n",
-    "schema_version: 1\nexperiment_name: x\nunknown: true\ndataset: {}\nmodels: []\n",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "schema_version: 2\nexperiment_name: x\ndataset: {}\nmodels: []\n",
+        "schema_version: 1\nexperiment_name: x\nunknown: true\ndataset: {}\nmodels: []\n",
+    ],
+)
 def test_invalid_config_is_rejected(tmp_path: Path, text: str) -> None:
     path = tmp_path / "bad.yaml"
     path.write_text(text, encoding="utf-8")

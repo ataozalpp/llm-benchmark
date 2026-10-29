@@ -87,9 +87,7 @@ class DatasetIngestionService:
             )
 
             adapter_type = _ADAPTER_TYPES[request.file_format]
-            categories = tuple(
-                sorted({example.category for example in examples})
-            )
+            categories = tuple(sorted({example.category for example in examples}))
 
             dataset = self._datasets.create(
                 name=request.name.strip(),

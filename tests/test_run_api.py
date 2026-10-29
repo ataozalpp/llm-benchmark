@@ -64,7 +64,9 @@ def run_one_worker_job(context: dict[str, Any]) -> bool:
     return BenchmarkWorker(runs=registry.runs, service=service).run_once()
 
 
-def register_fixture(context: dict[str, Any], *, scenario: str = "correct") -> tuple[int, int, int]:
+def register_fixture(
+    context: dict[str, Any], *, scenario: str = "correct"
+) -> tuple[int, int, int]:
     registry = context["registry"]
     endpoint = registry.endpoints.create(
         name=f"mock-endpoint-{scenario}",
@@ -77,7 +79,10 @@ def register_fixture(context: dict[str, Any], *, scenario: str = "correct") -> t
         endpoint_id=endpoint.id,
         reasoning_policy="unsupported",
         capabilities={},
-        default_generation_config={"scenario_cycle": [scenario], "mock_latency_ms": 3.5},
+        default_generation_config={
+            "scenario_cycle": [scenario],
+            "mock_latency_ms": 3.5,
+        },
     )
     dataset = registry.datasets.create(
         name="synthetic-mcq-fixture",
@@ -105,7 +110,9 @@ def run_payload(model_id: int, dataset_id: int) -> dict[str, Any]:
     }
 
 
-def test_run_routes_appear_in_openapi_without_server_controlled_request_fields() -> None:
+def test_run_routes_appear_in_openapi_without_server_controlled_request_fields() -> (
+    None
+):
     document = create_app().openapi()
     assert {
         "/api/v1/runs",
@@ -125,10 +132,15 @@ def test_run_routes_appear_in_openapi_without_server_controlled_request_fields()
         "dataset_path",
     }
     assert forbidden.isdisjoint(properties)
-    assert "error_message" not in document["components"]["schemas"]["RunResponse"]["properties"]
+    assert (
+        "error_message"
+        not in document["components"]["schemas"]["RunResponse"]["properties"]
+    )
 
 
-def test_successful_run_creation_listing_detail_and_results(run_api: dict[str, Any]) -> None:
+def test_successful_run_creation_listing_detail_and_results(
+    run_api: dict[str, Any],
+) -> None:
     _, model_id, dataset_id = register_fixture(run_api)
     client = run_api["client"]
     created = client.post("/api/v1/runs", json=run_payload(model_id, dataset_id))
@@ -208,12 +220,21 @@ def test_run_submission_is_queued_without_execution_or_artifacts(
         ({"profile": "full"}, "run_guardrail_violation"),
         ({"sample_size": 101, "sample_ids": []}, "run_guardrail_violation"),
         (
-            {"sample_size": 101, "sample_ids": [f"private-{index}" for index in range(101)]},
+            {
+                "sample_size": 101,
+                "sample_ids": [f"private-{index}" for index in range(101)],
+            },
             "run_guardrail_violation",
         ),
         ({"sample_ids": ["private-missing-id"]}, "invalid_dataset_selection"),
-        ({"category_filter": ["private-missing-category"]}, "invalid_dataset_selection"),
-        ({"category_filter": ["math", "private-missing-category"]}, "invalid_dataset_selection"),
+        (
+            {"category_filter": ["private-missing-category"]},
+            "invalid_dataset_selection",
+        ),
+        (
+            {"category_filter": ["math", "private-missing-category"]},
+            "invalid_dataset_selection",
+        ),
     ],
 )
 def test_preflight_rejection_has_no_execution_records_or_artifacts(
@@ -243,7 +264,9 @@ def test_preflight_rejection_has_no_execution_records_or_artifacts(
     assert not run_api["output_root"].exists()
 
 
-def test_injected_policy_limit_applies_to_exact_selected_count(run_api: dict[str, Any]) -> None:
+def test_injected_policy_limit_applies_to_exact_selected_count(
+    run_api: dict[str, Any],
+) -> None:
     _, model_id, dataset_id = register_fixture(run_api)
     run_api["client"].app.state.run_guardrail_policy = RunApiGuardrailPolicy(
         max_selected_samples=2
@@ -261,7 +284,9 @@ def test_injected_policy_limit_applies_to_exact_selected_count(run_api: dict[str
     assert not run_api["output_root"].exists()
 
 
-def test_duplicate_sample_ids_keep_request_validation_behavior(run_api: dict[str, Any]) -> None:
+def test_duplicate_sample_ids_keep_request_validation_behavior(
+    run_api: dict[str, Any],
+) -> None:
     _, model_id, dataset_id = register_fixture(run_api)
     payload = run_payload(model_id, dataset_id)
     payload.update({"sample_size": 2, "sample_ids": ["private-id", "private-id"]})
@@ -287,8 +312,10 @@ def test_expected_dataset_preflight_failure_maps_to_safe_409_without_side_effect
         executor_calls += 1
         raise AssertionError("executor must not be invoked")
 
-    run_api["client"].app.dependency_overrides[get_run_preflight_service] = lambda: RunPreflightService(
-        loader=fail_loader  # type: ignore[arg-type]
+    run_api["client"].app.dependency_overrides[get_run_preflight_service] = lambda: (
+        RunPreflightService(
+            loader=fail_loader  # type: ignore[arg-type]
+        )
     )
     run_api["client"].app.state.benchmark_executor = forbidden_executor
     response = run_api["client"].post(
@@ -360,7 +387,9 @@ def test_unexpected_preflight_errors_map_to_sanitized_500_without_side_effects(
         "dataset_path",
     ],
 )
-def test_server_controlled_run_fields_are_rejected(run_api: dict[str, Any], field: str) -> None:
+def test_server_controlled_run_fields_are_rejected(
+    run_api: dict[str, Any], field: str
+) -> None:
     _, model_id, dataset_id = register_fixture(run_api)
     payload = {**run_payload(model_id, dataset_id), field: "client-controlled-value"}
     response = run_api["client"].post("/api/v1/runs", json=payload)
@@ -370,9 +399,13 @@ def test_server_controlled_run_fields_are_rejected(run_api: dict[str, Any], fiel
 
 
 @pytest.mark.parametrize("scenario", ["unparseable", "request_failed"])
-def test_sample_outcomes_still_complete_the_run(run_api: dict[str, Any], scenario: str) -> None:
+def test_sample_outcomes_still_complete_the_run(
+    run_api: dict[str, Any], scenario: str
+) -> None:
     _, model_id, dataset_id = register_fixture(run_api, scenario=scenario)
-    response = run_api["client"].post("/api/v1/runs", json=run_payload(model_id, dataset_id))
+    response = run_api["client"].post(
+        "/api/v1/runs", json=run_payload(model_id, dataset_id)
+    )
     assert response.status_code == 201
     run = response.json()
     assert run["status"] == "queued"
@@ -389,13 +422,19 @@ def test_inactive_dependencies_are_rejected_without_run_creation(
 ) -> None:
     endpoint_id, model_id, dataset_id = register_fixture(run_api)
     repository = getattr(run_api["registry"], f"{dependency}s")
-    repository.soft_delete({"endpoint": endpoint_id, "model": model_id, "dataset": dataset_id}[dependency])
-    response = run_api["client"].post("/api/v1/runs", json=run_payload(model_id, dataset_id))
+    repository.soft_delete(
+        {"endpoint": endpoint_id, "model": model_id, "dataset": dataset_id}[dependency]
+    )
+    response = run_api["client"].post(
+        "/api/v1/runs", json=run_payload(model_id, dataset_id)
+    )
     assert response.status_code == 409
     assert run_api["registry"].runs.list_runs() == []
 
 
-@pytest.mark.parametrize(("field", "value"), [("model_id", 999999), ("dataset_id", 999999)])
+@pytest.mark.parametrize(
+    ("field", "value"), [("model_id", 999999), ("dataset_id", 999999)]
+)
 def test_missing_registered_resources_return_404(
     run_api: dict[str, Any], field: str, value: int
 ) -> None:
@@ -407,9 +446,13 @@ def test_missing_registered_resources_return_404(
     assert run_api["registry"].runs.list_runs() == []
 
 
-def test_unsupported_dataset_registration_returns_sanitized_conflict(run_api: dict[str, Any]) -> None:
+def test_unsupported_dataset_registration_returns_sanitized_conflict(
+    run_api: dict[str, Any],
+) -> None:
     registry = run_api["registry"]
-    endpoint = registry.endpoints.create(name="unsupported", provider_type="mock", base_url="mock://provider")
+    endpoint = registry.endpoints.create(
+        name="unsupported", provider_type="mock", base_url="mock://provider"
+    )
     model = registry.models.create(
         name="Mock",
         model_identifier="mock",
@@ -425,7 +468,9 @@ def test_unsupported_dataset_registration_returns_sanitized_conflict(run_api: di
         task_type="free_text",
         adapter_type="local_jsonl",
     )
-    response = run_api["client"].post("/api/v1/runs", json=run_payload(model.id, dataset.id))
+    response = run_api["client"].post(
+        "/api/v1/runs", json=run_payload(model.id, dataset.id)
+    )
     assert response.status_code == 409
     assert response.json() == {"detail": "Registered run configuration is invalid"}
     assert "private/path" not in response.text
@@ -457,7 +502,9 @@ def test_pipeline_system_failure_hides_internal_details_from_public_run_response
     def fail(_: RunConfig) -> PipelineExecution:
         raise RuntimeError(internal_detail)
 
-    app = create_app(registry, benchmark_executor=fail, run_output_root=tmp_path / "artifacts")
+    app = create_app(
+        registry, benchmark_executor=fail, run_output_root=tmp_path / "artifacts"
+    )
     context = {"registry": registry}
     _, model_id, dataset_id = register_fixture(context)
     with TestClient(app) as client:
@@ -535,7 +582,11 @@ def test_uploaded_csv_runs_end_to_end_with_portable_provenance(tmp_path: Path) -
     with TestClient(app) as client:
         upload = client.post(
             "/api/v1/datasets/upload",
-            data={"name": "uploaded-run-dataset", "file_format": "csv", "split": "test"},
+            data={
+                "name": "uploaded-run-dataset",
+                "file_format": "csv",
+                "split": "test",
+            },
             files={"file": ("questions.csv", content, "text/csv")},
         )
         assert upload.status_code == 201
@@ -565,7 +616,9 @@ def test_uploaded_csv_runs_end_to_end_with_portable_provenance(tmp_path: Path) -
     assert dataset_config["path"] is None
     assert str(storage_root) not in repr(dataset_config)
     artifact_directory = Path(persisted.artifact_directory)
-    manifest = json.loads((artifact_directory / "dataset_manifest.json").read_text("utf-8"))
+    manifest = json.loads(
+        (artifact_directory / "dataset_manifest.json").read_text("utf-8")
+    )
     assert manifest["storage_key"] == dataset["source_uri"]
     assert manifest["checksum"] == dataset["checksum"]
     assert str(storage_root) not in repr(manifest)

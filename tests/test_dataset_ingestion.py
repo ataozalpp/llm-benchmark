@@ -141,7 +141,7 @@ def test_ingestion_persists_only_registration_metadata_in_migrated_sqlite(
 
 
 def test_ingest_stores_validates_and_registers_csv(
-        tmp_path: Path,
+    tmp_path: Path,
 ) -> None:
     storage = LocalDatasetStorage(tmp_path / "datasets")
     repository = RecordingDatasetRepository(_dataset_record())
@@ -190,7 +190,7 @@ def test_ingest_stores_validates_and_registers_csv(
 
 
 def test_ingest_stores_validates_and_registers_jsonl(
-        tmp_path: Path,
+    tmp_path: Path,
 ) -> None:
     storage = LocalDatasetStorage(tmp_path / "datasets")
     repository = RecordingDatasetRepository(_dataset_record())
@@ -296,9 +296,7 @@ def test_ingestion_request_rejects_empty_split() -> None:
         )
 
 
-def test_invalid_dataset_removes_newly_stored_file(
-        tmp_path: Path
-) -> None:
+def test_invalid_dataset_removes_newly_stored_file(tmp_path: Path) -> None:
     storage_root = tmp_path / "datasets"
     storage = LocalDatasetStorage(storage_root)
     repository = RecordingDatasetRepository(_dataset_record())
@@ -375,9 +373,7 @@ def test_repository_failure_preserves_reused_file(
     assert str(raised.value) == "Repository persistence failed"
 
 
-def test_repository_failure_removes_newly_stored_files(
-        tmp_path: Path
-) -> None:
+def test_repository_failure_removes_newly_stored_files(tmp_path: Path) -> None:
     storage_root = tmp_path / "datasets"
     storage = LocalDatasetStorage(storage_root)
     service = DatasetIngestionService(
@@ -395,10 +391,7 @@ def test_repository_failure_removes_newly_stored_files(
         match="Repository persistence failed",
     ) as raised:
         service.ingest(
-            DatasetIngestionRequest(
-                name="new-dataset",
-                file_format="csv"
-            ),
+            DatasetIngestionRequest(name="new-dataset", file_format="csv"),
             BytesIO(content),
         )
 

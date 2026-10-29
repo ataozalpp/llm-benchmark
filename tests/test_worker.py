@@ -39,7 +39,10 @@ class StubService:
 
 
 def test_empty_queue_returns_false() -> None:
-    assert BenchmarkWorker(runs=StubRuns([None]), service=StubService()).run_once() is False
+    assert (
+        BenchmarkWorker(runs=StubRuns([None]), service=StubService()).run_once()
+        is False
+    )
 
 
 def test_claimed_run_is_executed_once_and_then_not_repeated() -> None:
@@ -53,7 +56,9 @@ def test_claimed_run_is_executed_once_and_then_not_repeated() -> None:
     assert service.runs == [claimed]
 
 
-def test_running_and_terminal_runs_are_not_processed_when_repository_skips_them() -> None:
+def test_running_and_terminal_runs_are_not_processed_when_repository_skips_them() -> (
+    None
+):
     service = StubService()
     worker = BenchmarkWorker(runs=StubRuns([None]), service=service)
 

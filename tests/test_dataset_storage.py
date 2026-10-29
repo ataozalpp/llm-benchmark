@@ -43,7 +43,7 @@ class BoundedReadStream:
             raise AssertionError("storage must request a positive bounded read")
         start = self._offset
         self._offset = min(len(self._content), start + size)
-        return self._content[start:self._offset]
+        return self._content[start : self._offset]
 
 
 class FailingReadStream:
@@ -62,10 +62,13 @@ def _stored_files(root: Path) -> list[Path]:
     return [path for path in root.rglob("*") if path.is_file()]
 
 
-@pytest.mark.parametrize(("file_format", "content"), [
-    ("csv", b"sample_id,question\n001,Question\n"),
-    ("jsonl", b'{"sample_id":"001"}\n'),
-])
+@pytest.mark.parametrize(
+    ("file_format", "content"),
+    [
+        ("csv", b"sample_id,question\n001,Question\n"),
+        ("jsonl", b'{"sample_id":"001"}\n'),
+    ],
+)
 def test_store_preserves_exact_content_size_and_checksum(
     tmp_path: Path,
     file_format: str,
@@ -112,7 +115,9 @@ def test_exact_size_limit_is_accepted(tmp_path: Path) -> None:
     assert result.size_bytes == 4
 
 
-def test_one_byte_over_limit_is_rejected_and_temporary_file_is_cleaned(tmp_path: Path) -> None:
+def test_one_byte_over_limit_is_rejected_and_temporary_file_is_cleaned(
+    tmp_path: Path,
+) -> None:
     root = tmp_path / "datasets"
     storage = LocalDatasetStorage(
         root,
@@ -192,7 +197,9 @@ def test_finalization_failure_cleans_temporary_file(
     assert _stored_files(root) == []
 
 
-def test_duplicate_content_reuses_existing_file_without_deleting_it(tmp_path: Path) -> None:
+def test_duplicate_content_reuses_existing_file_without_deleting_it(
+    tmp_path: Path,
+) -> None:
     root = tmp_path / "datasets"
     storage = LocalDatasetStorage(root)
     content = b"same content"
@@ -232,7 +239,9 @@ def test_different_content_uses_different_files(tmp_path: Path) -> None:
     assert len(_stored_files(root)) == 2
 
 
-def test_same_content_with_different_formats_uses_different_files(tmp_path: Path) -> None:
+def test_same_content_with_different_formats_uses_different_files(
+    tmp_path: Path,
+) -> None:
     root = tmp_path / "datasets"
     storage = LocalDatasetStorage(root)
 
@@ -245,7 +254,9 @@ def test_same_content_with_different_formats_uses_different_files(tmp_path: Path
 
 
 def test_stored_result_is_immutable(tmp_path: Path) -> None:
-    result = LocalDatasetStorage(tmp_path / "datasets").store(BytesIO(b"content"), "csv")
+    result = LocalDatasetStorage(tmp_path / "datasets").store(
+        BytesIO(b"content"), "csv"
+    )
 
     with pytest.raises(FrozenInstanceError):
         result.size_bytes = 0  # type: ignore[misc]
@@ -312,9 +323,7 @@ def test_parse_storage_key_rejects_invalid_values(
 
 
 def test_parsed_storage_key_is_immutable() -> None:
-    parsed = parse_storage_key(
-        f"upload://sha256/{'a' * 64}.csv"
-    )
+    parsed = parse_storage_key(f"upload://sha256/{'a' * 64}.csv")
 
     with pytest.raises(FrozenInstanceError):
         parsed.digest = "b" * 64  # type: ignore[misc]
@@ -333,15 +342,11 @@ def test_parsed_storage_key_is_immutable() -> None:
         f"upload://sha256/{'a' * 64}.csv?path=../other",
     ],
 )
-
-
 def test_resolve_rejects_malformed_or_traversal_like_keys(
     tmp_path: Path,
     storage_key: str,
 ) -> None:
-    storage = LocalDatasetStorage(
-        tmp_path / "datasets"
-    )
+    storage = LocalDatasetStorage(tmp_path / "datasets")
 
     with pytest.raises(InvalidStorageKeyError):
         storage.resolve(storage_key)
@@ -384,7 +389,7 @@ def test_import_and_constructor_have_no_filesystem_side_effects(tmp_path: Path) 
 
 
 def test_remove_deletes_only_resolved_stored_file(
-        tmp_path: Path,
+    tmp_path: Path,
 ) -> None:
     storage = LocalDatasetStorage(tmp_path / "datasets")
     stored = storage.store(
@@ -397,9 +402,7 @@ def test_remove_deletes_only_resolved_stored_file(
     assert not storage.resolve(stored.storage_key).exists()
 
 
-def test_remove_is_idempotent(
-        tmp_path: Path
-) -> None:
+def test_remove_is_idempotent(tmp_path: Path) -> None:
     storage = LocalDatasetStorage(tmp_path / "datasets")
     stored = storage.store(
         BytesIO(b"dataset content"),
@@ -461,7 +464,9 @@ def test_verify_rejects_missing_and_tampered_files(tmp_path: Path) -> None:
 
     stored = storage.store(BytesIO(b"original"), "csv")
     storage.resolve(stored.storage_key).write_bytes(b"tampered private content")
-    with pytest.raises(DatasetStorageIntegrityError, match="integrity validation") as captured:
+    with pytest.raises(
+        DatasetStorageIntegrityError, match="integrity validation"
+    ) as captured:
         storage.verify(stored.storage_key, f"sha256:{stored.checksum_sha256}")
     assert "tampered" not in str(captured.value)
     assert str(tmp_path) not in str(captured.value)

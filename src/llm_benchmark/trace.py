@@ -42,9 +42,7 @@ _BEARER_PATTERN = re.compile(r"(?i)\bbearer\s+[^\s,;]+")
 _SECRET_ASSIGNMENT_PATTERN = re.compile(
     r"(?i)\b(?:api[-_ ]?key|token|password|secret)\b\s*[:=]\s*[^\s,;]+"
 )
-_WINDOWS_PATH_PATTERN = re.compile(
-    r"(?i)(?:^|[\s\"'])(?:[a-z]:[\\/]|\\\\)"
-)
+_WINDOWS_PATH_PATTERN = re.compile(r"(?i)(?:^|[\s\"'])(?:[a-z]:[\\/]|\\\\)")
 _POSIX_PATH_PATTERN = re.compile(r"(?:^|[\s\"'])/(?!/)")
 
 
@@ -241,7 +239,9 @@ def _optional_integer(value: int | None) -> int | None:
 
 
 def _optional_number(value: float | None) -> int | float | None:
-    if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))):
+    if value is not None and (
+        isinstance(value, bool) or not isinstance(value, (int, float))
+    ):
         raise TypeError("trace numeric fields must contain numbers")
     return value
 

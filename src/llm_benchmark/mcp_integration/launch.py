@@ -26,13 +26,9 @@ def resolve_calculator_launch(
         server_python = Path(value).resolve(strict=True)
         root = project_root.resolve(strict=True)
     except (OSError, RuntimeError, ValueError):
-        raise ValueError(
-            "Invalid calculator MCP launch config."
-        ) from None
+        raise ValueError("Invalid calculator MCP launch config.") from None
 
-    server_module = (
-        root / "src" / "llm_benchmark" / "demo_mcp_server.py"
-    )
+    server_module = root / "src" / "llm_benchmark" / "demo_mcp_server.py"
 
     if not server_python.is_file() or not server_module.is_file():
         raise ValueError("Invalid calculator MCP launch config.")

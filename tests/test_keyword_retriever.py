@@ -59,9 +59,7 @@ def test_repeated_words_do_not_increase_score():
 
 @pytest.mark.parametrize("query_text", ["unknown", "!!!"])
 def test_no_token_overlap_returns_empty_results(query_text):
-    retriever = KeywordRetriever(
-        (Chunk("c1", "d1", "refund policy"),)
-    )
+    retriever = KeywordRetriever((Chunk("c1", "d1", "refund policy"),))
 
     result = retriever.retrieve(RetrievalQuery("q1", query_text), top_k=3)
 

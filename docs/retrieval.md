@@ -229,10 +229,12 @@ outputs/retrieval/<run_id>/
 - `summary.json`: macro metrics plus run ID and measured timings; written after
   every query succeeds. Timings vary between identical runs.
 
-`index_build_ms` measures keyword index construction. Per-query latency and
+`model_load_ms` measures dense model loading/preparation (zero for keyword).
+`index_build_ms` measures index construction, including document encoding for
+dense retrieval but excluding model loading. Per-query latency and
 `retrieval_total_ms`/`retrieval_mean_ms` measure retrieval calls only, excluding
 evaluation and artifact writes. `wall_time_ms` starts before input loading and
-includes validation, identity, indexing, evaluation, and incremental result
+includes validation, identity, model loading, indexing, evaluation, and incremental result
 writes; it ends before writing the summary and final manifest. It is not total
 CLI process startup/shutdown time.
 
@@ -375,3 +377,192 @@ The recorded baseline is documented in
 This experiment evaluates English scientific-claim retrieval.
 It does not measure RAG answer correctness, citation support, or
 general conversational quality.
+
+## Dense retrieval core
+
+The dense retrieval core accepts an injected embedding implementation
+through the `Embedder` protocol.
+
+Documents are encoded once during construction. Queries are encoded 
+individually. Vectors are normalized and ranked by exact cosine 
+similarity, with chunk ID as the tie-breaker.
+
+The initial policy returns the highest-scoring K corpus entries without 
+a similarity threshold, including zero or negative scores.
+
+Invalid vectors, dimension mismatches and zero vectors are rejected.
+
+Tests use fixed vectors and do not download a model or access a network.
+They validate retrieval mechanics, not embedding-model quailty.
+
+The dense core includes a versioned profile and profile-aware run
+identity. A standalone CPU smoke script validates real embeddings.
+Dense retrieval is connected to the benchmark CLI; service and CLI tests use
+fixed embeddings. A real dense CLI run remains a separate validation step.
+
+The current implementation is an exact, in-memory reference retriever.
+It does not claim large-corpus scalability.
+
+Embedding adapters must return tuples of Python numeric values and
+preserve document order. Adapters own model-specific batching,
+array/tensor conversion, query/document instructions and truncation.
+
+Dense CLI integration requires a versioned embedding profile and 
+profile-aware run identity. The current keyword run identity must not
+be reused unchanged for dense runs.
+
+Embedding reproducibility depends on the model and execution
+environment; deterministic ranking code alone does not guarantee
+bit-identical embeddings.
+
+## Dense retrieval identity
+
+Dense experiments use a versioned profile containing model identity,
+resolved revision, embedding dimension, input prefixes, max sequence
+length, truncation policy, device, precision, batch size and adapter
+identity/version.
+
+These fields contribute to the retriever profile hash and run fingerprint.
+
+The existing keyword identity entry point remains available and retains
+the keyword profile and identity structure.
+
+A profile describes the configured experiment. It does not prove that
+model artifacts are immutable or embeddings are bit-identical.
+The concrete adapter must validate the effective settings and record
+runtime provenance.
+
+The run service selects the keyword or dense profile and records its identity
+and configuration in the manifest.
+
+### CPU embedding smoke
+
+`scripts/smoke_dense_cpu.py` checks a real CPU embedding model against
+the existing dense retriever.
+
+The checks cover model/profile consistency, float32 output, exact-text
+and paraphrase retrieval, and rejection of inputs exceeding the token
+limit. The report records runtime versions, CPU thread counts, and
+diagnostic differences between repeated and batched encoding.
+
+This is a small integration check. It does not establish SciFact
+retrieval quality or guarantee identical embeddings across environments.
+
+The smoke script is separate from the benchmark CLI and does not
+produce benchmark run artifacts.
+
+The CPU embedding bridge is implemented in
+`llm_benchmark.retrieval.local_embeddings.SentenceTransformerCpuEmbedder`.
+The smoke script loads and validates the model, then injects it into
+the adapter.
+
+The adapter supports CPU float32 execution, empty prefixes,
+and explicit `reject` (default) or `truncate` input-length policies. Model loading
+remains outside the adapter. The benchmark service loads the dense model once
+per run and records `model_load_ms` separately from `index_build_ms`.
+
+Under `reject`, inputs exceeding the configured token limit raise
+`EmbeddingInputTooLongError`, a subclass of `ValueError`.
+The smoke check catches this specific exception so unrelated backend
+failures are not treated as successful rejection.
+
+Adapter tests cover input/output alignment, output shape and dtype,
+finite values, profile compatibility, and document-order preservation.
+
+Invalid input containers and blank or non-string texts are rejected before
+tokenization. Every document is checked for token-limit violations before
+encoding starts, including later documents in a multi-document input.
+
+The current adapter passes `batch_size` to the model's encoder. Its initial
+tokenization still processes the complete input tuple; it does not provide
+bounded-memory streaming. Model loading, CPU parameter-dtype verification,
+and runtime provenance collection remain responsibilities of the caller.
+
+### CPU model loader
+
+`embedding_loader.load_cpu_embedder` loads a pinned model and returns the
+CPU adapter. It defaults to local files only, requires a full lowercase
+40-character hexadecimal model revision, and disables remote model code.
+Unsupported device, precision, and prefix settings fail before
+loading. The loader applies float32/evaluation mode and verifies the effective
+CPU device, floating-point parameter dtypes, embedding dimension, and token
+limit. Load errors propagate without an automatic online retry.
+
+Loader tests inject fake models and a fake Sentence Transformers module;
+they do not download or load real model weights. The smoke script delegates
+model loading and effective-setting validation to this loader.
+The run service uses this loader for dense execution. It records
+`embedding_runtime` (package versions, model properties and CPU settings) and
+`embedding_load_policy` after loading and before corpus encoding. Collection
+or persistence failure fails the run; keyword manifests omit these fields.
+Metadata collection contributes to wall time, not model-load or index time.
+Recorded dense results can be reviewed without loading a model. The review
+script strictly decodes the manifest profile, checks the suite/profile
+identity, and recomputes per-query metrics from stored rankings. It does not
+regenerate embeddings or validate aggregate summary timings.
+
+```powershell
+.\.venv\Scripts\python.exe scripts/review_retrieval_run.py `
+  --suite examples/retrieval/keyword_smoke.json `
+  --run-dir outputs/retrieval/dd30de0a5982409ead0e33f672762b69
+```
+
+The output is never overwritten; use a new `--output` path if a review already
+exists. Dense `--verify-retrieval` is explicitly rejected until dense replay
+is implemented. Keyword replay remains supported. A successful recorded-result
+review reports `retrieval_replay: not_requested`, not model reproducibility.
+
+### Input length statistics and progress
+
+Under `truncate`, the model encodes inputs using its configured sequence limit.
+The adapter measures untruncated lengths, including special tokens, before
+encoding. Truncation does not create new chunks and may discard relevant text.
+`scripts/smoke_dense_truncation.py` checks effective token length and both policies
+with the cached model.
+
+Dense manifests include `embedding_input_statistics`: successful document and
+query encoding counts and their over-limit counts. These count input occurrences,
+not unique texts. Failed encoding calls do not increment them. They do not identify
+individual truncated documents or count discarded tokens.
+
+Corpus encoding displays batch progress; the run service reports query progress
+on stderr, preserving JSON output on stdout. Encoding counters are updated after
+an encoding call completes, not after every batch. Keyboard interruption records
+a failed run with `retrieval_run_interrupted` on a best-effort basis.
+
+### Comparing recorded runs
+
+Run the comparison script from the repository root:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.compare_retrieval_runs `
+  --suite data/cache/retrieval/scifact-test-v1/suite.json `
+  --baseline outputs/retrieval/4188b7e1e9f246b8b0bb2a908060d4a1 `
+  --candidate outputs/retrieval/0a28cd3481bd435886040c7a1d91c7b6 `
+  --output outputs/retrieval/0a28cd3481bd435886040c7a1d91c7b6/comparison-keyword.json
+```
+
+The output must not already exist. Both runs must be completed and their artifacts
+must remain unchanged during comparison. The script reuses recorded-result review
+validation and requires matching corpus, suite, evaluator, input profile,
+evaluation configuration, and K. It does not reload models or replay retrieval.
+
+The report groups query IDs into `both_hit`, `baseline_only`, `candidate_only`,
+and `both_miss`. `hit_rate_delta` is candidate minus baseline; 0.17333 means an
+increase of 17.333 percentage points. `candidate_union_hit_rate` describes coverage
+across up to 2*K candidates, not measured hybrid quality at K.
+
+### Next delivery scope
+
+The existing keyword-overlap baseline remains available for historical comparisons.
+BM25 should be introduced as a separate retriever with a versioned profile, then
+compared against dense retrieval on the unchanged suite. BM25 plus dense rank
+fusion is the next hybrid experiment. None of these methods is implemented by the
+comparison script.
+
+The next product milestone is a bounded evaluation release: reproducible retrieval
+and RAG runs, comparison artifacts, and a minimal results view using the existing
+API/worker architecture. Distributed execution and advanced ranking experiments
+are separate follow-up work. SciFact retrieval labels alone are not a general
+question-answering dataset; RAG generation evaluation needs an explicit answer
+and evidence contract.

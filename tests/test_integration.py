@@ -128,9 +128,10 @@ class UnsafeTraceRecorder:
         return tuple(self._events)
 
 
-
 def test_fixture_pipeline_end_to_end(tmp_path: Path) -> None:
-    config = load_config(Path("configs/mock_smoke.yaml"), [f"output_dir={json.dumps(str(tmp_path))}"])
+    config = load_config(
+        Path("configs/mock_smoke.yaml"), [f"output_dir={json.dumps(str(tmp_path))}"]
+    )
     run_dir, summary = run_benchmark(config)
     assert (run_dir / "results.jsonl").exists()
     assert (run_dir / "summary.json").exists()
@@ -140,17 +141,12 @@ def test_fixture_pipeline_end_to_end(tmp_path: Path) -> None:
     assert (run_dir / "trace.jsonl").exists()
     result_rows = [
         json.loads(line)
-        for line in (run_dir / "results.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()
+        for line in (run_dir / "results.jsonl").read_text(encoding="utf-8").splitlines()
     ]
     assert summary["overall"]["total_samples"] == 16
     assert len(result_rows) == 16
 
-    status_counts = Counter(
-        row["evaluation_status"]
-        for row in result_rows
-    )
+    status_counts = Counter(row["evaluation_status"] for row in result_rows)
 
     assert status_counts == Counter(
         {
@@ -169,7 +165,12 @@ def test_fixture_pipeline_end_to_end(tmp_path: Path) -> None:
     assert first_result["evaluation_status"] == "correct"
     assert first_result["parse_status"] == "explicit_final_marker"
 
-    assert summary["dataset"]["selected_categories"] == ["geography", "language", "math", "science"]
+    assert summary["dataset"]["selected_categories"] == [
+        "geography",
+        "language",
+        "math",
+        "science",
+    ]
     assert summary["dataset"]["selected_sample_categories"]["q01"] == "math"
     persisted = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
     assert persisted["run_fingerprint"] == summary["run_fingerprint"]
@@ -194,16 +195,11 @@ def test_runner_writes_execution_trace_artifact(
     assert trace_path.exists()
 
     rows = [
-        json.loads(line)
-        for line in trace_path.read_text(
-            encoding="utf-8"
-        ).splitlines()
+        json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()
     ]
 
     assert rows
-    assert [row["sequence"] for row in rows] == list(
-        range(1, len(rows) + 1)
-    )
+    assert [row["sequence"] for row in rows] == list(range(1, len(rows) + 1))
 
 
 def test_runner_records_expected_trace_event_order(
@@ -217,9 +213,7 @@ def test_runner_records_expected_trace_event_order(
             "dataset.sample_size=1",
         ],
     )
-    recorder = InMemoryTraceRecorder(
-        clock=lambda: "2026-09-01T10:00:00+00:00"
-    )
+    recorder = InMemoryTraceRecorder(clock=lambda: "2026-09-01T10:00:00+00:00")
 
     execute_benchmark(
         config,
@@ -235,10 +229,7 @@ def test_runner_records_expected_trace_event_order(
     ]
     expected = expected_per_model * len(config.models)
 
-    assert [
-        event.event_type
-        for event in recorder.events()
-    ] == expected
+    assert [event.event_type for event in recorder.events()] == expected
     request_events = [
         event
         for event in recorder.events()
@@ -260,9 +251,7 @@ def test_request_failed_outcome_completes_trace_scenario(
             "dataset.sample_size=1",
         ],
     )
-    recorder = InMemoryTraceRecorder(
-        clock=lambda: "2026-09-01T10:00:00+00:00"
-    )
+    recorder = InMemoryTraceRecorder(clock=lambda: "2026-09-01T10:00:00+00:00")
 
     execution = execute_benchmark(
         config,
@@ -270,9 +259,7 @@ def test_request_failed_outcome_completes_trace_scenario(
     )
 
     failed_result = next(
-        result
-        for result in execution.results
-        if result.request_status == "failed"
+        result for result in execution.results if result.request_status == "failed"
     )
 
     failed_scenario_events = [
@@ -282,10 +269,7 @@ def test_request_failed_outcome_completes_trace_scenario(
         and event.model == failed_result.model
     ]
 
-    assert [
-        event.event_type
-        for event in failed_scenario_events
-    ] == [
+    assert [event.event_type for event in failed_scenario_events] == [
         TraceEventType.SCENARIO_STARTED,
         TraceEventType.MODEL_REQUEST,
         TraceEventType.MODEL_RESPONSE,
@@ -331,9 +315,7 @@ def test_trace_artifact_excludes_sensitive_content(
 
     execution = execute_benchmark(config)
 
-    trace_text = (
-        execution.run_dir / "trace.jsonl"
-    ).read_text(encoding="utf-8")
+    trace_text = (execution.run_dir / "trace.jsonl").read_text(encoding="utf-8")
     normalized_trace = trace_text.lower()
 
     assert "authorization" not in normalized_trace
@@ -385,9 +367,7 @@ def test_each_execution_uses_a_fresh_trace_recorder(tmp_path: Path) -> None:
     recorders: list[InMemoryTraceRecorder] = []
 
     def factory() -> InMemoryTraceRecorder:
-        recorder = InMemoryTraceRecorder(
-            clock=lambda: "2026-09-01T10:00:00+00:00"
-        )
+        recorder = InMemoryTraceRecorder(clock=lambda: "2026-09-01T10:00:00+00:00")
         recorders.append(recorder)
         return recorder
 
@@ -505,12 +485,8 @@ def test_trace_failures_preserve_results_summary_and_hashes(tmp_path: Path) -> N
         trace_recorder_factory=FailingTraceRecorder,
     )
 
-    assert _stable_results(baseline.results) == _stable_results(
-        failing_trace.results
-    )
-    assert _stable_summary(baseline.summary) == _stable_summary(
-        failing_trace.summary
-    )
+    assert _stable_results(baseline.results) == _stable_results(failing_trace.results)
+    assert _stable_summary(baseline.summary) == _stable_summary(failing_trace.summary)
     for key in (
         "resolved_config_hash",
         "dataset_manifest_hash",
@@ -624,7 +600,7 @@ def test_task_prompt_hash_affects_run_fingerprint(
         default_execution.summary["prompt_template_hash"]
         != custom_execution.summary["prompt_template_hash"]
     )
-    assert(
+    assert (
         default_execution.summary["run_fingerprint"]
         != custom_execution.summary["run_fingerprint"]
     )

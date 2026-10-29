@@ -34,9 +34,9 @@ class TaskAdapter(Protocol):
         ...
 
     def evaluate_response(
-            self,
-            example: DatasetExample,
-            response: ProviderResponse,
+        self,
+        example: DatasetExample,
+        response: ProviderResponse,
     ) -> TaskEvaluationOutcome:
         """Interpret a normalized provider response for this task"""
 

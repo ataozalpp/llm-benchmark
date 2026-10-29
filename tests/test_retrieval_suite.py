@@ -69,9 +69,7 @@ def test_invalid_gold_is_rejected_before_retriever_creation():
         ("q1", ("known", "other"), "more than top_k"),
     ],
 )
-def test_invalid_retriever_output_is_rejected(
-    query_id, chunk_ids, message
-):
+def test_invalid_retriever_output_is_rejected(query_id, chunk_ids, message):
     class StubRetriever:
         def retrieve(self, query, *, top_k):
             return RankedRetrieval(query_id, chunk_ids)

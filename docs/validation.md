@@ -1430,12 +1430,477 @@ Focused verification of the diagnostic review changes:
 - The hard-link report publication path was exercised on this Windows workspace.
 - `ruff check .`: passed after fixing the existing preparation-test import layout.
 
-These checks did not rerun the full regression suite or create a new review of
-the 300-query SciFact run. Run those separately before merging, and record the
+The saved SciFact diagnostic review was subsequently inspected.
+Its report records `retrieval_replay: matched`, confirming that current
+keyword retrieval reproduced the saved rankings.
+
+Population counts:
+
+- Rank 1: 115 queries.
+- First relevant result at ranks 2–10: 71 queries.
+- No relevant result in the top 10: 114 queries.
+- Partial recall: 13 queries.
+
+The selected diagnostic sample contains 5 rank-1 queries, 5 later-hit
+queries, and 10 misses.
+
+These observations do not constitute a new full regression run.
+Qualitative causes of retrieval errors require inspection of the query,
+gold evidence, and retrieved documents.300-query SciFact run.
+Run those separately before merging, and record the
 actual results. No qualitative findings about the sampled SciFact cases are
 claimed by this checkpoint.
+
+## Dense CPU smoke evidence (recorded 2026-10-25)
+
+This checkpoint records a successful smoke report supplied by the user.
+The JSON report does not contain an execution timestamp or invocation flags;
+the date above is the recording date. The model was not rerun while adding
+this record. The user subsequently confirmed a successful pinned offline run.
+The automated test results below were independently rerun against the working
+tree on 2026-10-25; the real model was not rerun during that verification.
+
+### Model and retrieval profile
+
+| Setting | Recorded value |
+| --- | --- |
+| Status | `passed` |
+| Model | `sentence-transformers/all-MiniLM-L6-v2` |
+| Model revision | `1110a243fdf4706b3f48f1d95db1a4f5529b4d41` |
+| Retriever | `dense-exact-cosine`, version `1` |
+| Adapter | `smoke-sentence-transformers-cpu`, version `1` |
+| Device / precision | `cpu` / `float32` |
+| Embedding dimension | `384` |
+| Maximum sequence length | `256` |
+| Batch size | `8` |
+| Query / document prefixes | Both empty |
+| Normalization | `l2-scaled-v1` |
+| Similarity | `cosine` |
+| Tie-break | `chunk-id-ascending` |
+| Score filter | `none` |
+| Truncation policy | `reject` |
+
+Reported retriever profile hash (copied from the supplied output):
+
+```text
+559c5fd48fbbaca8435308a46bbe2e77a6b9b333382ec3694143384b63127f4d
+```
+
+### Observed model behavior
+
+| Observation | Recorded value |
+| --- | --- |
+| Model device | `cpu` |
+| Model embedding dimension | `384` |
+| Model sequence limit | `256` |
+| Floating-point parameter dtypes | `["torch.float32"]` |
+| Embedding output dtype | `float32` |
+| Tokenizer class | `transformers.models.bert.tokenization_bert.BertTokenizer` |
+| Tokenizer `is_fast` | `true` |
+| CPU threads / interop threads | `4` / `4` |
+| Exact-query ranking | `cat`, `bread`, `space` |
+| Paraphrase-query ranking | `cat`, `bread`, `space` |
+| Long input rejected | `true` |
+| Long-input token count | `514` |
+| Repeated-encoding maximum absolute difference | `0.0` |
+| Batched-encoding maximum absolute difference | `1.564621925354004e-07` |
+
+The exact query was `A cat is sleeping on the sofa.`; the paraphrase
+was `A kitten naps on the couch.`. Both ranked the expected `cat` document
+first in the three-document corpus. The long input contained 514 tokens,
+exceeded the 256-token limit, and was rejected.
+
+For the probe text, repeated encoding within the process produced no observed
+numeric difference. Encoding it alongside the other documents produced a
+nonzero maximum absolute difference of approximately `1.56e-7`. This value
+is diagnostic, not a configured acceptance threshold or evidence of general
+batch independence.
+
+Reported probe vector hash (copied from the supplied output):
+
+```text
+5f2fb87878bd29ba47c6cbfe89286d6bd2c8e460cfdb106f6668c12204a4a616
+```
+
+These hashes are recorded as reported, not independently recomputed in this
+documentation update. The probe vector hash describes one vector, not the
+complete corpus embedding set or model files.
+
+### Runtime package versions
+
+```json
+{
+  "torch": "2.14.1+cpu",
+  "sentence-transformers": "6.2.0",
+  "transformers": "5.20.2",
+  "huggingface-hub": "1.33.0",
+  "tokenizers": "0.23.3",
+  "numpy": "2.5.2"
+}
+```
+
+### Reproduction and follow-up commands
+
+Commands use the repository root. Evidence sources are identified below;
+pytest results are from actual reruns, not inferred from the supplied JSON.
+
+Pinned offline smoke (requires the revision to be cached):
+
+```powershell
+.\.venv\Scripts\python.exe scripts/smoke_dense_cpu.py `
+  --offline `
+  --revision "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
+```
+
+The user confirmed that the pinned offline command completed successfully.
+This is user-reported offline validation, separate from the automated pytest
+reruns below. It does not establish bit-identical vectors between processes.
+
+Additional dependency and scoped lint commands (not rerun for this update):
+
+```powershell
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m ruff check scripts/smoke_dense_cpu.py tests/test_smoke_dense_cpu.py src/llm_benchmark/retrieval/profile.py src/llm_benchmark/retrieval/identity.py tests/test_dense_profile.py
+```
+
+Smoke unit tests executed on 2026-10-25:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q tests/test_smoke_dense_cpu.py
+```
+
+Result: **13 passed in 0.08 seconds**, exit code 0; no failures or skips.
+
+Focused retrieval regression executed on 2026-10-25:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q `
+  tests/test_dense_profile.py `
+  tests/test_retrieval_identity.py `
+  tests/test_dense_retriever.py `
+  tests/test_retrieval_run.py `
+  tests/test_retrieval_review.py `
+  tests/test_smoke_dense_cpu.py
+```
+
+Result: **190 passed in 6.31 seconds**, exit code 0; no failures or skips.
+
+The focused regression includes the 13 smoke unit tests; their counts must
+not be added together. Fake-model unit tests validate control flow without
+loading the real embedding model. These are scoped checks, not a new
+full-project regression.
+
+### Interpretation and next boundary
+
+The supplied result supports CPU model integration, the checked profile and
+output properties, expected ranking for two small examples, and the long-input
+rejection path. It does not establish SciFact retrieval quality, bit-identical
+embeddings across environments, model artifact integrity, large-corpus
+performance, hybrid retrieval quality, or RAG answer quality.
+
+Dense retrieval is not yet connected to the benchmark CLI. The next increment
+is to extract the validated embedding bridge into a package adapter, preserve
+its tests, and then integrate dense configuration, profile-aware run identity,
+runtime metadata, and artifact reporting.
+
+## CPU adapter validation follow-up (2026-10-25)
+
+The package adapter and smoke now use `EmbeddingInputTooLongError` to
+distinguish expected token-limit rejection from unrelated backend failures.
+This follow-up validates the uncommitted working tree after adapter extraction.
+
+The test helpers' captured-input attribute names were corrected. Additional
+tests verify invalid containers and blank/non-string texts fail before
+tokenization, and that an over-limit later document rejects the complete
+input before any model encoding. Existing tests cover order preservation,
+encoder options, shape/dtype, non-finite values, profile compatibility, and
+propagation of unrelated errors from the smoke rejection check.
+
+Executed focused regression:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q `
+  tests/test_local_embeddings.py `
+  tests/test_smoke_dense_cpu.py `
+  tests/test_dense_profile.py `
+  tests/test_retrieval_identity.py `
+  tests/test_dense_retriever.py `
+  tests/test_retrieval_run.py `
+  tests/test_retrieval_review.py
+```
+
+Result: **213 passed in 5.98 seconds**, exit code 0, no failures or skips.
+This is a focused regression, not a full-project run.
+
+Scoped lint also passed:
+
+```powershell
+.\.venv\Scripts\python.exe -m ruff check src/llm_benchmark/retrieval/local_embeddings.py scripts/smoke_dense_cpu.py tests/test_local_embeddings.py tests/test_smoke_dense_cpu.py
+```
+
+The real model was independently rerun using the cached, pinned revision:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/smoke_dense_cpu.py `
+  --offline `
+  --revision "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
+```
+
+Result: `status: passed`, exit code 0. Both queries ranked `cat` first;
+the 514-token input was rejected against the 256-token limit. The profile
+hash, probe vector hash, runtime versions, and recorded diagnostics matched
+the earlier supplied report: repeat difference `0.0`, batch difference
+`1.564621925354004e-07`. This observation does not guarantee reproducibility
+across other environments or inputs.
+
+The tokenizer emitted a sequence-length warning for the deliberately long
+input. This was expected: the adapter rejected it before model encoding.
+
+Adapter extraction is complete. The next boundary is reusable model loading
+and effective-setting validation, followed by dense CLI and artifact integration.
+Whole-input tokenization and reject-only truncation remain current limitations.
+
+## CPU embedding loader unit checkpoint (2026-10-25)
+
+The loader now has 27 fake-model test cases. Coverage includes default offline
+loading, constructor argument forwarding for both offline settings, strict
+profile/boolean/revision validation, unsupported settings rejected before
+loading, effective device/dimension/sequence-limit mismatches, parameter dtype
+checks after preparation, non-floating parameter handling, and load failure
+propagation without retry. The loader error-message typo was corrected.
+
+Executed focused regression:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q `
+  tests/test_embedding_loader.py `
+  tests/test_local_embeddings.py `
+  tests/test_smoke_dense_cpu.py `
+  tests/test_dense_profile.py `
+  tests/test_retrieval_identity.py `
+  tests/test_dense_retriever.py `
+  tests/test_retrieval_run.py `
+  tests/test_retrieval_review.py
+```
+
+Result: **240 passed in 5.93 seconds**, exit code 0, no failures or skips.
+The 27 loader cases are included in this count. Scoped Ruff passed:
+
+```powershell
+.\.venv\Scripts\python.exe -m ruff check src/llm_benchmark/retrieval/embedding_loader.py tests/test_embedding_loader.py
+```
+
+No real model was loaded in this checkpoint, and this was not a full-project
+regression. The existing smoke script still uses its separate loading path;
+its earlier real-model success does not yet validate integration of this
+new loader. No commit or PR was created for this checkpoint.
+
+## Dense config validation checkpoint (2026-10-25)
+
+Reproduced the initial failure: **1 failed, 3 passed**. The field was named
+`max_seqeunce_length` in the config and profile conversion. Correct input
+therefore produced both a missing-field error and an extra-field error.
+Both references now use `max_sequence_length`; the misspelling is deliberately
+not accepted as an alias.
+
+Dense config coverage now contains 39 test cases. Added cases verify strict
+numeric/boolean types, invalid model IDs and revisions, positive limits,
+unknown fields, missing/malformed embedding settings, exact profile mapping,
+default batch size, offline/online load policy, config-relative paths, and
+duplicate nested YAML keys. Load policy does not alter the embedding profile
+for an otherwise identical pinned model.
+
+Executed focused regression:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q `
+  tests/test_retrieval_dense_config.py `
+  tests/test_embedding_loader.py `
+  tests/test_local_embeddings.py `
+  tests/test_smoke_dense_cpu.py `
+  tests/test_dense_profile.py `
+  tests/test_retrieval_identity.py `
+  tests/test_dense_retriever.py `
+  tests/test_retrieval_run.py `
+  tests/test_retrieval_review.py
+```
+
+Result: **279 passed in 6.12 seconds**, exit code 0, no failures or skips.
+Scoped Ruff passed for `run_config.py` and `test_retrieval_dense_config.py`.
+No real model was loaded and no full-project regression was run for this fix.
+Dense configuration acceptance does not yet mean dense execution is wired into
+the run service; do not use a dense config as a benchmark until that integration
+is implemented and tested.
+
+## Dense run service and CLI checkpoint (2026-10-26)
+
+Added 10 parametrized service/CLI cases in `tests/test_retrieval_run.py`.
+They use a fixed-vector embedder and the real dense retriever, without model
+downloads. Coverage verifies dense profile/hash artifacts, exact expected
+rankings and metrics, one model load and one corpus encoding per run,
+online/offline flag forwarding, and absence of embedding loads for keyword.
+
+Failure cases cover loading, corpus encoding, and the second query: manifests
+become failed, completed result rows are preserved, no success summary is
+written, and private backend messages are omitted from public artifacts.
+CLI tests verify JSON success output and exit code 2 on load failure.
+A controlled clock verifies 2,000 ms model loading, 3,000 ms index building,
+and four 250 ms queries are assigned to separate timing fields. A changed
+model revision changes profile/run hashes while corpus/suite hashes stay fixed.
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q tests/test_retrieval_run.py tests/test_retrieval_dense_config.py tests/test_embedding_loader.py tests/test_local_embeddings.py tests/test_smoke_dense_cpu.py tests/test_dense_profile.py tests/test_retrieval_identity.py tests/test_dense_retriever.py tests/test_retrieval_review.py
+```
+
+Result: **289 passed in 9.42 seconds**, no failures or skips. Scoped Ruff
+passed for the run service and its test file. This is not a full-project
+regression. No real model or real dense CLI benchmark was run in this checkpoint.
+The existing `retrieval-run --config` CLI needs no new subcommand for dense.
+Real dense CLI validation, runtime provenance, dense review/replay, and
+SciFact long-input policy remain follow-up work.
+
+## Embedding runtime persistence checkpoint (2026-10-27)
+
+Completed runtime assertions in `tests/test_retrieval_run.py`. Corrected the
+fake metadata key from `runtime_version` to `runtime_versions`, and replaced
+an undefined `offline` variable in the CLI test with the fixture's actual
+`True` setting. Dense success checks cover both load policies and verify that
+the collector receives the loaded model exactly once. Keyword execution
+neither collects nor writes embedding runtime metadata.
+
+Added tests for metadata being persisted while the manifest is running,
+before corpus encoding; metadata collection failure; and runtime manifest
+write failure. Both failures stop encoding and produce a failed manifest
+when storage permits the failure record, without a success summary or leaked
+backend details. Existing index/query failure tests now verify retained
+runtime metadata. The fake-clock test includes 500 ms of metadata collection
+in wall time but excludes it from model loading, index building, and query
+latencies.
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q tests/test_embedding_runtime.py tests/test_retrieval_run.py tests/test_retrieval_dense_config.py tests/test_embedding_loader.py tests/test_local_embeddings.py tests/test_smoke_dense_cpu.py tests/test_dense_profile.py tests/test_retrieval_identity.py tests/test_dense_retriever.py tests/test_retrieval_review.py
+```
+
+Result: **293 passed in 8.11 seconds**, no failures or skips. Scoped Ruff
+passed for the run service, runtime collector, and their two test files.
+This is a focused regression with fake embedding/runtime dependencies, not
+a full-project regression or a new real-model run. Real CLI verification of
+the new manifest fields remains the next manual validation step.
+
+## Dense recorded-result review checkpoint (2026-10-28)
+
+Added seven dense review test cases using temporary runs, fixed embeddings,
+and fake runtime metadata. During review, model dependency imports, model
+loading, and keyword retrieval are forbidden by the fixture. Tests verify
+profile/hash output, unchanged source artifacts, rejection of unsupported
+dense replay, rejection of changed revisions/algorithm fields and stored
+metrics, and CLI publication without replacing an existing report on failure.
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q tests/test_retrieval_profile_serialization.py tests/test_embedding_runtime.py tests/test_retrieval_run.py tests/test_retrieval_dense_config.py tests/test_embedding_loader.py tests/test_local_embeddings.py tests/test_smoke_dense_cpu.py tests/test_dense_profile.py tests/test_retrieval_identity.py tests/test_dense_retriever.py tests/test_retrieval_review.py
+```
+
+Result: **313 passed in 7.78 seconds**, no failures or skips. Scoped Ruff
+passed for the review script, profile decoder, and review tests. This was
+not a full-project regression or a new embedding-model execution.
+
+The completed real run `dd30de0a5982409ead0e33f672762b69` was also reviewed
+read-only through `build_review` using `examples/retrieval/keyword_smoke.json`.
+All recorded per-query metrics and input/profile identity checks passed.
+Population counts were rank 1: **4**, ranks 2 through K: **0**, misses: **0**.
+The rebuilt report matched the existing `review.json` as a complete parsed
+JSON object. No source artifact or existing review file was modified.
+`retrieval_replay` remained `not_requested`: recorded rankings were evaluated,
+not regenerated by the model.
+
+## SciFact dense and comparison artifacts (2026-10-29)
+
+The user completed the CPU run and comparison command. The stored artifacts were
+inspected for this checkpoint; this is not a new model execution or full regression.
+
+- Dense run: `0a28cd3481bd435886040c7a1d91c7b6`.
+- Keyword run: `4188b7e1e9f246b8b0bb2a908060d4a1`.
+- Dense configuration: `configs/retrieval_dense_scifact.yaml`.
+- Model: `sentence-transformers/all-MiniLM-L6-v2`.
+- Revision: `1110a243fdf4706b3f48f1d95db1a4f5529b4d41`.
+- CPU float32, batch size 8, sequence limit 256, `truncate` policy.
+- 5,183 document inputs and 300 query inputs; 3,681 documents and zero queries
+  exceeded the token limit.
+
+| Metric | Keyword overlap | Dense |
+| --- | ---: | ---: |
+| Queries / K | 300 / 10 | 300 / 10 |
+| Hit rate | 0.62 | 0.7933333333333333 |
+| Mean precision | 0.065 | 0.08833333333333333 |
+| Mean recall | 0.5969444444444445 | 0.7833333333333333 |
+| MRR | 0.45690740740740743 | 0.6047248677248678 |
+
+Dense timings: model load 9,977.01 ms; index build 225,487.57 ms;
+retrieval total 61,157.86 ms; mean retrieval 203.86 ms; wall time 298,594.60 ms.
+Separate-run timings are observations, not a controlled performance comparison.
+
+`comparison-keyword.json` reports 166 both-hit queries, 20 keyword-only queries,
+72 dense-only queries, and 42 both-miss queries. Hit-rate delta is
+0.17333333333333334 (17.333 percentage points). Corpus, suite, and evaluation
+configuration hashes and K match. Union coverage is 258/300 (86%), using up to
+20 candidates; it is not a hybrid hit-rate-at-10 result.
+
+The comparison validates recorded rankings and metrics, not model replay.
+Approximately 71.02% of document inputs exceeded the token limit. Conclusions
+are limited to this dataset, model revision, and truncation policy. The lexical
+baseline is keyword overlap, not BM25. Comparison CLI failure-path integration
+tests and a full regression remain release checks.
+
+Focused check performed for this checkpoint:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_retrieval_comparison.py -q
+```
+
+Result: **12 passed in 0.05 seconds**. `git diff --check` also passed.
+This checks the comparison core, not the script's end-to-end failure paths.
 
 ## Licensing note
 
 No project license has been selected yet. MMLU-Pro attribution and its dataset
 license metadata remain recorded separately from the project license.
+
+## Real dense CLI smoke (2026-10-27)
+
+Run ID: "bd9c20093dc74a96ad39ae9b962ddb6d"
+
+The real dense CLI run completed all four queries from
+examples/retrieval/keyword_smoke.json at K=2.
+
+- Model: sentence-transformers/all-MiniLM-L6-v2
+- Revision: 1110a243fdf4706b3f48f1d95db1a4f5529b4d41
+- Device / precision: CPU / float32.
+- Embedding dimension: 384
+- Maximum sequence length: 256
+- Batch size: 8
+- Truncation policy: reject.
+- Manifest status: completed.
+- Completed result rows: 4.
+
+All four queries retrieved the relevant document at rank 1.
+
+| Metric | Observed value |
+| --- | ---: |
+| Hit rate at 2 | 1.0 |
+| Mean precision at 2 | 0.5 |
+| Mean recall at 2 | 1.0 |
+| MRR at 2 | 1.0 |
+| Model loading | 31465.38 ms |
+| Index construction | 91.59 ms |
+| Total retrieval | 51.21 ms |
+| Mean retrieval | 12.80 ms |
+| Measured wall time | 31646.33 ms |
+
+The precision denominator is K=2, and each query has one relevant
+document. A precision of 0.5 is therefore consistent with retrieving
+the relevant document first for every query.
+
+This validates the real config-to-artifact execution path. It does
+not establish representative retrieval quality or performance.
+Embedding package versions and CPU runtime settings are not yet
+persisted in this run's manifest.

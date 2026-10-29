@@ -83,7 +83,7 @@ def test_manifest_completion_waits_for_session_close(
     if fail_on_close:
         with pytest.raises(RuntimeError) as caught:
             run_tool_benchmark(config, project_root=tmp_path)
-        
+
         assert "private cleanup error" not in str(caught.value)
     else:
         run_tool_benchmark(config, project_root=tmp_path)
@@ -92,9 +92,7 @@ def test_manifest_completion_waits_for_session_close(
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
     assert states_at_close == ["running"]
-    assert manifest["status"] == (
-        "failed" if fail_on_close else "completed"
-    )
+    assert manifest["status"] == ("failed" if fail_on_close else "completed")
     assert manifest["tool_catalog_hash"] == fingerprint(catalog)
     assert manifest["runtime_metadata"]["protocol_version"] == ("test-protocol")
     assert "private cleanup error" not in manifest_path.read_text(encoding="utf-8")
@@ -118,7 +116,8 @@ def test_mcp_run_failure_artifacts_and_sanitization(monkeypatch, tmp_path, stage
     )
     closed = []
     monkeypatch.setattr(
-        mcp_launch, "resolve_calculator_launch",
+        mcp_launch,
+        "resolve_calculator_launch",
         lambda **kwargs: SimpleNamespace(server_python=tmp_path, project_root=tmp_path),
     )
 
@@ -128,12 +127,16 @@ def test_mcp_run_failure_artifacts_and_sanitization(monkeypatch, tmp_path, stage
             raise RuntimeError("private failure detail")
         try:
             yield SimpleNamespace(
-                descriptors=(descriptor,), executor=ToolRuntime(registry),
+                descriptors=(descriptor,),
+                executor=ToolRuntime(registry),
                 protocol_version="test-protocol",
-                catalog_snapshot=lambda: [{
-                    "name": "calculator", "description": descriptor.definition.description,
-                    "parameters": descriptor.parameters,
-                }],
+                catalog_snapshot=lambda: [
+                    {
+                        "name": "calculator",
+                        "description": descriptor.definition.description,
+                        "parameters": descriptor.parameters,
+                    }
+                ],
             )
         finally:
             closed.append(True)

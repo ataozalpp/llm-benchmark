@@ -32,9 +32,7 @@ def get_dataset_ingestion_service(
     request: Request,
 ) -> DatasetIngestionService:
     registry = get_registry(request)
-    storage = LocalDatasetStorage(
-        request.app.state.dataset_storage_root
-    )
+    storage = LocalDatasetStorage(request.app.state.dataset_storage_root)
     return DatasetIngestionService(
         storage=storage,
         datasets=registry.datasets,

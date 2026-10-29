@@ -1,11 +1,15 @@
-"""Canonical identities for keyword retrieval evaluation."""
+"""Canonical identities for retrieval evaluation."""
 
 import hashlib
 import json
 from dataclasses import asdict
 
 from .models import Chunk, RetrievalScenario
-from .profile import KEYWORD_PROFILE
+from .profile import (
+    KEYWORD_PROFILE,
+    DenseRetrievalProfile,
+    KeywordRetrieverProfile,
+)
 
 EVALUATOR_VERSION = "retrieval-exact-v1"
 INPUT_PROFILE_VERSION = "prechunked-text-v1"
@@ -23,12 +27,16 @@ def fingerprint(value: object) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def build_keyword_run_identity(
+def build_retrieval_run_identity(
     *,
     chunks: tuple[Chunk, ...],
     scenarios: tuple[RetrievalScenario, ...],
     k: int,
+    profile: KeywordRetrieverProfile | DenseRetrievalProfile,
 ) -> dict[str, str]:
+    if not isinstance(profile, (KeywordRetrieverProfile, DenseRetrievalProfile)):
+        raise TypeError("Unsupported retriever profile.")
+
     if type(k) is not int or k <= 0:
         raise ValueError("k must be a positive integer.")
 
@@ -83,7 +91,7 @@ def build_keyword_run_identity(
         "input_profile_version": INPUT_PROFILE_VERSION,
         "corpus_hash": fingerprint(corpus_snapshot),
         "suite_hash": fingerprint(scenario_snapshot),
-        "retriever_profile_hash": fingerprint(asdict(KEYWORD_PROFILE)),
+        "retriever_profile_hash": fingerprint(asdict(profile)),
         "evaluation_config_hash": fingerprint({"k": k}),
         "evaluator_version": EVALUATOR_VERSION,
     }
@@ -92,3 +100,18 @@ def build_keyword_run_identity(
         **identity,
         "run_fingerprint": fingerprint(identity),
     }
+
+
+def build_keyword_run_identity(
+    *,
+    chunks: tuple[Chunk, ...],
+    scenarios: tuple[RetrievalScenario, ...],
+    k: int,
+) -> dict[str, str]:
+    """Preserve the existing keyword identity contract."""
+    return build_retrieval_run_identity(
+        chunks=chunks,
+        scenarios=scenarios,
+        k=k,
+        profile=KEYWORD_PROFILE,
+    )

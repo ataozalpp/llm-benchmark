@@ -23,7 +23,9 @@ class UniquenessConflictError(RepositoryError):
 
 class InvalidStateTransitionError(RepositoryError):
     def __init__(self, current_status: str, requested_status: str) -> None:
-        super().__init__(f"Run status cannot transition from {current_status!r} to {requested_status!r}")
+        super().__init__(
+            f"Run status cannot transition from {current_status!r} to {requested_status!r}"
+        )
         self.current_status = current_status
         self.requested_status = requested_status
 

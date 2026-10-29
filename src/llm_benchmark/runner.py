@@ -244,7 +244,10 @@ def execute_benchmark(
     }
     run_fingerprint = canonical_hash(fingerprint_parts)
     write_json(run_dir / "resolved_config.json", resolved)
-    write_json(run_dir / "dataset_manifest.json", {**manifest, "dataset_manifest_hash": manifest_hash})
+    write_json(
+        run_dir / "dataset_manifest.json",
+        {**manifest, "dataset_manifest_hash": manifest_hash},
+    )
     write_json(run_dir / "environment.json", environment)
     results: list[BenchmarkResult] = []
     started_at = utc_now()
@@ -286,8 +289,14 @@ def execute_benchmark(
         "started_at": started_at,
         "completed_at": completed_at,
         "overall": summarize(results, wall_time_ms),
-        "by_model": {name: summarize(items, wall_time_ms) for name, items in sorted(by_model.items())},
-        "by_model_category": {name: summarize(items, wall_time_ms) for name, items in sorted(by_category.items())},
+        "by_model": {
+            name: summarize(items, wall_time_ms)
+            for name, items in sorted(by_model.items())
+        },
+        "by_model_category": {
+            name: summarize(items, wall_time_ms)
+            for name, items in sorted(by_category.items())
+        },
     }
     write_json(run_dir / "summary.json", summary)
     _write_trace_artifact(run_dir / "trace.jsonl", recorder)

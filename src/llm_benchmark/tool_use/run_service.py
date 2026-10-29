@@ -85,11 +85,7 @@ def run_tool_benchmark(
             _run_mcp_tool_benchmark(
                 config=config,
                 scenarios=scenarios,
-                project_root=(
-                    Path.cwd()
-                    if project_root is None
-                    else project_root
-                ),
+                project_root=(Path.cwd() if project_root is None else project_root),
             )
         )
     registry = create_example_tool_registry()

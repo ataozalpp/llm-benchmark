@@ -61,7 +61,9 @@ class _Repository:
         self._session_factory = session_factory
 
     @staticmethod
-    def _require(session: Session, model_type: type[_T], record_id: int, entity: str) -> _T:
+    def _require(
+        session: Session, model_type: type[_T], record_id: int, entity: str
+    ) -> _T:
         record = session.get(model_type, record_id)
         if record is None:
             raise RecordNotFoundError(entity, record_id)
@@ -97,13 +99,17 @@ class ProviderEndpointRepository(_Repository):
     def get_by_id(self, endpoint_id: int) -> ProviderEndpointRecord:
         with self._session_factory() as session:
             return ProviderEndpointRecord.model_validate(
-                self._require(session, ProviderEndpoint, endpoint_id, "provider endpoint")
+                self._require(
+                    session, ProviderEndpoint, endpoint_id, "provider endpoint"
+                )
             )
 
     def list_active(self) -> list[ProviderEndpointRecord]:
         with self._session_factory() as session:
             rows = session.scalars(
-                select(ProviderEndpoint).where(ProviderEndpoint.is_active.is_(True)).order_by(ProviderEndpoint.id)
+                select(ProviderEndpoint)
+                .where(ProviderEndpoint.is_active.is_(True))
+                .order_by(ProviderEndpoint.id)
             ).all()
             return [ProviderEndpointRecord.model_validate(row) for row in rows]
 
@@ -117,13 +123,17 @@ class ProviderEndpointRepository(_Repository):
         credential_env_var: str | None | object = _UNSET,
     ) -> ProviderEndpointRecord:
         if credential_env_var is not _UNSET:
-            if credential_env_var is not None and not isinstance(credential_env_var, str):
+            if credential_env_var is not None and not isinstance(
+                credential_env_var, str
+            ):
                 raise ValueError("credential_env_var must be a string or null")
             _validate_credential_reference(credential_env_var)
         with self._session_factory() as session:
             try:
                 with session.begin():
-                    endpoint = self._require(session, ProviderEndpoint, endpoint_id, "provider endpoint")
+                    endpoint = self._require(
+                        session, ProviderEndpoint, endpoint_id, "provider endpoint"
+                    )
                     if name is not None:
                         endpoint.name = name
                     if provider_type is not None:
@@ -135,12 +145,16 @@ class ProviderEndpointRepository(_Repository):
                     session.flush()
                     result = ProviderEndpointRecord.model_validate(endpoint)
             except IntegrityError as error:
-                _raise_integrity_error(error, "provider endpoint", name or str(endpoint_id))
+                _raise_integrity_error(
+                    error, "provider endpoint", name or str(endpoint_id)
+                )
         return result
 
     def soft_delete(self, endpoint_id: int) -> ProviderEndpointRecord:
         with self._session_factory() as session, session.begin():
-            endpoint = self._require(session, ProviderEndpoint, endpoint_id, "provider endpoint")
+            endpoint = self._require(
+                session, ProviderEndpoint, endpoint_id, "provider endpoint"
+            )
             endpoint.is_active = False
             session.flush()
             return ProviderEndpointRecord.model_validate(endpoint)
@@ -162,7 +176,9 @@ class ModelRepository(_Repository):
         with self._session_factory() as session:
             try:
                 with session.begin():
-                    endpoint = self._require(session, ProviderEndpoint, endpoint_id, "provider endpoint")
+                    endpoint = self._require(
+                        session, ProviderEndpoint, endpoint_id, "provider endpoint"
+                    )
                     if not endpoint.is_active:
                         raise InactiveDependencyError("provider endpoint", endpoint_id)
                     model = RegisteredModel(
@@ -178,17 +194,23 @@ class ModelRepository(_Repository):
                     session.flush()
                     result = ModelRecord.model_validate(model)
             except IntegrityError as error:
-                _raise_integrity_error(error, "model", f"endpoint={endpoint_id}, model={model_identifier}")
+                _raise_integrity_error(
+                    error, "model", f"endpoint={endpoint_id}, model={model_identifier}"
+                )
         return result
 
     def get_by_id(self, model_id: int) -> ModelRecord:
         with self._session_factory() as session:
-            return ModelRecord.model_validate(self._require(session, RegisteredModel, model_id, "model"))
+            return ModelRecord.model_validate(
+                self._require(session, RegisteredModel, model_id, "model")
+            )
 
     def list_active(self) -> list[ModelRecord]:
         with self._session_factory() as session:
             rows = session.scalars(
-                select(RegisteredModel).where(RegisteredModel.is_active.is_(True)).order_by(RegisteredModel.id)
+                select(RegisteredModel)
+                .where(RegisteredModel.is_active.is_(True))
+                .order_by(RegisteredModel.id)
             ).all()
             return [ModelRecord.model_validate(row) for row in rows]
 
@@ -202,7 +224,9 @@ class ModelRepository(_Repository):
         default_generation_config: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> ModelRecord:
-        capabilities_json = _validated_capabilities(capabilities) if capabilities is not None else None
+        capabilities_json = (
+            _validated_capabilities(capabilities) if capabilities is not None else None
+        )
         with self._session_factory() as session, session.begin():
             model = self._require(session, RegisteredModel, model_id, "model")
             if name is not None:
@@ -276,7 +300,9 @@ class DatasetRepository(_Repository):
 
     def get_by_id(self, dataset_id: int) -> DatasetRecord:
         with self._session_factory() as session:
-            return DatasetRecord.model_validate(self._require(session, RegisteredDataset, dataset_id, "dataset"))
+            return DatasetRecord.model_validate(
+                self._require(session, RegisteredDataset, dataset_id, "dataset")
+            )
 
     def list_active(self) -> list[DatasetRecord]:
         with self._session_factory() as session:
@@ -333,7 +359,9 @@ class BenchmarkRunRepository(_Repository):
         with self._session_factory() as session, session.begin():
             model = self._require(session, RegisteredModel, model_id, "model")
             dataset = self._require(session, RegisteredDataset, dataset_id, "dataset")
-            endpoint = self._require(session, ProviderEndpoint, model.endpoint_id, "provider endpoint")
+            endpoint = self._require(
+                session, ProviderEndpoint, model.endpoint_id, "provider endpoint"
+            )
             if not endpoint.is_active:
                 raise InactiveDependencyError("provider endpoint", endpoint.id)
             if not model.is_active:
@@ -357,7 +385,9 @@ class BenchmarkRunRepository(_Repository):
 
     def get_by_id(self, run_id: int) -> BenchmarkRunRecord:
         with self._session_factory() as session:
-            return BenchmarkRunRecord.model_validate(self._require(session, BenchmarkRun, run_id, "benchmark run"))
+            return BenchmarkRunRecord.model_validate(
+                self._require(session, BenchmarkRun, run_id, "benchmark run")
+            )
 
     def list_runs(self) -> list[BenchmarkRunRecord]:
         with self._session_factory() as session:
@@ -432,7 +462,9 @@ class SampleResultRepository(_Repository):
     def add_one(self, run_id: int, sample: SampleResultCreate) -> SampleResultRecord:
         return self.add_many(run_id, [sample])[0]
 
-    def add_many(self, run_id: int, samples: Iterable[SampleResultCreate]) -> list[SampleResultRecord]:
+    def add_many(
+        self, run_id: int, samples: Iterable[SampleResultCreate]
+    ) -> list[SampleResultRecord]:
         inputs = list(samples)
         with self._session_factory() as session:
             try:
@@ -443,7 +475,9 @@ class SampleResultRepository(_Repository):
                         payload["provider_error_message"] = _sanitize_error_message(
                             payload["provider_error_message"]
                         )
-                    rows = [SampleResult(run_id=run_id, **payload) for payload in payloads]
+                    rows = [
+                        SampleResult(run_id=run_id, **payload) for payload in payloads
+                    ]
                     session.add_all(rows)
                     session.flush()
                     results = [SampleResultRecord.model_validate(row) for row in rows]
@@ -455,7 +489,9 @@ class SampleResultRepository(_Repository):
         with self._session_factory() as session:
             self._require(session, BenchmarkRun, run_id, "benchmark run")
             rows = session.scalars(
-                select(SampleResult).where(SampleResult.run_id == run_id).order_by(SampleResult.id)
+                select(SampleResult)
+                .where(SampleResult.run_id == run_id)
+                .order_by(SampleResult.id)
             ).all()
             return [SampleResultRecord.model_validate(row) for row in rows]
 
@@ -498,14 +534,18 @@ def _dataset_identity_query(
 
 def _validate_credential_reference(value: str | None) -> None:
     if value is not None and not _ENV_VAR_PATTERN.fullmatch(value):
-        raise ValueError("credential_env_var must be an environment-variable name, not a credential value")
+        raise ValueError(
+            "credential_env_var must be an environment-variable name, not a credential value"
+        )
 
 
 def _sanitize_error_message(message: str | None) -> str | None:
     if message is None:
         return None
     sanitized = _BEARER_PATTERN.sub("Bearer [REDACTED]", message)
-    sanitized = _SECRET_PATTERN.sub(lambda match: f"{match.group(1)}=[REDACTED]", sanitized)
+    sanitized = _SECRET_PATTERN.sub(
+        lambda match: f"{match.group(1)}=[REDACTED]", sanitized
+    )
     sanitized = " ".join(sanitized.split())
     if len(sanitized) > _MAX_ERROR_MESSAGE_LENGTH:
         sanitized = sanitized[: _MAX_ERROR_MESSAGE_LENGTH - 3] + "..."
@@ -516,4 +556,6 @@ def _raise_integrity_error(error: IntegrityError, entity: str, identity: str) ->
     message = str(error.orig).lower()
     if "unique" in message or "duplicate" in message:
         raise UniquenessConflictError(entity, identity) from error
-    raise RepositoryError(f"Unable to persist {entity} because a database constraint failed") from error
+    raise RepositoryError(
+        f"Unable to persist {entity} because a database constraint failed"
+    ) from error

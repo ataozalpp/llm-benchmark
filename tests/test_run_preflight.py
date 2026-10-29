@@ -19,7 +19,12 @@ from llm_benchmark.run_preflight import (
 def fixture_config(**dataset_updates: object) -> RunConfig:
     source = load_config(Path("configs/mock_smoke.yaml"))
     dataset = source.dataset.model_copy(
-        update={"profile": "smoke", "sample_size": None, "sample_ids": [], **dataset_updates}
+        update={
+            "profile": "smoke",
+            "sample_size": None,
+            "sample_ids": [],
+            **dataset_updates,
+        }
     )
     return source.model_copy(update={"dataset": dataset, "models": [source.models[0]]})
 
@@ -115,7 +120,9 @@ def test_unexpected_loader_programming_errors_propagate(error: Exception) -> Non
         DatasetPreflightError("dataset"),
     ],
 )
-def test_preflight_errors_raised_by_loader_are_not_reclassified(error: Exception) -> None:
+def test_preflight_errors_raised_by_loader_are_not_reclassified(
+    error: Exception,
+) -> None:
     def fail(_: object) -> list[object]:
         raise error
 

@@ -10,7 +10,9 @@ import pytest
 from llm_benchmark.api.__main__ import main
 
 
-def test_main_starts_uvicorn_with_application_factory(monkeypatch: pytest.MonkeyPatch,) -> None:
+def test_main_starts_uvicorn_with_application_factory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: dict[str, object] = {}
 
     def fake_run(target: str, **kwargs: object) -> None:

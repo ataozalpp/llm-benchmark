@@ -42,9 +42,7 @@ def test_keyword_smoke_fixture():
             ),
             evaluation=RetrievalEvaluationCase(
                 query_id=item["query_id"],
-                relevant_chunk_ids=frozenset(
-                    item["relevant_chunk_ids"]
-                ),
+                relevant_chunk_ids=frozenset(item["relevant_chunk_ids"]),
             ),
         )
         for item in payload["scenarios"]
@@ -57,18 +55,14 @@ def test_keyword_smoke_fixture():
         k=payload["k"],
     )
 
-    assert tuple(
-        ranking.query_id for ranking in result.rankings
-    ) == (
+    assert tuple(ranking.query_id for ranking in result.rankings) == (
         "q-refund",
         "q-account",
         "q-delivery",
         "q-invoice",
     )
 
-    assert tuple(
-        ranking.chunk_ids for ranking in result.rankings
-    ) == (
+    assert tuple(ranking.chunk_ids for ranking in result.rankings) == (
         ("refund",),
         ("account",),
         (),

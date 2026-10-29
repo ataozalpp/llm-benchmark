@@ -1,4 +1,4 @@
-"""Create a local diagnostic sample from a completed keyword run."""
+"""Create a diagnostic sample from a completed retrieval run."""
 
 import argparse
 import json
@@ -11,9 +11,11 @@ from tempfile import NamedTemporaryFile
 
 from llm_benchmark.retrieval.dataset import load_retrieval_dataset
 from llm_benchmark.retrieval.evaluation import evaluate_retrieval
-from llm_benchmark.retrieval.identity import build_keyword_run_identity
+from llm_benchmark.retrieval.identity import build_retrieval_run_identity
 from llm_benchmark.retrieval.keyword import KeywordRetriever
 from llm_benchmark.retrieval.models import RankedRetrieval
+from llm_benchmark.retrieval.profile import KeywordRetrieverProfile
+from llm_benchmark.retrieval.profile_serialization import profile_from_dict
 from llm_benchmark.retrieval.review import select_review_queries
 
 MAX_INPUT_BYTES = 64 * 1024 * 1024
@@ -139,16 +141,28 @@ def build_review(
     if manifest.get("status") != "completed":
         raise ValueError("Only completed runs can be reviewed.")
 
-    identity = build_keyword_run_identity(
+    profile = profile_from_dict(manifest.get("retriever_profile"))
+
+    identity = build_retrieval_run_identity(
         chunks=dataset.chunks,
         scenarios=dataset.scenarios,
         k=k,
+        profile=profile,
     )
 
     if any(manifest.get(key) != value for key, value in identity.items()):
         raise ValueError("The suite does not match the run identity.")
 
-    replay_retriever = KeywordRetriever(dataset.chunks) if verify_retrieval else None
+    replay_retriever = None
+
+    if verify_retrieval:
+        if not isinstance(profile, KeywordRetrieverProfile):
+            raise ValueError(
+                "Dense replay is not supported yet; "
+                "omit --verify-retrieval to review recorded results."
+            )
+
+        replay_retriever = KeywordRetriever(dataset.chunks)
 
     rows = read_results(run_dir / "results.jsonl")
 
@@ -270,6 +284,8 @@ def build_review(
             "partial_recall_query_ids": partial_recall_ids,
         },
         "retrieval_replay": ("matched" if verify_retrieval else "not_requested"),
+        "retriever_profile": asdict(profile),
+        "retriever_profile_hash": identity["retriever_profile_hash"],
     }
 
 

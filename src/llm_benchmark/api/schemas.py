@@ -59,20 +59,28 @@ class EndpointCreate(StrictSchema):
     name: str = Field(min_length=1, max_length=255)
     provider_type: Literal["mock", "openai_compatible", "lm_studio_native"]
     base_url: str = Field(min_length=1, max_length=2048)
-    credential_env_var: str | None = Field(default=None, pattern=_ENV_VAR_PATTERN, max_length=255)
+    credential_env_var: str | None = Field(
+        default=None, pattern=_ENV_VAR_PATTERN, max_length=255
+    )
 
     @model_validator(mode="after")
     def validate_url(self) -> "EndpointCreate":
-        if self.provider_type != "mock" and not self.base_url.startswith(("http://", "https://")):
+        if self.provider_type != "mock" and not self.base_url.startswith(
+            ("http://", "https://")
+        ):
             raise ValueError("non-mock endpoint base_url must use http or https")
         return self
 
 
 class EndpointPatch(StrictSchema):
     name: str | None = Field(default=None, min_length=1, max_length=255)
-    provider_type: Literal["mock", "openai_compatible", "lm_studio_native"] | None = None
+    provider_type: Literal["mock", "openai_compatible", "lm_studio_native"] | None = (
+        None
+    )
     base_url: str | None = Field(default=None, min_length=1, max_length=2048)
-    credential_env_var: str | None = Field(default=None, pattern=_ENV_VAR_PATTERN, max_length=255)
+    credential_env_var: str | None = Field(
+        default=None, pattern=_ENV_VAR_PATTERN, max_length=255
+    )
 
     @model_validator(mode="after")
     def validate_patch(self) -> "EndpointPatch":
@@ -112,7 +120,9 @@ class ModelCreate(StrictSchema):
 
 class ModelPatch(StrictSchema):
     name: str | None = Field(default=None, min_length=1, max_length=255)
-    reasoning_policy: Literal["unsupported", "toggle", "always_on", "provider_managed"] | None = None
+    reasoning_policy: (
+        Literal["unsupported", "toggle", "always_on", "provider_managed"] | None
+    ) = None
     capabilities: ModelCapabilities | None = None
     default_generation_config: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
@@ -122,7 +132,13 @@ class ModelPatch(StrictSchema):
         _require_nonempty_patch(self)
         _reject_explicit_nulls(
             self,
-            {"name", "reasoning_policy", "capabilities", "default_generation_config", "metadata"},
+            {
+                "name",
+                "reasoning_policy",
+                "capabilities",
+                "default_generation_config",
+                "metadata",
+            },
         )
         if self.default_generation_config is not None:
             _reject_sensitive_mapping(self.default_generation_config)
@@ -270,7 +286,11 @@ class RunCreate(StrictSchema):
     def validate_sampling(self) -> "RunCreate":
         if len(self.sample_ids) != len(set(self.sample_ids)):
             raise ValueError("sample_ids must be unique")
-        if self.sample_ids and self.sample_size is not None and len(self.sample_ids) != self.sample_size:
+        if (
+            self.sample_ids
+            and self.sample_size is not None
+            and len(self.sample_ids) != self.sample_size
+        ):
             raise ValueError("sample_size must equal the number of sample_ids")
         return self
 
@@ -351,7 +371,11 @@ def _require_nonempty_patch(value: BaseModel) -> None:
 
 
 def _reject_explicit_nulls(value: BaseModel, fields: set[str]) -> None:
-    invalid = sorted(field for field in fields if field in value.model_fields_set and getattr(value, field) is None)
+    invalid = sorted(
+        field
+        for field in fields
+        if field in value.model_fields_set and getattr(value, field) is None
+    )
     if invalid:
         raise ValueError("Fields cannot be null: " + ", ".join(invalid))
 

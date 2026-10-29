@@ -24,10 +24,7 @@ class KeywordRetriever:
         if len(chunk_ids) != len(set(chunk_ids)):
             raise ValueError("Corpus chunk IDs must be unique.")
 
-        self._index = tuple(
-            (chunk.chunk_id, _tokenize(chunk.text))
-            for chunk in chunks
-        )
+        self._index = tuple((chunk.chunk_id, _tokenize(chunk.text)) for chunk in chunks)
 
     def retrieve(
         self,
@@ -55,8 +52,5 @@ class KeywordRetriever:
 
         return RankedRetrieval(
             query_id=query.query_id,
-            chunk_ids=tuple(
-                chunk_id
-                for _, chunk_id in ranked[:top_k]
-            ),
+            chunk_ids=tuple(chunk_id for _, chunk_id in ranked[:top_k]),
         )

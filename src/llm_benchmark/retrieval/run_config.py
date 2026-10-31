@@ -54,13 +54,21 @@ class DenseEmbeddingConfig(BaseModel):
         return self
 
 
+class HybridFusionConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    candidate_k: StrictInt = Field(default=50, gt=0)
+    rank_constant: StrictInt = Field(default=60, gt=0)
+
+
 class RetrievalRunConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: StrictInt
     suite_path: StrictStr
-    retriever: Literal["keyword", "dense", "bm25"]
+    retriever: Literal["keyword", "dense", "bm25", "hybrid"]
     embedding: DenseEmbeddingConfig | None = None
+    hybrid: HybridFusionConfig | None = None
     k: StrictInt = Field(gt=0)
     output_dir: StrictStr = "outputs/retrieval"
 
@@ -88,6 +96,19 @@ class RetrievalRunConfig(BaseModel):
 
         if self.retriever == "bm25" and self.embedding is not None:
             raise ValueError("BM25 retrieval must not include embedding settings.")
+
+        if self.retriever == "hybrid":
+            if self.embedding is None:
+                raise ValueError("Hybrid retrieval requires embedding settings.")
+
+            if self.hybrid is None:
+                raise ValueError("Hybrid retrieval requires fusion settings.")
+
+            if self.k > self.hybrid.candidate_k:
+                raise ValueError("k must not exceed hybrid candidate_k.")
+
+        elif self.hybrid is not None:
+            raise ValueError("Fusion settings are only valid for hybrid retrieval.")
 
         return self
 

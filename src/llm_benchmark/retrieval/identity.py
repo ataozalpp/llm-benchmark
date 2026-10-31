@@ -9,6 +9,7 @@ from .profile import (
     KEYWORD_PROFILE,
     BM25RetrievalProfile,
     DenseRetrievalProfile,
+    HybridRetrievalProfile,
     KeywordRetrieverProfile,
 )
 
@@ -33,7 +34,12 @@ def build_retrieval_run_identity(
     chunks: tuple[Chunk, ...],
     scenarios: tuple[RetrievalScenario, ...],
     k: int,
-    profile: KeywordRetrieverProfile | DenseRetrievalProfile | BM25RetrievalProfile,
+    profile: (
+        KeywordRetrieverProfile
+        | DenseRetrievalProfile
+        | BM25RetrievalProfile
+        | HybridRetrievalProfile
+    ),
 ) -> dict[str, str]:
     if not isinstance(
         profile,
@@ -41,6 +47,7 @@ def build_retrieval_run_identity(
             KeywordRetrieverProfile,
             DenseRetrievalProfile,
             BM25RetrievalProfile,
+            HybridRetrievalProfile,
         ),
     ):
         raise TypeError("Unsupported retriever profile.")

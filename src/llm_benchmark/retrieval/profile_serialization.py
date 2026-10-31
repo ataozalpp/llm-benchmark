@@ -7,13 +7,19 @@ from .profile import (
     KEYWORD_PROFILE,
     BM25RetrievalProfile,
     DenseRetrievalProfile,
+    HybridRetrievalProfile,
     KeywordRetrieverProfile,
 )
 
 
 def profile_from_dict(
     payload: object,
-) -> KeywordRetrieverProfile | DenseRetrievalProfile | BM25RetrievalProfile:
+) -> (
+    KeywordRetrieverProfile
+    | DenseRetrievalProfile
+    | BM25RetrievalProfile
+    | HybridRetrievalProfile
+):
     if not isinstance(payload, dict):
         raise ValueError("Retriever profile must be a JSON object.")
 
@@ -39,6 +45,40 @@ def profile_from_dict(
             )
         except (TypeError, ValueError):
             raise ValueError("Invalid recorded dense profile.") from None
+
+    elif name == "hybrid-bm25-dense-rrf":
+        dense_payload = payload.get("dense")
+        lexical_payload = payload.get("lexical")
+
+        if (
+            not isinstance(dense_payload, dict)
+            or dense_payload.get("name") != "dense-exact-cosine"
+        ):
+            raise ValueError("Hybrid dense profile is missing or invalid.")
+
+        if (
+            not isinstance(lexical_payload, dict)
+            or lexical_payload.get("name") != BM25_PROFILE.name
+        ):
+            raise ValueError("Hybrid lexical profile is missing or invalid.")
+
+        dense_profile = profile_from_dict(dense_payload)
+        lexical_profile = profile_from_dict(lexical_payload)
+
+        if not isinstance(dense_profile, DenseRetrievalProfile):
+            raise ValueError("Hybrid requires a dense child profile.")
+
+        if lexical_profile != BM25_PROFILE:
+            raise ValueError("Unsupported hybrid lexical profile.")
+
+        try:
+            profile = HybridRetrievalProfile(
+                dense=dense_profile,
+                candidate_k=payload["candidate_k"],
+                rank_constant=payload["rank_constant"],
+            )
+        except (KeyError, TypeError, ValueError):
+            raise ValueError("Invalid recorded hybrid profile.") from None
 
     else:
         raise ValueError("Unsupported retriever profile.")

@@ -1911,6 +1911,57 @@ The earlier run's comparison against dense reported 215 both-hit, 25 BM25-only,
 not a newly generated comparison for the corrected-timing run. Union coverage
 of 263/300 is not a measured hybrid hit rate at 10.
 
+## Hybrid smoke and SciFact artifact checkpoint (2026-10-31)
+
+Existing user-produced artifacts were inspected; no new embedding run was
+performed for this documentation update.
+
+Smoke run `ee4472f03d7f4e7487a42fbba469f363` completed four cases at K=2:
+hit rate, recall, and MRR were 1.0; mean precision was 0.5.
+
+SciFact run `af1f0af4c0db430f8cc86e80046cfee4` completed 300 cases at K=10.
+The recorded profile uses equal-weight BM25+dense RRF with candidate_k=50,
+rank_constant=60, and chunk-ID tie breaking. The dense child uses the pinned
+MiniLM revision `1110a243fdf4706b3f48f1d95db1a4f5529b4d41`, CPU float32,
+batch size 8, and a 256-token truncate policy.
+
+| Metric | BM25 | Dense | Hybrid |
+| --- | ---: | ---: | ---: |
+| Hit rate@10 | 0.8 | 0.7933333333333333 | 0.84 |
+| Mean precision@10 | 0.08533333333333334 | 0.08833333333333333 | 0.092 |
+| Mean recall@10 | 0.7773333333333333 | 0.7833333333333333 | 0.8275555555555556 |
+| MRR@10 | 0.6228201058201058 | 0.6047248677248678 | 0.6544325396825397 |
+
+Hybrid timings: model load 9,264.11 ms; index build 238,767.81 ms; retrieval
+total 67,670.62 ms; retrieval mean 225.57 ms; wall time 319,654.10 ms.
+Dense input statistics record 5,183 document encodings (3,681 over limit)
+and 300 query encodings (zero over limit).
+
+The stored review reports `retrieval_replay: not_requested`, with 168 rank-1
+hits, 84 hits at ranks 2 through K, and 48 misses. Stored comparison reports:
+
+| Baseline vs hybrid | Both hit | Baseline only | Hybrid only | Both miss |
+| --- | ---: | ---: | ---: | ---: |
+| BM25 (`4a6428c22ffe43bb83b45bbe22e36ef7`) | 234 | 6 | 18 | 42 |
+| Dense (`0a28cd3481bd435886040c7a1d91c7b6`) | 226 | 12 | 26 | 36 |
+
+Hybrid gains 12 net hits over BM25 and 14 over dense, but loses some individual
+baseline hits. Results cover one dataset/configuration, not general superiority.
+The 50-candidate child budget differs from the baseline top-10 output budget.
+Separate-run timings are observations, not controlled performance measurements.
+Recorded review does not establish embedding replay or bitwise reproducibility.
+
+Focused regression performed for the hybrid checkpoint:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_hybrid_retriever.py tests/test_hybrid_config.py tests/test_hybrid_run.py tests/test_bm25_run.py tests/test_retrieval_run.py tests/test_retrieval_review.py tests/test_retrieval_profile_serialization.py tests/test_retrieval_identity.py tests/test_compare_retrieval_runs.py -q
+```
+
+Result: **212 passed in 8.35 seconds**. This is a focused regression, not the
+full project suite. Explicit hybrid child-failure lifecycle tests remain a
+release task; the current hybrid service integration test covers the success
+path and recorded review/replay rejection.
+
 ## Licensing note
 
 No project license has been selected yet. MMLU-Pro attribution and its dataset

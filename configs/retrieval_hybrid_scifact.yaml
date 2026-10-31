@@ -1,0 +1,18 @@
+schema_version: 1
+suite_path: ../data/cache/retrieval/scifact-test-v1/suite.json
+retriever: hybrid
+k: 10
+output_dir: ../outputs/retrieval
+
+embedding:
+  model_id: sentence-transformers/all-MiniLM-L6-v2
+  model_revision: 1110a243fdf4706b3f48f1d95db1a4f5529b4d41
+  embedding_dimension: 384
+  max_sequence_length: 256
+  batch_size: 8
+  local_files_only: true
+  truncation_policy: truncate
+
+hybrid:
+  candidate_k: 50
+  rank_constant: 60

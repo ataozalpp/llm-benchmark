@@ -131,3 +131,28 @@ class BM25RetrievalProfile:
 
 
 BM25_PROFILE = BM25RetrievalProfile()
+
+
+@dataclass(frozen=True)
+class HybridRetrievalProfile:
+    dense: DenseRetrievalProfile
+    candidate_k: int = (50,)
+    rank_constant: int = 60
+
+    lexical: BM25RetrievalProfile = field(default=BM25_PROFILE, init=False)
+    name: str = field(default="hybrid-bm25-dense-rrf", init=False)
+    version: str = field(default="1", init=False)
+    fusion: str = field(default="reciprocal-rank-fusion", init=False)
+    weighting: str = field(default="equal", init=False)
+    rank_origin: int = field(default=1, init=False)
+    tie_break: str = field(default="chunk-id-ascending", init=False)
+    child_failure_policy: str = field(default="fail-run", init=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.dense, DenseRetrievalProfile):
+            raise TypeError("Hybrid requires a dense retrieval profile.")
+
+        for field_name in ("candidate_k", "rank_constant"):
+            value = getattr(self, field_name)
+            if type(value) is not int or value <= 0:
+                raise ValueError(f"{field_name} must be a positive integer.")

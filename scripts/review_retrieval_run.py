@@ -17,6 +17,7 @@ from llm_benchmark.retrieval.keyword import KeywordRetriever
 from llm_benchmark.retrieval.models import RankedRetrieval
 from llm_benchmark.retrieval.profile import (
     BM25RetrievalProfile,
+    HybridRetrievalProfile,
     KeywordRetrieverProfile,
 )
 from llm_benchmark.retrieval.profile_serialization import profile_from_dict
@@ -164,6 +165,11 @@ def build_review(
             replay_retriever = KeywordRetriever(dataset.chunks)
         elif isinstance(profile, BM25RetrievalProfile):
             replay_retriever = BM25Retriever(dataset.chunks)
+        elif isinstance(profile, HybridRetrievalProfile):
+            raise ValueError(
+                "Hybrid replay is not supported yet; "
+                "omit --verify-retrieval to review recorded results."
+            )
         else:
             raise ValueError(
                 "Dense replay is not supported yet; "

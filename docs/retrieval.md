@@ -596,12 +596,61 @@ These commands create new reports and do not overwrite existing ones. Replay
 checks rankings and recorded metrics, not timing measurements. See `validation.md`
 for the timing correction and the checks actually completed for this run.
 
+### Hybrid retrieval
+
+`retriever: hybrid` combines the fixed BM25 backend and a configured dense
+retriever with equal-weight reciprocal-rank fusion (RRF). Ranks start at one;
+each child contributes `1 / (rank_constant + rank)`. Shared chunks accumulate
+both contributions. Equal fusion scores are ordered by chunk ID.
+
+`hybrid.candidate_k` controls the candidate depth per child; run-level `k`
+controls the final output and evaluation depth. Both fusion parameters must be
+positive integers, and `k` must not exceed `candidate_k`. Hybrid configurations
+require both `embedding` and `hybrid` settings. Other retrievers reject unused
+fusion settings.
+
+The nested hybrid profile includes both child profiles, candidate depth, rank
+constant, equal weighting, tie-break behavior, and the `fail-run` child failure
+policy. These fields contribute to run identity. A failed child is not silently
+replaced by the other retriever.
+
+The model is loaded once per run. Index construction includes dense and BM25
+index creation plus hybrid initialization. Query latency includes both child
+retrieval calls and fusion. Embedding runtime and input statistics refer to the
+dense child; BM25 uses full document text. There is no persisted index reuse in
+this path.
+
+```powershell
+.\.venv\Scripts\python.exe -m llm_benchmark retrieval-run `
+  --config configs/retrieval_hybrid_smoke.yaml
+
+.\.venv\Scripts\python.exe -m llm_benchmark retrieval-run `
+  --config configs/retrieval_hybrid_scifact.yaml
+
+.\.venv\Scripts\python.exe scripts/review_retrieval_run.py `
+  --suite data/cache/retrieval/scifact-test-v1/suite.json `
+  --run-dir outputs/retrieval/af1f0af4c0db430f8cc86e80046cfee4
+```
+
+The checked SciFact configuration uses candidate_k=50, rank_constant=60, and
+evaluation k=10. Recorded hybrid review is supported; `--verify-retrieval`
+is rejected for hybrid. A recorded review does not regenerate embeddings.
+Existing reports are never overwritten: choose a new output path if needed.
+
+Compare the hybrid run as candidate against BM25 run
+`4a6428c22ffe43bb83b45bbe22e36ef7` and dense run
+`0a28cd3481bd435886040c7a1d91c7b6` using the comparison script above.
+The hybrid experiment has a larger child candidate budget than the stored
+top-10 baseline rankings. Report this budget and timing alongside quality;
+do not present it as an equal-compute comparison.
+
 ### Next delivery scope
 
 The existing keyword-overlap baseline remains available for historical comparisons.
 BM25 is available as a separate retriever with a versioned profile and can be
-compared against dense retrieval on the unchanged suite. BM25 plus dense rank
-fusion is the next hybrid experiment; hybrid execution is not yet implemented.
+compared against dense retrieval on the unchanged suite. BM25 plus dense RRF
+execution and recorded review are now implemented. Remaining hybrid release
+checks include explicit child-failure lifecycle coverage and full regression.
 The comparison script evaluates recorded outcomes and does not implement fusion.
 
 The next product milestone is a bounded evaluation release: reproducible retrieval

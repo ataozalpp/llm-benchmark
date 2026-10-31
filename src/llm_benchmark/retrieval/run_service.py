@@ -14,9 +14,15 @@ from .dataset import load_retrieval_dataset
 from .dense import DenseRetriever
 from .embedding_loader import load_cpu_embedder
 from .embedding_runtime import collect_embedding_runtime
+from .hybrid import HybridRetriever
 from .identity import build_retrieval_run_identity
 from .keyword import KeywordRetriever
-from .profile import BM25_PROFILE, KEYWORD_PROFILE, DenseRetrievalProfile
+from .profile import (
+    BM25_PROFILE,
+    KEYWORD_PROFILE,
+    DenseRetrievalProfile,
+    HybridRetrievalProfile,
+)
 from .run_config import LoadedRetrievalRunConfig
 from .suite import run_retrieval_suite
 
@@ -38,7 +44,20 @@ def run_retrieval_benchmark(
     else:
         if loaded.config.embedding is None:
             raise ValueError("Dense embedding settings are missing.")
-        profile = loaded.config.embedding.to_profile()
+        dense_profile = loaded.config.embedding.to_profile()
+
+        if loaded.config.retriever == "hybrid":
+            fusion = loaded.config.hybrid
+            if fusion is None:
+                raise ValueError("Hybrid fusion settins are missing.")
+
+            profile = HybridRetrievalProfile(
+                dense=dense_profile,
+                candidate_k=fusion.candidate_k,
+                rank_constant=fusion.rank_constant,
+            )
+        else:
+            profile = dense_profile
 
     identity = build_retrieval_run_identity(
         chunks=dataset.chunks,
@@ -91,12 +110,16 @@ def run_retrieval_benchmark(
             if embedding_config is None:
                 raise ValueError("Dense embedding settings are missing.")
 
-            if not isinstance(profile, DenseRetrievalProfile):
-                raise TypeError("Dense retrieval requires a dense profile.")
+            if isinstance(profile, HybridRetrievalProfile):
+                embedding_profile = profile.dense
+            elif isinstance(profile, DenseRetrievalProfile):
+                embedding_profile = profile
+            else:
+                raise TypeError("Embedding retrieval requires a dense profile.")
 
             before = time.perf_counter()
             embedder = load_cpu_embedder(
-                profile,
+                embedding_profile,
                 local_files_only=embedding_config.local_files_only,
             )
             model_load_time_ms = (time.perf_counter() - before) * 1000
@@ -115,7 +138,20 @@ def run_retrieval_benchmark(
             writer.write_json("manifest.json", manifest)
 
             before = time.perf_counter()
-            self.delegate = DenseRetriever(chunks, embedder=embedder)
+
+            dense_retriever = DenseRetriever(chunks, embedder=embedder)
+
+            if isinstance(profile, HybridRetrievalProfile):
+                lexical_retriever = BM25Retriever(chunks)
+                self.delegate = HybridRetriever(
+                    lexical=lexical_retriever,
+                    dense=dense_retriever,
+                    candidate_k=profile.candidate_k,
+                    rank_constant=profile.rank_constant,
+                )
+            else:
+                self.delegate = dense_retriever
+
             index_time_ms = (time.perf_counter() - before) * 1000
 
             update_embedding_statistics()

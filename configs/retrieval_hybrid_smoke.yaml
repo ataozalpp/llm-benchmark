@@ -1,0 +1,18 @@
+schema_version: 1
+suite_path: ../examples/retrieval/keyword_smoke.json
+retriever: hybrid
+k: 2
+output_dir: ../outputs/retrieval
+
+embedding: 
+  model_id: sentence-transformers/all-MiniLM-L6-v2
+  model_revision: 1110a243fdf4706b3f48f1d95db1a4f5529b4d41
+  embedding_dimension: 384
+  max_sequence_length: 256
+  batch_size: 8
+  local_files_only: true
+  truncation_policy: reject
+
+hybrid:
+  candidate_k: 5
+  rank_constant: 60

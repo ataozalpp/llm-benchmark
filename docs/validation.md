@@ -1860,6 +1860,57 @@ Focused check performed for this checkpoint:
 Result: **12 passed in 0.05 seconds**. `git diff --check` also passed.
 This checks the comparison core, not the script's end-to-end failure paths.
 
+## BM25 SciFact timing correction checkpoint (2026-10-31)
+
+The user completed run `4a6428c22ffe43bb83b45bbe22e36ef7` using
+`configs/retrieval_bm25_scifact.yaml`. The stored manifest, summary, and result
+count were inspected: status is `completed`, with 300 completed cases and 300
+result rows at K=10.
+
+The profile is `bm25-rank-bm25-okapi`, version 1, using rank-bm25 0.2.2,
+k1=1.2, b=0.75, and epsilon=0.25. It retains matching zero/negative-score
+candidates and resolves equal scores by chunk ID.
+
+| Metric | Observed value |
+| --- | ---: |
+| Hit rate@10 | 0.8 |
+| Mean precision@10 | 0.08533333333333334 |
+| Mean recall@10 | 0.7773333333333333 |
+| MRR@10 | 0.6228201058201058 |
+| Model load | 0.0 ms |
+| Index build | 717.0478000771254 ms |
+| Retrieval total | 5936.635401332751 ms |
+| Retrieval mean | 19.78878467110917 ms |
+| Wall time | 7682.498199981637 ms |
+
+Quality metrics match the earlier BM25 run
+`9a5cb73b2dc140c397c317a1d149575a`. That earlier run incorrectly stored seconds
+in `index_build_ms` (0.6798546999925748); do not use that field as milliseconds.
+The service now multiplies the elapsed seconds by 1000. Historical artifacts
+were not rewritten. Quality agreement alone does not prove identical rankings.
+
+Two regression protections cover the recent fixes: a controlled 2.5-second
+index build must produce 2500 ms, and BM25 review must not construct a keyword
+retriever. The earlier replay bug unconditionally replaced the selected BM25
+retriever with a keyword retriever.
+
+Focused regression executed for this checkpoint:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_bm25_retriever.py tests/test_bm25_run.py tests/test_retrieval_profile_serialization.py tests/test_retrieval_identity.py tests/test_retrieval_run.py tests/test_retrieval_review.py tests/test_compare_retrieval_runs.py -q
+```
+
+Result: **214 passed in 9.03 seconds**. `git diff --check` passed.
+This is not a full-project regression or a new SciFact execution by the assistant.
+At inspection, the new run directory contained manifest, results, and summary
+only. Replay and comparison report generation for this new run remain pending;
+commands are documented in `retrieval.md`.
+
+The earlier run's comparison against dense reported 215 both-hit, 25 BM25-only,
+23 dense-only, and 37 both-miss queries. This is historical comparison evidence,
+not a newly generated comparison for the corrected-timing run. Union coverage
+of 263/300 is not a measured hybrid hit rate at 10.
+
 ## Licensing note
 
 No project license has been selected yet. MMLU-Pro attribution and its dataset

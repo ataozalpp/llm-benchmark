@@ -552,13 +552,57 @@ and `both_miss`. `hit_rate_delta` is candidate minus baseline; 0.17333 means an
 increase of 17.333 percentage points. `candidate_union_hit_rate` describes coverage
 across up to 2*K candidates, not measured hybrid quality at K.
 
+### BM25 baseline
+
+`retriever: bm25` selects the adapter for `rank-bm25==0.2.2`, using
+`BM25Okapi` with k1=1.2, b=0.75, and epsilon=0.25. These fixed parameters,
+backend version, tokenizer, and ranking policies are recorded in the profile
+and contribute to run identity.
+
+Document token frequencies are preserved; query tokens are deduplicated and
+sorted. Candidates must match at least one query token. Matching candidates
+are retained even when their score is zero or negative. Equal scores are ordered
+by chunk ID. Empty and entirely tokenless corpora bypass backend initialization.
+This is rank-bm25's Okapi behavior, not a claim of Lucene score equivalence.
+
+BM25 does not load an embedding model or truncate document inputs.
+`model_load_ms` is zero. Index construction and retrieval timings are in
+milliseconds. Progress is written to stderr; the CLI summary remains JSON on stdout.
+
+```powershell
+.\.venv\Scripts\python.exe -m llm_benchmark retrieval-run `
+  --config configs/retrieval_bm25_smoke.yaml
+
+.\.venv\Scripts\python.exe -m llm_benchmark retrieval-run `
+  --config configs/retrieval_bm25_scifact.yaml
+```
+
+BM25 supports recorded-result review and deterministic ranking replay:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/review_retrieval_run.py `
+  --suite data/cache/retrieval/scifact-test-v1/suite.json `
+  --run-dir outputs/retrieval/4a6428c22ffe43bb83b45bbe22e36ef7 `
+  --verify-retrieval
+
+.\.venv\Scripts\python.exe -m scripts.compare_retrieval_runs `
+  --suite data/cache/retrieval/scifact-test-v1/suite.json `
+  --baseline outputs/retrieval/4a6428c22ffe43bb83b45bbe22e36ef7 `
+  --candidate outputs/retrieval/0a28cd3481bd435886040c7a1d91c7b6 `
+  --output outputs/retrieval/4a6428c22ffe43bb83b45bbe22e36ef7/comparison-dense.json
+```
+
+These commands create new reports and do not overwrite existing ones. Replay
+checks rankings and recorded metrics, not timing measurements. See `validation.md`
+for the timing correction and the checks actually completed for this run.
+
 ### Next delivery scope
 
 The existing keyword-overlap baseline remains available for historical comparisons.
-BM25 should be introduced as a separate retriever with a versioned profile, then
+BM25 is available as a separate retriever with a versioned profile and can be
 compared against dense retrieval on the unchanged suite. BM25 plus dense rank
-fusion is the next hybrid experiment. None of these methods is implemented by the
-comparison script.
+fusion is the next hybrid experiment; hybrid execution is not yet implemented.
+The comparison script evaluates recorded outcomes and does not implement fusion.
 
 The next product milestone is a bounded evaluation release: reproducible retrieval
 and RAG runs, comparison artifacts, and a minimal results view using the existing

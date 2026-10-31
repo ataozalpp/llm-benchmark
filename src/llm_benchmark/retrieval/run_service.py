@@ -9,13 +9,14 @@ from pathlib import Path
 from uuid import uuid4
 
 from .artifacts import RetrievalArtifactWriter
+from .bm25 import BM25Retriever
 from .dataset import load_retrieval_dataset
 from .dense import DenseRetriever
 from .embedding_loader import load_cpu_embedder
 from .embedding_runtime import collect_embedding_runtime
 from .identity import build_retrieval_run_identity
 from .keyword import KeywordRetriever
-from .profile import KEYWORD_PROFILE, DenseRetrievalProfile
+from .profile import BM25_PROFILE, KEYWORD_PROFILE, DenseRetrievalProfile
 from .run_config import LoadedRetrievalRunConfig
 from .suite import run_retrieval_suite
 
@@ -32,6 +33,8 @@ def run_retrieval_benchmark(
 
     if loaded.config.retriever == "keyword":
         profile = KEYWORD_PROFILE
+    elif loaded.config.retriever == "bm25":
+        profile = BM25_PROFILE
     else:
         if loaded.config.embedding is None:
             raise ValueError("Dense embedding settings are missing.")
@@ -66,9 +69,7 @@ def run_retrieval_benchmark(
 
     def update_embedding_statistics():
         if dense_embedder is not None:
-            manifest["embedding_input_statistics"] = (
-                dense_embedder.input_statistics()
-            )
+            manifest["embedding_input_statistics"] = dense_embedder.input_statistics()
 
     class TimedRetriever:
         def __init__(self, chunks):
@@ -77,6 +78,12 @@ def run_retrieval_benchmark(
             if loaded.config.retriever == "keyword":
                 before = time.perf_counter()
                 self.delegate = KeywordRetriever(chunks)
+                index_time_ms = (time.perf_counter() - before) * 1000
+                return
+
+            if loaded.config.retriever == "bm25":
+                before = time.perf_counter()
+                self.delegate = BM25Retriever(chunks)
                 index_time_ms = (time.perf_counter() - before) * 1000
                 return
 

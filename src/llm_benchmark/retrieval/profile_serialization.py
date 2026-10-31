@@ -3,7 +3,9 @@
 from dataclasses import asdict, fields
 
 from .profile import (
+    BM25_PROFILE,
     KEYWORD_PROFILE,
+    BM25RetrievalProfile,
     DenseRetrievalProfile,
     KeywordRetrieverProfile,
 )
@@ -11,7 +13,7 @@ from .profile import (
 
 def profile_from_dict(
     payload: object,
-) -> KeywordRetrieverProfile | DenseRetrievalProfile:
+) -> KeywordRetrieverProfile | DenseRetrievalProfile | BM25RetrievalProfile:
     if not isinstance(payload, dict):
         raise ValueError("Retriever profile must be a JSON object.")
 
@@ -19,6 +21,9 @@ def profile_from_dict(
 
     if name == KEYWORD_PROFILE.name:
         profile = KEYWORD_PROFILE
+
+    elif name == BM25_PROFILE.name:
+        profile = BM25_PROFILE
 
     elif name == "dense-exact-cosine":
         init_names = {

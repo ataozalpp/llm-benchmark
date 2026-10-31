@@ -9,12 +9,16 @@ from dataclasses import asdict
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
+from llm_benchmark.retrieval.bm25 import BM25Retriever
 from llm_benchmark.retrieval.dataset import load_retrieval_dataset
 from llm_benchmark.retrieval.evaluation import evaluate_retrieval
 from llm_benchmark.retrieval.identity import build_retrieval_run_identity
 from llm_benchmark.retrieval.keyword import KeywordRetriever
 from llm_benchmark.retrieval.models import RankedRetrieval
-from llm_benchmark.retrieval.profile import KeywordRetrieverProfile
+from llm_benchmark.retrieval.profile import (
+    BM25RetrievalProfile,
+    KeywordRetrieverProfile,
+)
 from llm_benchmark.retrieval.profile_serialization import profile_from_dict
 from llm_benchmark.retrieval.review import select_review_queries
 
@@ -156,13 +160,15 @@ def build_review(
     replay_retriever = None
 
     if verify_retrieval:
-        if not isinstance(profile, KeywordRetrieverProfile):
+        if isinstance(profile, KeywordRetrieverProfile):
+            replay_retriever = KeywordRetriever(dataset.chunks)
+        elif isinstance(profile, BM25RetrievalProfile):
+            replay_retriever = BM25Retriever(dataset.chunks)
+        else:
             raise ValueError(
                 "Dense replay is not supported yet; "
                 "omit --verify-retrieval to review recorded results."
             )
-
-        replay_retriever = KeywordRetriever(dataset.chunks)
 
     rows = read_results(run_dir / "results.jsonl")
 

@@ -98,3 +98,36 @@ class DenseRetrievalProfile:
             raise ValueError(
                 "Use a resolved model revision rather than a moving alias."
             )
+
+
+@dataclass(frozen=True)
+class BM25RetrievalProfile:
+    name: str = field(default="bm25-rank-bm25-okapi", init=False)
+    version: str = field(default="1", init=False)
+
+    backend: str = field(default="rank-bm25", init=False)
+    backend_version: str = field(default="0.2.2", init=False)
+    algorithm: str = field(default="BM25Okapi", init=False)
+
+    k1: float = field(default=1.2, init=False)
+    b: float = field(default=0.75, init=False)
+    epsilon: float = field(default=0.25, init=False)
+
+    tokenizer: str = field(
+        default="python-unicode-word-casefold-v1",
+        init=False,
+    )
+    query_terms: str = field(default="unique-sorted", init=False)
+    candidate_policy: str = field(
+        default="at-least-one-query-token-match",
+        init=False,
+    )
+    score_filter: str = field(default="none", init=False)
+    tie_break: str = field(default="chunk-id-ascending", init=False)
+    corpus_statistics: str = field(
+        default="all-chunks-including-zero-token",
+        init=False,
+    )
+
+
+BM25_PROFILE = BM25RetrievalProfile()

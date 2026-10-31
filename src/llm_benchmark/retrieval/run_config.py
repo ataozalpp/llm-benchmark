@@ -59,7 +59,7 @@ class RetrievalRunConfig(BaseModel):
 
     schema_version: StrictInt
     suite_path: StrictStr
-    retriever: Literal["keyword", "dense"]
+    retriever: Literal["keyword", "dense", "bm25"]
     embedding: DenseEmbeddingConfig | None = None
     k: StrictInt = Field(gt=0)
     output_dir: StrictStr = "outputs/retrieval"
@@ -85,6 +85,9 @@ class RetrievalRunConfig(BaseModel):
 
         if self.retriever == "keyword" and self.embedding is not None:
             raise ValueError("Keyword retrieval must not include embedding settings.")
+
+        if self.retriever == "bm25" and self.embedding is not None:
+            raise ValueError("BM25 retrieval must not include embedding settings.")
 
         return self
 

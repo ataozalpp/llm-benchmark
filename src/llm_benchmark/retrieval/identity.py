@@ -7,6 +7,7 @@ from dataclasses import asdict
 from .models import Chunk, RetrievalScenario
 from .profile import (
     KEYWORD_PROFILE,
+    BM25RetrievalProfile,
     DenseRetrievalProfile,
     KeywordRetrieverProfile,
 )
@@ -32,9 +33,16 @@ def build_retrieval_run_identity(
     chunks: tuple[Chunk, ...],
     scenarios: tuple[RetrievalScenario, ...],
     k: int,
-    profile: KeywordRetrieverProfile | DenseRetrievalProfile,
+    profile: KeywordRetrieverProfile | DenseRetrievalProfile | BM25RetrievalProfile,
 ) -> dict[str, str]:
-    if not isinstance(profile, (KeywordRetrieverProfile, DenseRetrievalProfile)):
+    if not isinstance(
+        profile,
+        (
+            KeywordRetrieverProfile,
+            DenseRetrievalProfile,
+            BM25RetrievalProfile,
+        ),
+    ):
         raise TypeError("Unsupported retriever profile.")
 
     if type(k) is not int or k <= 0:

@@ -21,7 +21,7 @@ def build_context(
 
     # Even an empty JSON array requires two characters.
     if type(max_chars) is not int or max_chars < 2:
-        raise ValueError("max_cahrs must be an integer of at least two.")
+        raise ValueError("max_chars must be an integer of at least two.")
 
     by_id = {chunk.chunk_id: chunk for chunk in chunks}
     if len(by_id) != len(chunks):

@@ -36,6 +36,9 @@ class RagScenario:
         if type(self.answerable) is not bool:
             raise TypeError("answerable must be a boolean.")
 
+        if not isinstance(self.reference_answers, tuple):
+            raise TypeError("Reference answers must be a tuple.")
+
         for answer in self.reference_answers:
             _require_text(answer, "Reference answer")
 

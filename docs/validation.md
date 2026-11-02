@@ -1962,6 +1962,52 @@ full project suite. Explicit hybrid child-failure lifecycle tests remain a
 release task; the current hybrid service integration test covers the success
 path and recorded review/replay rejection.
 
+## RAG core validation (2026-11-03)
+
+Fixed a test discovery typo: `tets_invalid_responses_are_rejected` was not
+collected by pytest. Renaming it activates all 16 invalid-response cases.
+Added coverage for the exact response-size boundary, excessive JSON nesting,
+invalid field values, trailing prose, evaluator input types, exact citation
+ID matching, independent context/citation recall, and reference-answer tuple
+validation.
+
+Final focused command:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_rag_models.py tests/test_rag_context.py tests/test_rag_parsing.py tests/test_rag_evaluation.py -q
+```
+
+Result: **80 passed in 0.36 seconds**.
+
+Full regression command:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+Result: **2244 passed, 14 skipped in 76.41 seconds**. This run was collected
+before the final four reference-answer tuple cases were added; those four
+cases are included in the final focused run above.
+
+Skipped coverage:
+
+- 7 MCP stdio tests: `LLM_BENCHMARK_MCP_PYTHON` not configured.
+- 5 PostgreSQL tests: `LLM_BENCHMARK_TEST_POSTGRES_URL` not configured.
+- 2 filesystem tests: symlink creation unavailable (`OSError`).
+
+These integrations are not validated by this run. No real-model RAG run
+was performed; generation providers and a RAG CLI are not implemented yet.
+
+Static checks passed:
+
+```powershell
+.\.venv\Scripts\ruff.exe check src/llm_benchmark/rag tests/test_rag_models.py tests/test_rag_context.py tests/test_rag_parsing.py tests/test_rag_evaluation.py
+.\.venv\Scripts\ruff.exe format --check src/llm_benchmark/rag tests/test_rag_models.py tests/test_rag_context.py tests/test_rag_parsing.py tests/test_rag_evaluation.py
+git diff --check
+```
+
+Ruff reported no lint findings and all nine Python files already formatted.
+
 ## Licensing note
 
 No project license has been selected yet. MMLU-Pro attribution and its dataset

@@ -26,7 +26,7 @@ def test_answerable_scenario_requires_answers_and_evidence():
     with pytest.raises(ValueError):
         RagScenario(
             query=query(),
-            reference_answers=("30 days"),
+            reference_answers=("30 days",),
             relevant_chunk_ids=frozenset(),
         )
 
@@ -97,3 +97,13 @@ def test_valid_answer_and_abstention():
 def test_invalid_answers_are_rejected(values):
     with pytest.raises((TypeError, ValueError)):
         RagAnswer(**values)
+
+
+@pytest.mark.parametrize("answers", ["30 days", ["30 days"], None, 30])
+def test_scenario_rejects_non_tuple_reference_answers(answers):
+    with pytest.raises(TypeError, match="Reference answers must be a tuple"):
+        RagScenario(
+            query=query(),
+            reference_answers=answers,
+            relevant_chunk_ids=frozenset({"refund"}),
+        )

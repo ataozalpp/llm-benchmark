@@ -2008,6 +2008,30 @@ git diff --check
 
 Ruff reported no lint findings and all nine Python files already formatted.
 
+## RAG prepared-case checkpoint (2026-11-03)
+
+Validated generation messages, response metadata, and prepared-case
+execution using stub providers. This checkpoint includes correct and
+incorrect answers, abstention, parsing failure, non-stop finish reasons,
+expected provider errors, unexpected programming errors, invalid provider
+return types, and query/context mismatch before generation.
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_rag_models.py tests/test_rag_context.py tests/test_rag_parsing.py tests/test_rag_evaluation.py tests/test_rag_prompts.py tests/test_rag_providers.py tests/test_rag_case.py -q
+```
+
+Result: **106 passed in 0.33 seconds**.
+
+```powershell
+.\.venv\Scripts\ruff.exe check src/llm_benchmark/rag tests/test_rag_case.py tests/test_rag_providers.py tests/test_rag_prompts.py
+.\.venv\Scripts\ruff.exe format --check src/llm_benchmark/rag tests/test_rag_case.py tests/test_rag_providers.py tests/test_rag_prompts.py
+```
+
+Lint passed; all 11 selected Python files were already formatted.
+The full project regression was not rerun for this checkpoint. No network
+request, real model generation, or RAG CLI execution was performed.
+Earlier full-regression results above remain historical observations.
+
 ## Licensing note
 
 No project license has been selected yet. MMLU-Pro attribution and its dataset

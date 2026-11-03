@@ -28,11 +28,51 @@ prompt budget.
 ## Current scope
 
 The core supports validated scenario and answer models, deterministic
-bounded context construction, strict answer parsing, and deterministic
-answer and evidence metrics.
+bounded context construction, strict answer parsing, deterministic
+answer and evidence metrics, versioned generation messages, a gold-free
+provider protocol, and prepared single-case execution.
 
-Generation providers, run artifacts, aggregation, and CLI execution
-are subsequent integration work.
+The provider protocol is tested with stubs. A real HTTP generation adapter,
+retrieval-to-generation suite orchestration, run artifacts, aggregation,
+and CLI execution are subsequent integration work.
+
+## Generation messages
+
+`prompts.py` builds a system instruction and a JSON user message from
+`RagGenerationRequest`. The user message contains only `question` and
+`context`; each context item contains `chunk_id` and `text`.
+The prompt version is `rag-grounded-json-v1`. Prompt construction is
+deterministic; this does not imply deterministic model generation.
+
+Context content is treated as evidence rather than instructions. Separating
+instructions and data is not a guarantee against prompt injection.
+The prompt version should be recorded when run manifests are implemented.
+
+## Provider contract and prepared case execution
+
+`RagProvider.generate` receives only `RagGenerationRequest` and returns
+`RagGenerationResponse`: raw text, a nonblank finish reason, and optional
+input/output token counts. Missing usage remains null, not zero.
+Answer JSON validation belongs to the parser, not the response container.
+
+`run_rag_case` accepts a scenario, an already prepared context, and a
+provider. Query/context IDs are checked before generation. It does not
+perform retrieval or validate gold IDs against a complete corpus; those
+checks belong to the future suite layer.
+
+| Status | Meaning |
+| --- | --- |
+| `completed` | The answer was parsed and evaluated, regardless of correctness. |
+| `invalid_response` | Generation ended with `stop`, but answer parsing failed. |
+| `incomplete_response` | The finish reason was not `stop`; no evaluation is produced. |
+| `provider_failed` | The provider raised `RagProviderError`; no response is available. |
+
+Valid abstentions are evaluated as completed cases. Parse failures are
+never converted into abstentions. Available raw responses are retained
+for completed, invalid, and incomplete outcomes. Expected provider errors
+currently retain only the status, not an error code or message.
+Unexpected programming errors propagate. `RagCaseResult` is an internal
+result container, not a validated artifact-loading schema.
 
 ## Answer contract
 
@@ -92,15 +132,16 @@ than silently excluding them from all-case denominators.
 
 ## Next integration milestone
 
-Build versioned generation messages from `RagGenerationRequest` only.
-Keep instructions separate from retrieved data and explicitly treat context
-text as evidence, not executable instructions. This is a prompt policy,
-not a guarantee against prompt injection.
+Add a non-streaming OpenAI-compatible HTTP adapter with injected transport
+and tests for request construction, response envelopes, missing usage,
+timeouts, and incomplete generation. Keep malformed HTTP response envelopes
+distinct from malformed answer JSON. The former is a provider failure;
+the latter is an invalid answer response.
 
-Then add a gold-free generation provider, a single-case runner, and tests
-using a fake provider before introducing real-model CLI runs. Preserve
-provider failures and parse failures as distinct outcomes rather than
-turning them into valid abstentions. No `rag-run` CLI is implemented yet.
+Then connect retrieval and bounded context construction to the case runner,
+validate corpus/scenario consistency, and add aggregation and run artifacts.
+Only after those contracts are tested should real-model CLI runs be added.
+No `rag-run` CLI is implemented yet.
 
 Use a small QA fixture with explicit reference answers and evidence IDs
 for the first integration run. SciFact retrieval relevance labels alone

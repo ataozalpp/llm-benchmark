@@ -158,6 +158,29 @@ validate corpus/scenario consistency, and add aggregation and run artifacts.
 Only after those contracts are tested should real-model CLI runs be added.
 No `rag-run` CLI is implemented yet.
 
+### Prepared-context smoke
+
+`scripts/smoke_rag_openai_compatible.py` runs one refund-policy case with
+manually supplied context. Its JSON report records the question, references,
+context, model ID, endpoint, prompt version, settings, and case result.
+Reference answers remain local evaluation/reporting data and are not sent
+to the provider. Exit codes are 0 for passing answer/citation checks, 1 for
+an unsuccessful smoke, and 2 for invalid provider configuration.
+
+```powershell
+.\.venv\Scripts\python.exe scripts/smoke_rag_openai_compatible.py --model "YOUR_MODEL_ID" --max-tokens 256
+```
+
+This is not a retrieval benchmark. A completed case can fail the smoke:
+for example, `30` omits the unit required by `30 days`. Do not add the
+unit-free answer to the references merely to make the smoke pass. A normal
+`stop` finish reason does not indicate output-token truncation.
+
+The initial user-reported Qwen run and follow-up observations are recorded
+in `validation.md`. They are individual observations, not general model
+quality conclusions. Proceed to suite orchestration without tuning this
+single example until it passes.
+
 Use a small QA fixture with explicit reference answers and evidence IDs
 for the first integration run. SciFact retrieval relevance labels alone
 are not reference answers for a QA benchmark.

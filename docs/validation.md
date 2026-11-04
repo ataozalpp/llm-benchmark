@@ -2068,6 +2068,48 @@ Static checks passed. Adapter tests used injected transports; no live HTTP
 request or real-model RAG smoke was performed. Authentication, run artifacts,
 aggregation, and the RAG CLI remain subsequent work.
 
+## Real prepared-context RAG smoke observations (2026-11-04)
+
+Source: user-provided report and follow-up observations; these live runs
+were not executed by the assistant.
+
+Initial report: model `qwen3.5-0.8b`, endpoint `http://localhost:1234/v1`,
+prompt version `rag-grounded-json-v1`, temperature 0, timeout 120 seconds,
+and maximum output tokens 256. The case completed with finish reason `stop`,
+242 input tokens and 27 output tokens. The generated answer was `30`, with
+citation `refund-policy`. Exact match was false; abstention correctness was
+true; context evidence recall, citation validity, and citation evidence
+recall were all 1.0. The smoke failed because the answer omitted its unit.
+This report does not indicate output-token truncation.
+
+The user subsequently reported the same answer, `30`, after trying a
+512-token limit and an explicit instruction to include the duration unit.
+Full follow-up JSON reports were not supplied, so their token counts,
+finish reasons, and exact configuration combinations are not recorded as
+verified values. These observations do not justify relaxing exact match
+or accepting a unit-free answer. They do not establish general model quality.
+
+The current smoke script includes the explicit-unit question and persists
+the actual context in its report. A distractor typo was corrected from
+`Standart` to `Standard`; future runs therefore have this small fixture
+change as well. Historical live observations must not be treated as runs
+of an identical fixture.
+
+### Smoke script regression
+
+Eight offline smoke tests cover a correct answer, the unit-free `30`
+regression, absent/unknown citations, incomplete generation, provider and
+parse failures, invalid configuration, report contents, and exit codes.
+The provider is replaced by a stub; the actual case runner is exercised.
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_smoke_rag_openai_compatible.py tests/test_rag_openai_compatible.py tests/test_rag_case.py -q
+.\.venv\Scripts\ruff.exe check scripts/smoke_rag_openai_compatible.py tests/test_smoke_rag_openai_compatible.py
+```
+
+Result: **64 passed in 0.29 seconds**; lint passed. This is a focused
+regression, not a fresh full-project run. No live endpoint was contacted.
+
 ## Licensing note
 
 No project license has been selected yet. MMLU-Pro attribution and its dataset

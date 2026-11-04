@@ -1962,6 +1962,154 @@ full project suite. Explicit hybrid child-failure lifecycle tests remain a
 release task; the current hybrid service integration test covers the success
 path and recorded review/replay rejection.
 
+## RAG core validation (2026-11-03)
+
+Fixed a test discovery typo: `tets_invalid_responses_are_rejected` was not
+collected by pytest. Renaming it activates all 16 invalid-response cases.
+Added coverage for the exact response-size boundary, excessive JSON nesting,
+invalid field values, trailing prose, evaluator input types, exact citation
+ID matching, independent context/citation recall, and reference-answer tuple
+validation.
+
+Final focused command:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_rag_models.py tests/test_rag_context.py tests/test_rag_parsing.py tests/test_rag_evaluation.py -q
+```
+
+Result: **80 passed in 0.36 seconds**.
+
+Full regression command:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+Result: **2244 passed, 14 skipped in 76.41 seconds**. This run was collected
+before the final four reference-answer tuple cases were added; those four
+cases are included in the final focused run above.
+
+Skipped coverage:
+
+- 7 MCP stdio tests: `LLM_BENCHMARK_MCP_PYTHON` not configured.
+- 5 PostgreSQL tests: `LLM_BENCHMARK_TEST_POSTGRES_URL` not configured.
+- 2 filesystem tests: symlink creation unavailable (`OSError`).
+
+These integrations are not validated by this run. No real-model RAG run
+was performed; generation providers and a RAG CLI are not implemented yet.
+
+Static checks passed:
+
+```powershell
+.\.venv\Scripts\ruff.exe check src/llm_benchmark/rag tests/test_rag_models.py tests/test_rag_context.py tests/test_rag_parsing.py tests/test_rag_evaluation.py
+.\.venv\Scripts\ruff.exe format --check src/llm_benchmark/rag tests/test_rag_models.py tests/test_rag_context.py tests/test_rag_parsing.py tests/test_rag_evaluation.py
+git diff --check
+```
+
+Ruff reported no lint findings and all nine Python files already formatted.
+
+## RAG prepared-case checkpoint (2026-11-03)
+
+Validated generation messages, response metadata, and prepared-case
+execution using stub providers. This checkpoint includes correct and
+incorrect answers, abstention, parsing failure, non-stop finish reasons,
+expected provider errors, unexpected programming errors, invalid provider
+return types, and query/context mismatch before generation.
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_rag_models.py tests/test_rag_context.py tests/test_rag_parsing.py tests/test_rag_evaluation.py tests/test_rag_prompts.py tests/test_rag_providers.py tests/test_rag_case.py -q
+```
+
+Result: **106 passed in 0.33 seconds**.
+
+```powershell
+.\.venv\Scripts\ruff.exe check src/llm_benchmark/rag tests/test_rag_case.py tests/test_rag_providers.py tests/test_rag_prompts.py
+.\.venv\Scripts\ruff.exe format --check src/llm_benchmark/rag tests/test_rag_case.py tests/test_rag_providers.py tests/test_rag_prompts.py
+```
+
+Lint passed; all 11 selected Python files were already formatted.
+The full project regression was not rerun for this checkpoint. No network
+request, real model generation, or RAG CLI execution was performed.
+Earlier full-regression results above remain historical observations.
+
+## RAG HTTP adapter checkpoint (2026-11-04)
+
+Added adapter/case-runner integration coverage for completion, invalid answer
+JSON, non-stop generation, invalid response envelopes, and timeout failures.
+Additional tests cover custom request settings, context payloads without gold
+fields, missing and zero usage, HTTP/URL/decode errors without retries, invalid
+requests before I/O, tool/function invocations, and base URL validation.
+Invalid ports and whitespace/control characters are rejected during provider
+construction; passing the full chat endpoint is rejected rather than doubled.
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_rag_models.py tests/test_rag_context.py tests/test_rag_parsing.py tests/test_rag_evaluation.py tests/test_rag_prompts.py tests/test_rag_providers.py tests/test_rag_case.py tests/test_rag_openai_compatible.py -q
+```
+
+Result: **151 passed in 0.52 seconds**.
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+Full regression: **2319 passed, 14 skipped in 70.46 seconds**.
+Skipped: 7 MCP stdio tests without `LLM_BENCHMARK_MCP_PYTHON`, 5 PostgreSQL
+tests without `LLM_BENCHMARK_TEST_POSTGRES_URL`, and 2 filesystem tests where
+symlink creation was unavailable. These integrations remain unverified by
+this run.
+
+```powershell
+.\.venv\Scripts\ruff.exe check src/llm_benchmark/rag tests/test_rag_openai_compatible.py
+.\.venv\Scripts\ruff.exe format --check src/llm_benchmark/rag/openai_compatible.py tests/test_rag_openai_compatible.py
+git diff --check
+```
+
+Static checks passed. Adapter tests used injected transports; no live HTTP
+request or real-model RAG smoke was performed. Authentication, run artifacts,
+aggregation, and the RAG CLI remain subsequent work.
+
+## Real prepared-context RAG smoke observations (2026-11-04)
+
+Source: user-provided report and follow-up observations; these live runs
+were not executed by the assistant.
+
+Initial report: model `qwen3.5-0.8b`, endpoint `http://localhost:1234/v1`,
+prompt version `rag-grounded-json-v1`, temperature 0, timeout 120 seconds,
+and maximum output tokens 256. The case completed with finish reason `stop`,
+242 input tokens and 27 output tokens. The generated answer was `30`, with
+citation `refund-policy`. Exact match was false; abstention correctness was
+true; context evidence recall, citation validity, and citation evidence
+recall were all 1.0. The smoke failed because the answer omitted its unit.
+This report does not indicate output-token truncation.
+
+The user subsequently reported the same answer, `30`, after trying a
+512-token limit and an explicit instruction to include the duration unit.
+Full follow-up JSON reports were not supplied, so their token counts,
+finish reasons, and exact configuration combinations are not recorded as
+verified values. These observations do not justify relaxing exact match
+or accepting a unit-free answer. They do not establish general model quality.
+
+The current smoke script includes the explicit-unit question and persists
+the actual context in its report. A distractor typo was corrected from
+`Standart` to `Standard`; future runs therefore have this small fixture
+change as well. Historical live observations must not be treated as runs
+of an identical fixture.
+
+### Smoke script regression
+
+Eight offline smoke tests cover a correct answer, the unit-free `30`
+regression, absent/unknown citations, incomplete generation, provider and
+parse failures, invalid configuration, report contents, and exit codes.
+The provider is replaced by a stub; the actual case runner is exercised.
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_smoke_rag_openai_compatible.py tests/test_rag_openai_compatible.py tests/test_rag_case.py -q
+.\.venv\Scripts\ruff.exe check scripts/smoke_rag_openai_compatible.py tests/test_smoke_rag_openai_compatible.py
+```
+
+Result: **64 passed in 0.29 seconds**; lint passed. This is a focused
+regression, not a fresh full-project run. No live endpoint was contacted.
+
 ## Licensing note
 
 No project license has been selected yet. MMLU-Pro attribution and its dataset

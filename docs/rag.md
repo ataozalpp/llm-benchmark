@@ -32,8 +32,9 @@ bounded context construction, strict answer parsing, deterministic
 answer and evidence metrics, versioned generation messages, a gold-free
 provider protocol, and prepared single-case execution.
 
-The provider protocol is tested with stubs. A real HTTP generation adapter,
-retrieval-to-generation suite orchestration, run artifacts, aggregation,
+The provider protocol and a non-streaming HTTP adapter are tested with
+injected transports, including integration with the case runner.
+Retrieval-to-generation suite orchestration, run artifacts, aggregation,
 and CLI execution are subsequent integration work.
 
 ## Generation messages
@@ -132,11 +133,25 @@ than silently excluding them from all-case denominators.
 
 ## Next integration milestone
 
-Add a non-streaming OpenAI-compatible HTTP adapter with injected transport
-and tests for request construction, response envelopes, missing usage,
-timeouts, and incomplete generation. Keep malformed HTTP response envelopes
-distinct from malformed answer JSON. The former is a provider failure;
-the latter is an invalid answer response.
+The HTTP adapter uses the existing `JsonTransport` and `UrllibJsonTransport`.
+Supply a base URL such as `http://localhost:1234/v1`, not the full
+`/chat/completions` endpoint. Invalid ports, whitespace/control characters,
+URL credentials, query strings, and fragments are rejected before generation.
+The adapter requests one non-streaming response with temperature zero and
+a configurable `max_tokens` limit and transport timeout. There are no retries
+or authentication options in this first version. Temperature zero does not
+guarantee deterministic generation; the transport timeout is not a complete
+run wall-time budget.
+
+Malformed HTTP response envelopes become provider failures; malformed answer
+JSON remains raw text until the case parser marks it as an invalid response.
+Completed responses containing tool/function invocations are rejected.
+Missing usage remains null. Tests use injected transports and do not establish
+live endpoint compatibility or model quality.
+
+Next, perform a small prepared-context real-model smoke and record the model,
+endpoint, settings, raw response, finish reason, and evaluation. This smoke
+does not measure retrieval quality or create full benchmark run artifacts.
 
 Then connect retrieval and bounded context construction to the case runner,
 validate corpus/scenario consistency, and add aggregation and run artifacts.

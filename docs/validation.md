@@ -2032,6 +2032,42 @@ The full project regression was not rerun for this checkpoint. No network
 request, real model generation, or RAG CLI execution was performed.
 Earlier full-regression results above remain historical observations.
 
+## RAG HTTP adapter checkpoint (2026-11-04)
+
+Added adapter/case-runner integration coverage for completion, invalid answer
+JSON, non-stop generation, invalid response envelopes, and timeout failures.
+Additional tests cover custom request settings, context payloads without gold
+fields, missing and zero usage, HTTP/URL/decode errors without retries, invalid
+requests before I/O, tool/function invocations, and base URL validation.
+Invalid ports and whitespace/control characters are rejected during provider
+construction; passing the full chat endpoint is rejected rather than doubled.
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_rag_models.py tests/test_rag_context.py tests/test_rag_parsing.py tests/test_rag_evaluation.py tests/test_rag_prompts.py tests/test_rag_providers.py tests/test_rag_case.py tests/test_rag_openai_compatible.py -q
+```
+
+Result: **151 passed in 0.52 seconds**.
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+Full regression: **2319 passed, 14 skipped in 70.46 seconds**.
+Skipped: 7 MCP stdio tests without `LLM_BENCHMARK_MCP_PYTHON`, 5 PostgreSQL
+tests without `LLM_BENCHMARK_TEST_POSTGRES_URL`, and 2 filesystem tests where
+symlink creation was unavailable. These integrations remain unverified by
+this run.
+
+```powershell
+.\.venv\Scripts\ruff.exe check src/llm_benchmark/rag tests/test_rag_openai_compatible.py
+.\.venv\Scripts\ruff.exe format --check src/llm_benchmark/rag/openai_compatible.py tests/test_rag_openai_compatible.py
+git diff --check
+```
+
+Static checks passed. Adapter tests used injected transports; no live HTTP
+request or real-model RAG smoke was performed. Authentication, run artifacts,
+aggregation, and the RAG CLI remain subsequent work.
+
 ## Licensing note
 
 No project license has been selected yet. MMLU-Pro attribution and its dataset

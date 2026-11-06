@@ -1,7 +1,7 @@
 """Run retrieval benchmarks with content identity, timings, and local artifacts."""
 
-import sys
 import platform
+import sys
 import time
 from dataclasses import asdict
 from datetime import datetime, timezone

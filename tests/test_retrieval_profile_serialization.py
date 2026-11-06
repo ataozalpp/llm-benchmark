@@ -3,10 +3,10 @@ from dataclasses import asdict
 import pytest
 
 from llm_benchmark.retrieval.profile import (
+    BM25_PROFILE,
     KEYWORD_PROFILE,
     DenseRetrievalProfile,
 )
-from llm_benchmark.retrieval.profile import BM25_PROFILE
 from llm_benchmark.retrieval.profile_serialization import profile_from_dict
 
 

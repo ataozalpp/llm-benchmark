@@ -34,8 +34,32 @@ provider protocol, and prepared single-case execution.
 
 The provider protocol and a non-streaming HTTP adapter are tested with
 injected transports, including integration with the case runner.
-Retrieval-to-generation suite orchestration, run artifacts, aggregation,
-and CLI execution are subsequent integration work.
+Retrieval-to-generation suite orchestration is available in `rag/suite.py`.
+Run artifacts, aggregation, and CLI execution are subsequent integration work.
+
+## Suite orchestration
+
+`run_rag_suite` validates the complete corpus and scenario collection before
+work, retrieves each query, builds bounded context, and runs generation and
+evaluation. It retains ranking, selected context, raw generation response,
+available token usage, and case result in input order.
+
+Expected provider errors, invalid answer JSON, and incomplete generation
+produce case results and do not abort subsequent cases. Invalid retriever
+outputs and unexpected programming errors propagate. Missing gold evidence
+in a ranking is a measurable retrieval miss, not a configuration error.
+
+An optional synchronous `on_case_completed(case)` callback is invoked for
+each processed case, including unsuccessful outcomes, before the next query
+is started. A caller can persist each case without waiting for the suite
+to return. Callback failures propagate immediately to prevent further paid
+calls after an output-storage failure. Without a callback, results remain
+in memory. The suite does not itself create files or manifests, guarantee
+crash durability, or implement resume. A test-only JSONL callback demonstrates
+preservation of an earlier row when a later retrieval/generation call fails.
+
+The current implementation is sequential, with no suite-level retry or
+wall-time budget. The HTTP adapter already provides a transport timeout.
 
 ## Generation messages
 
@@ -132,6 +156,32 @@ Future run summaries must report invalid responses explicitly rather
 than silently excluding them from all-case denominators.
 
 ## Next integration milestone
+
+### Summary semantics
+
+`rag/reporting.py` requires exactly one case for each supplied scenario and
+matches cases by query ID, independently of their order. Duplicate IDs,
+missing/extra cases, mismatched component IDs, and inconsistent status/response
+combinations are rejected. This is an internal result aggregator, not a loader
+or full integrity validator for untrusted persisted artifacts.
+
+Answer exact match uses all answerable cases as the denominator, including
+provider failures, invalid responses, and incomplete generation. Unanswerable
+abstention uses all unanswerable cases; only valid abstaining answers count.
+An empty denominator produces null, not zero or NaN.
+
+Context evidence recall is computed from context for every answerable case,
+even if generation fails. Citation validity is a macro average over completed
+cases with a defined validity value, not a pooled per-citation fraction.
+Its measured and eligible counts accompany the mean; completed cases with no
+citations are counted separately (including valid abstentions).
+
+Token sums include observed usage from completed, invalid, and incomplete
+responses. Missing usage is unmeasured; an observed zero is measured.
+Each token field has its own measured count. Observed sums are not a claim
+about total billed usage. Status counts include zero-count statuses.
+
+### Remaining run integration
 
 The HTTP adapter uses the existing `JsonTransport` and `UrllibJsonTransport`.
 Supply a base URL such as `http://localhost:1234/v1`, not the full

@@ -2110,6 +2110,47 @@ The provider is replaced by a stub; the actual case runner is exercised.
 Result: **64 passed in 0.29 seconds**; lint passed. This is a focused
 regression, not a fresh full-project run. No live endpoint was contacted.
 
+## RAG suite orchestration checkpoint (2026-11-04)
+
+Added `tests/test_rag_suite.py` covering validation before I/O, invalid
+rankings, missing evidence, empty/budget-limited context, result ordering,
+expected failure continuation, preserved responses/usage, and related but
+insufficient evidence for an unanswerable question. Stub providers check
+orchestration, not model abstention quality.
+
+Added `on_case_completed` and tests showing that a caller-written JSONL row
+survives a later unexpected retrieval/provider failure. A failing callback
+stops before the next generation call. This is not a production artifact
+writer, crash-recovery protocol, or resume implementation.
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_rag_suite.py tests/test_rag_context.py tests/test_rag_case.py tests/test_rag_evaluation.py -q
+.\.venv\Scripts\ruff.exe check src/llm_benchmark/rag/suite.py tests/test_rag_suite.py
+```
+
+Result: **73 passed in 0.36 seconds**; lint passed. This focused checkpoint
+does not replace the earlier full regression. No live model was called.
+
+## RAG reporting checkpoint (2026-11-06)
+
+Fixed `len(scenario)` to count the scenario collection and corrected the
+`output_tokens` summary key. Corrected the initial test's expected accuracy
+from 1/2 to 1/3 for one correct answer across three answerable cases.
+
+Expanded reporting tests for unanswerable denominators, all-failure summaries,
+usage retained on invalid/incomplete responses, measured zero versus missing
+usage, macro citation validity, order-independent ID matching, complete case
+coverage, collection validation, component IDs, and status/response consistency.
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_rag_reporting.py tests/test_rag_suite.py tests/test_rag_case.py tests/test_rag_evaluation.py -q
+.\.venv\Scripts\ruff.exe check src/llm_benchmark/rag/reporting.py tests/test_rag_reporting.py
+```
+
+Result: **90 passed in 0.35 seconds**; lint passed. The two changed Python
+files were formatted. This focused run does not replace the previous full
+regression. No live model or network service was used.
+
 ## Licensing note
 
 No project license has been selected yet. MMLU-Pro attribution and its dataset

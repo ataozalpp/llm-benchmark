@@ -2151,6 +2151,112 @@ Result: **90 passed in 0.35 seconds**; lint passed. The two changed Python
 files were formatted. This focused run does not replace the previous full
 regression. No live model or network service was used.
 
+## RAG run CLI checkpoint (2026-11-07)
+
+Added the RAG QA fixture and loader, run identity, synthetic provider,
+artifact writer, run config, run service, and `rag-run` CLI. Retriever
+setting validation and profile construction moved to shared functions in
+`retrieval/run_config.py`; `retrieval/factory.py` builds all four retrievers.
+The retrieval run service now uses the shared profile builder; its retriever
+construction is unchanged. `HybridRetrievalProfile.candidate_k` had a tuple
+default `(50,)`; it is now `50`. No caller relied on the default, so existing
+profile hashes are unchanged.
+
+Fixes found while adding tests: the identity test passed a string instead of
+a one-element tuple, the synthetic config was an empty file, the fixture moved
+from `examples/retrieval/rag/` to `examples/rag/`, and retriever construction
+moved inside the run lifecycle so embedding load/index failures are recorded
+as failed runs.
+
+New tests: `test_retrieval_factory.py`, `test_rag_demo_provider.py`,
+`test_rag_artifacts.py`, `test_rag_run_config.py`, and `test_rag_run.py`.
+They cover all retriever profiles with a fake embedder, durable rows before
+later failures, gold-free requests, case-level failure continuation, failed
+and interrupted manifests, example configs, and CLI exit codes.
+
+```powershell
+$env:HF_HUB_OFFLINE = "1"; $env:HF_DATASETS_OFFLINE = "1"; $env:TRANSFORMERS_OFFLINE = "1"
+.\.venv\Scripts\python.exe -m ruff check .
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+Result: Ruff passed; **2521 passed, 12 skipped**. Skips are environment-gated
+tests such as PostgreSQL integration.
+
+Synthetic CLI smokes completed all five queries:
+
+| Config | Run ID | Exact match | Abstention | Context recall | Model load |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `rag_synthetic_smoke.yaml` (BM25) | `2f4dcf6300af4d22a55e5a739fa5ad48` | 0/4 | 0/1 | 0.75 | 0 ms |
+| `rag_hybrid_synthetic_smoke.yaml` | `306a2b6293364159a6c52a0d4cd7bfe2` | 0/4 | 0/1 | 0.75 | 51774 ms |
+
+The synthetic provider answers with whole chunk text, so exact match is
+expected to be zero; these runs validate the config-to-artifact path only.
+Both retrievers miss the `q-refund` gold chunk at K=2 (see the next section).
+
+## Real-model RAG CLI smoke (2026-11-08)
+
+Source: user-executed runs; artifacts were inspected locally from
+`outputs/rag/`. Model `qwen3.5-0.8b` via an OpenAI-compatible localhost
+endpoint (LM Studio), prompt `rag-grounded-json-v1`, temperature 0,
+`max_tokens` 256, timeout 60 s, K=2, `max_context_chars` 2000, fixture
+`policy-qa-smoke-v1`. Both manifests have status `completed`.
+
+| Metric | BM25 `4d8facd4…` | Hybrid `dd48b222…` |
+| --- | ---: | ---: |
+| Completed / invalid / incomplete / provider failed | 3 / 2 / 0 / 0 | 3 / 2 / 0 / 0 |
+| Answer exact match | 2/4 | 1/4 |
+| Unanswerable abstention | 0/1 | 0/1 |
+| Context evidence recall (mean) | 0.75 | 0.75 |
+| Citation validity (mean, completed) | 1.0 (3) | 1.0 (3) |
+| Input / output tokens (observed) | 1138 / 158 | 1200 / 152 |
+| Embedding model load | 0 ms | 41448 ms |
+| Retrieval total | 1.5 ms | 97.0 ms |
+| Generation total | 19501 ms | 10864 ms |
+| Wall time | 19583 ms | 52587 ms |
+
+Full run IDs: `4d8facd4aab1478eabc312c229750b48` (BM25) and
+`dd48b222d4ae40628ea55760020cfe0f` (hybrid).
+
+Per-case outcomes:
+
+| Query | Context (BM25) | BM25 outcome | Context (hybrid) | Hybrid outcome |
+| --- | --- | --- | --- | --- |
+| `q-refund` | refund-history, password | invalid: distractor sentence + citation with `abstained: true` | same | same |
+| `q-shipping` | shipping | completed, EM false: full sentence | shipping, refund | completed, EM false: full sentence |
+| `q-warranty` | warranty, refund-history | completed, EM true: `2 years` | same | same |
+| `q-password` | password | completed, EM true: `The account settings page` | password, refund-history | completed, EM false: `Account settings` |
+| `q-gift-card` | password | invalid: `No` with `abstained: true` | password, refund | same |
+
+Observations:
+
+- Both invalid responses in both runs have the same contract violation:
+  `abstained: true` with a nonblank answer (and, for `q-refund`, a citation).
+  The parser correctly rejects them; they are not converted to abstentions.
+  The unanswerable abstention rate of 0/1 comes from this violation, not from
+  a confident answer with `abstained: false`.
+- `q-refund` is a retrieval miss in both runs (context evidence recall 0):
+  BM25 does not stem `Refunds`, and equal-weight fusion keeps the distractor
+  ahead of the dense-only gold chunk. Generation could not succeed on this
+  context; the correct behavior would have been a valid abstention.
+- `q-shipping` is semantically correct but fails exact match because the
+  model returned a full sentence. References were not widened.
+- The exact-match difference between runs (2/4 vs 1/4) is one case,
+  `q-password`. Retrieved evidence was identical in effect (both contexts
+  contained the gold chunk); the hybrid context added a distractor chunk and
+  the answer shortened to `Account settings`. This is not evidence that
+  hybrid retrieval is worse.
+- The first BM25 generation took 11350 ms versus about 2000 ms for each later
+  case, consistent with endpoint warm-up. The hybrid run's first case took
+  2803 ms. Run-level generation totals are therefore not comparable.
+- Hybrid wall time is dominated by CPU embedding model load.
+
+Interpretation boundary: five questions, one small model, one run each.
+These results validate the live config-to-artifact path and expose failure
+modes; they are not model or retriever quality conclusions. The model ID
+does not pin weights or quantization. The summary does not yet record parser
+failure reasons, so the violation type was read from raw responses.
+
 ## Licensing note
 
 No project license has been selected yet. MMLU-Pro attribution and its dataset

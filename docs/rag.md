@@ -35,7 +35,8 @@ provider protocol, and prepared single-case execution.
 The provider protocol and a non-streaming HTTP adapter are tested with
 injected transports, including integration with the case runner.
 Retrieval-to-generation suite orchestration is available in `rag/suite.py`.
-Run artifacts, aggregation, and CLI execution are subsequent integration work.
+Aggregation, run identity, local run artifacts, and the `rag-run` CLI are
+available; see [Run CLI and artifacts](#run-cli-and-artifacts).
 
 ## Suite orchestration
 
@@ -155,7 +156,7 @@ Parsing failures must remain distinct from valid abstentions.
 Future run summaries must report invalid responses explicitly rather
 than silently excluding them from all-case denominators.
 
-## Next integration milestone
+## Run integration
 
 ### Summary semantics
 
@@ -181,7 +182,7 @@ responses. Missing usage is unmeasured; an observed zero is measured.
 Each token field has its own measured count. Observed sums are not a claim
 about total billed usage. Status counts include zero-count statuses.
 
-### Remaining run integration
+### HTTP adapter
 
 The HTTP adapter uses the existing `JsonTransport` and `UrllibJsonTransport`.
 Supply a base URL such as `http://localhost:1234/v1`, not the full
@@ -199,16 +200,115 @@ Completed responses containing tool/function invocations are rejected.
 Missing usage remains null. Tests use injected transports and do not establish
 live endpoint compatibility or model quality.
 
-Next, perform a small prepared-context real-model smoke and record the model,
-endpoint, settings, raw response, finish reason, and evaluation. This smoke
-does not measure retrieval quality or create full benchmark run artifacts.
+## Run CLI and artifacts
 
-Then connect retrieval and bounded context construction to the case runner,
-validate corpus/scenario consistency, and add aggregation and run artifacts.
-Only after those contracts are tested should real-model CLI runs be added.
-No `rag-run` CLI is implemented yet.
+```powershell
+.\.venv\Scripts\python.exe -m llm_benchmark rag-run --config configs/rag_synthetic_smoke.yaml
+```
 
-### Prepared-context smoke
+The offline synthetic config needs no model or network service. The
+`rag_hybrid_synthetic_smoke.yaml` config additionally needs the pinned
+embedding model in the local Hugging Face cache. The two
+`*_openai_compatible_smoke.yaml` configs are opt-in: replace the placeholder
+`model_id` locally and do not commit the replacement.
+
+### Suite input
+
+`examples/rag/policy_qa_smoke.json` is a five-chunk, five-question QA fixture
+with reference answers, gold chunk IDs, one corpus-unanswerable question, and
+a keyword-strong distractor (`refund-history`). Suites are strict JSON with
+the same bounded-loading rules as retrieval suites. Answerable scenarios
+require references and evidence; unanswerable scenarios must declare neither.
+
+### Configuration
+
+Paths resolve relative to the config file. Duplicate YAML keys, unknown
+fields, non-integer `k`, and `max_context_chars` below two are rejected.
+The retriever may be `keyword`, `bm25`, `dense`, or `hybrid`; embedding and
+fusion settings follow the same rules as `retrieval-run` and are validated by
+the shared `validate_retriever_settings` function.
+
+`provider: synthetic` must not include a model. `openai_compatible` requires
+an OpenAI-compatible `model` block with `base_url` and `max_output_tokens`,
+temperature zero, and no `credential_env_var`. These constraints mirror the
+adapter: accepting other values would make the manifest misdescribe the
+actual request.
+
+The synthetic provider answers with the first context chunk text and cites
+it, or abstains when context is empty. It reads only the generation request,
+never evaluation labels, and reports no token usage. It validates the
+pipeline; its scores are not a model measurement.
+
+### Identity
+
+The manifest records a run fingerprint over:
+
+| Field | Content |
+| --- | --- |
+| `corpus_hash` | Chunk IDs, document IDs, and texts sorted by chunk ID; equal to the retrieval corpus hash for the same chunks. |
+| `suite_hash` | Ordered query IDs, texts, answerability, references, and sorted gold IDs. |
+| `retriever_profile_hash` | The complete retriever profile, including embedding model revision and fusion settings. |
+| `context_policy_version` | `whole-chunk-json-chars-v1`. |
+| `prompt_version` | `rag-grounded-json-v1`. |
+| `generation_config_hash` | Provider kind, endpoint alias, model ID, temperature, and `max_tokens`. |
+| `evaluation_config_hash` | `k` and `max_context_chars`. |
+| `evaluator_version` | `rag-exact-v1`. |
+
+The base URL and timeout are operational settings and are not part of the
+identity or manifest. The model ID is the identifier reported to the endpoint;
+it does not pin weights, quantization, or chat template.
+
+### Artifacts
+
+Each run writes `outputs/rag/<run_id>/`:
+
+- `manifest.json`: identity, suite ID, retriever profile, generation settings,
+  scenario IDs, Python version, timestamps, status, completed case count, and,
+  for dense/hybrid, embedding runtime, load policy, and input statistics.
+- `results.jsonl`: one row per processed case, appended and fsynced before the
+  next query. Rows contain status, retrieved and context chunk IDs, the raw
+  response with finish reason and token usage, the parsed answer, the
+  evaluation, and retrieval/generation latency. Context text and reference
+  answers are not written.
+- `summary.json`: the `summarize_rag` output plus `model_load_ms`,
+  `index_build_ms`, `retrieval_total_ms`, `generation_total_ms`, and
+  `wall_time_ms`. It is written only for completed runs.
+
+Expected case-level outcomes (provider failure, invalid answer JSON,
+incomplete generation) are rows, not run failures. Unexpected failures,
+including embedding load or indexing errors, set manifest status `failed`
+with `rag_run_failed`; Ctrl+C records `rag_run_interrupted` and re-raises.
+Rows written before a failure are preserved. The embedding runtime is written
+to the manifest after model load and before indexing. An invalid suite or
+provider configuration is rejected before an output directory is created.
+The CLI exits with code 2 for invalid configuration and failed runs.
+
+### Timing
+
+`generation_total_ms` includes endpoint warm-up. The first case of a run can
+therefore be much slower than later cases; compare per-row
+`generation_latency_ms` before interpreting run-level generation time.
+`model_load_ms` is the embedding model load and is zero for lexical retrievers.
+
+### Interpreting results
+
+- `context_evidence_recall` measures retrieval and context construction;
+  `answer_exact_match` measures the end-to-end task. With a lexical miss,
+  generation cannot be credited even if the model behaves well.
+- BM25 returns only chunks with at least one matching query token, while
+  dense and hybrid retrieval fill all `k` positions. Hybrid contexts can
+  therefore contain more distractor text for the same `k`.
+- Without stemming, BM25 does not match `Refunds` to `refund`; on the example
+  fixture the distractor outranks the gold chunk for `q-refund`. Equal-weight
+  fusion keeps the distractor first because it appears in both rankings.
+- Small suites move rates in large steps: one of four answerable cases is
+  25 percentage points.
+- `invalid_response` currently records the raw response but not the parser
+  failure reason; inspect `response.text` in `results.jsonl`.
+
+Real-model observations are recorded in `validation.md`.
+
+## Prepared-context smoke
 
 `scripts/smoke_rag_openai_compatible.py` runs one refund-policy case with
 manually supplied context. Its JSON report records the question, references,

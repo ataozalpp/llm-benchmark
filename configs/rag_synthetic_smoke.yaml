@@ -1,0 +1,7 @@
+schema_version: 1
+suite_path: ../examples/rag/policy_qa_smoke.json
+retriever: bm25
+k: 2
+max_context_chars: 2000
+provider: synthetic
+output_dir: ../outputs/rag

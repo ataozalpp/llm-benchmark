@@ -16,7 +16,14 @@ from pydantic import (
     model_validator,
 )
 
-from .profile import DenseRetrievalProfile
+from .profile import (
+    BM25_PROFILE,
+    KEYWORD_PROFILE,
+    BM25RetrievalProfile,
+    DenseRetrievalProfile,
+    HybridRetrievalProfile,
+    KeywordRetrieverProfile,
+)
 
 MAX_CONFIG_BYTES = 64 * 1024
 
@@ -61,12 +68,86 @@ class HybridFusionConfig(BaseModel):
     rank_constant: StrictInt = Field(default=60, gt=0)
 
 
+RetrieverName = Literal["keyword", "dense", "bm25", "hybrid"]
+
+RetrievalProfile = (
+    KeywordRetrieverProfile
+    | BM25RetrievalProfile
+    | DenseRetrievalProfile
+    | HybridRetrievalProfile
+)
+
+
+def validate_retriever_settings(
+    *,
+    retriever: str,
+    embedding: DenseEmbeddingConfig | None,
+    hybrid: HybridFusionConfig | None,
+    k: int,
+) -> None:
+    """Shared retriever setting rules for retrieval and RAG run configs."""
+    if retriever == "dense" and embedding is None:
+        raise ValueError("Dense retrieval requires embedding settings.")
+
+    if retriever == "keyword" and embedding is not None:
+        raise ValueError("Keyword retrieval must not include embedding settings.")
+
+    if retriever == "bm25" and embedding is not None:
+        raise ValueError("BM25 retrieval must not include embedding settings.")
+
+    if retriever == "hybrid":
+        if embedding is None:
+            raise ValueError("Hybrid retrieval requires embedding settings.")
+
+        if hybrid is None:
+            raise ValueError("Hybrid retrieval requires fusion settings.")
+
+        if k > hybrid.candidate_k:
+            raise ValueError("k must not exceed hybrid candidate_k.")
+
+    elif hybrid is not None:
+        raise ValueError("Fusion settings are only valid for hybrid retrieval.")
+
+
+def build_retrieval_profile(
+    *,
+    retriever: str,
+    embedding: DenseEmbeddingConfig | None,
+    hybrid: HybridFusionConfig | None,
+) -> RetrievalProfile:
+    if retriever == "keyword":
+        return KEYWORD_PROFILE
+
+    if retriever == "bm25":
+        return BM25_PROFILE
+
+    if retriever not in {"dense", "hybrid"}:
+        raise ValueError("Unsupported retriever.")
+
+    if embedding is None:
+        raise ValueError("Dense embedding settings are missing.")
+
+    dense_profile = embedding.to_profile()
+
+    if retriever == "dense":
+        return dense_profile
+
+    if hybrid is None:
+        raise ValueError("Hybrid fusion settings are missing.")
+
+    return HybridRetrievalProfile(
+        dense=dense_profile,
+        candidate_k=hybrid.candidate_k,
+        rank_constant=hybrid.rank_constant,
+    )
+
+
 class RetrievalRunConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: StrictInt
     suite_path: StrictStr
-    retriever: Literal["keyword", "dense", "bm25", "hybrid"]
+    retriever: RetrieverName
     embedding: DenseEmbeddingConfig | None = None
     hybrid: HybridFusionConfig | None = None
     k: StrictInt = Field(gt=0)
@@ -88,28 +169,12 @@ class RetrievalRunConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_retriever_settings(self):
-        if self.retriever == "dense" and self.embedding is None:
-            raise ValueError("Dense retrieval requires embedding settings.")
-
-        if self.retriever == "keyword" and self.embedding is not None:
-            raise ValueError("Keyword retrieval must not include embedding settings.")
-
-        if self.retriever == "bm25" and self.embedding is not None:
-            raise ValueError("BM25 retrieval must not include embedding settings.")
-
-        if self.retriever == "hybrid":
-            if self.embedding is None:
-                raise ValueError("Hybrid retrieval requires embedding settings.")
-
-            if self.hybrid is None:
-                raise ValueError("Hybrid retrieval requires fusion settings.")
-
-            if self.k > self.hybrid.candidate_k:
-                raise ValueError("k must not exceed hybrid candidate_k.")
-
-        elif self.hybrid is not None:
-            raise ValueError("Fusion settings are only valid for hybrid retrieval.")
-
+        validate_retriever_settings(
+            retriever=self.retriever,
+            embedding=self.embedding,
+            hybrid=self.hybrid,
+            k=self.k,
+        )
         return self
 
 

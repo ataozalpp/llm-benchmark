@@ -7,7 +7,7 @@ from llm_benchmark.rag.dataset import load_rag_dataset
 from llm_benchmark.rag.identity import build_rag_run_identity
 from llm_benchmark.retrieval.profile import BM25_PROFILE, KEYWORD_PROFILE
 
-EXAMPLE = Path(__file__).parents[1] / "examples/retrieval/rag/policy_qa_smoke.json"
+EXAMPLE = Path(__file__).parents[1] / "examples/rag/policy_qa_smoke.json"
 DATASET = load_rag_dataset(EXAMPLE)
 
 
@@ -35,7 +35,7 @@ def test_chunk_order_does_not_change_corpus_hash():
 
 def test_reference_answer_change_changes_suite_hash():
     first = DATASET.scenarios[0]
-    changed = (replace(first, reference_answers=("thirty days,")),) + DATASET.scenarios[1:]
+    changed = (replace(first, reference_answers=("thirty days",)),) + DATASET.scenarios[1:]
     assert identity(scenarios=changed)["suite_hash"] != identity()["suite_hash"]
 
 

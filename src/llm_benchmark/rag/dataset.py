@@ -1,4 +1,4 @@
-"""Bounded, strict JSON for project-owned RAG QA suites."""
+"""Bounded, strict JSON loading for project-owned RAG QA suites."""
 
 import json
 from dataclasses import dataclass

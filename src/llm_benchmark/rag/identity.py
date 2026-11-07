@@ -1,4 +1,4 @@
-"""Canonical identites for RAG evaluation runs."""
+"""Canonical identities for RAG evaluation runs."""
 
 from ..retrieval.identity import fingerprint
 from ..retrieval.models import Chunk

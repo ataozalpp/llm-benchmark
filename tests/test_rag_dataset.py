@@ -6,7 +6,7 @@ import pytest
 from llm_benchmark.rag import dataset
 from llm_benchmark.rag.dataset import load_rag_dataset
 
-EXAMPLE = Path(__file__).parents[1] / "examples/retrieval/rag/policy_qa_smoke.json"
+EXAMPLE = Path(__file__).parents[1] / "examples/rag/policy_qa_smoke.json"
 
 
 def write(tmp_path, payload):

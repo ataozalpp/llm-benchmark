@@ -29,6 +29,8 @@ def build_parser() -> argparse.ArgumentParser:
         "retrieval-run", help="run a retrieval evaluation"
     )
     retrieval_run.add_argument("--config", type=Path, required=True)
+    rag_run = subparsers.add_parser("rag-run", help="run a RAG evaluation")
+    rag_run.add_argument("--config", type=Path, required=True)
     return parser
 
 
@@ -47,6 +49,11 @@ def main(argv: list[str] | None = None) -> None:
             run_dir, summary = run_retrieval_benchmark(
                 load_retrieval_run_config(args.config)
             )
+        elif args.command == "rag-run":
+            from .rag.run_config import load_rag_run_config
+            from .rag.run_service import run_rag_benchmark
+
+            run_dir, summary = run_rag_benchmark(load_rag_run_config(args.config))
         else:
             config = load_config(args.config, args.set)
             run_dir, summary = run_benchmark(config)

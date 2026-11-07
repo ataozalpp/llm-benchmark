@@ -136,7 +136,7 @@ BM25_PROFILE = BM25RetrievalProfile()
 @dataclass(frozen=True)
 class HybridRetrievalProfile:
     dense: DenseRetrievalProfile
-    candidate_k: int = (50,)
+    candidate_k: int = 50
     rank_constant: int = 60
 
     lexical: BM25RetrievalProfile = field(default=BM25_PROFILE, init=False)

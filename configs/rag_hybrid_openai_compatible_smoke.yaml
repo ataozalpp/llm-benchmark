@@ -1,0 +1,30 @@
+# Opt-in: replace model_id with an identifier served by your existing endpoint.
+# Requires the pinned embedding model in the local Hugging Face cache.
+schema_version: 1
+suite_path: ../examples/rag/policy_qa_smoke.json
+retriever: hybrid
+k: 2
+max_context_chars: 2000
+provider: openai_compatible
+model:
+  provider: openai_compatible
+  endpoint_alias: local-rag
+  model_id: replace-with-your-model-id
+  base_url: http://127.0.0.1:1234/v1
+  temperature: 0
+  max_output_tokens: 256
+  timeout_seconds: 60
+output_dir: ../outputs/rag
+
+embedding:
+  model_id: sentence-transformers/all-MiniLM-L6-v2
+  model_revision: 1110a243fdf4706b3f48f1d95db1a4f5529b4d41
+  embedding_dimension: 384
+  max_sequence_length: 256
+  batch_size: 8
+  local_files_only: true
+  truncation_policy: reject
+
+hybrid:
+  candidate_k: 5
+  rank_constant: 60

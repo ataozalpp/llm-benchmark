@@ -17,13 +17,8 @@ from .embedding_runtime import collect_embedding_runtime
 from .hybrid import HybridRetriever
 from .identity import build_retrieval_run_identity
 from .keyword import KeywordRetriever
-from .profile import (
-    BM25_PROFILE,
-    KEYWORD_PROFILE,
-    DenseRetrievalProfile,
-    HybridRetrievalProfile,
-)
-from .run_config import LoadedRetrievalRunConfig
+from .profile import DenseRetrievalProfile, HybridRetrievalProfile
+from .run_config import LoadedRetrievalRunConfig, build_retrieval_profile
 from .suite import run_retrieval_suite
 
 
@@ -37,27 +32,11 @@ def run_retrieval_benchmark(
     started = time.perf_counter()
     dataset = load_retrieval_dataset(loaded.suite_path)
 
-    if loaded.config.retriever == "keyword":
-        profile = KEYWORD_PROFILE
-    elif loaded.config.retriever == "bm25":
-        profile = BM25_PROFILE
-    else:
-        if loaded.config.embedding is None:
-            raise ValueError("Dense embedding settings are missing.")
-        dense_profile = loaded.config.embedding.to_profile()
-
-        if loaded.config.retriever == "hybrid":
-            fusion = loaded.config.hybrid
-            if fusion is None:
-                raise ValueError("Hybrid fusion settins are missing.")
-
-            profile = HybridRetrievalProfile(
-                dense=dense_profile,
-                candidate_k=fusion.candidate_k,
-                rank_constant=fusion.rank_constant,
-            )
-        else:
-            profile = dense_profile
+    profile = build_retrieval_profile(
+        retriever=loaded.config.retriever,
+        embedding=loaded.config.embedding,
+        hybrid=loaded.config.hybrid,
+    )
 
     identity = build_retrieval_run_identity(
         chunks=dataset.chunks,

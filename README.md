@@ -620,6 +620,23 @@ and summary under `outputs/retrieval/<run_id>/`. No model or MCP server is neede
 See [Retrieval](docs/retrieval.md) for input schemas, path resolution, identity,
 timing definitions, failure handling, and current scope.
 
+## Local RAG evaluation
+
+Run retrieval, bounded context construction, generation, and deterministic
+answer/evidence evaluation over a small QA fixture:
+
+```powershell
+.\.venv\Scripts\python.exe -m llm_benchmark rag-run --config configs/rag_synthetic_smoke.yaml
+```
+
+The synthetic provider needs no model or network and validates the pipeline
+only. Keyword, BM25, dense, and hybrid retrievers are supported; the
+`*_openai_compatible_smoke.yaml` configs call a local OpenAI-compatible
+endpoint after you set `model_id`. Each run writes a manifest, per-case JSONL,
+and summary under `outputs/rag/<run_id>/`. Retrieval evidence recall, exact
+match, abstention, citation validity, status counts, and token usage are
+reported separately, without a combined score. See [RAG](docs/rag.md).
+
 ## Security boundaries and limitations
 
 - No authentication or authorization.

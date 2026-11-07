@@ -1,0 +1,16 @@
+# Opt-in: replace model_id with an identifier served by your existing endpoint.
+schema_version: 1
+suite_path: ../examples/rag/policy_qa_smoke.json
+retriever: bm25
+k: 2
+max_context_chars: 2000
+provider: openai_compatible
+model:
+  provider: openai_compatible
+  endpoint_alias: local-rag
+  model_id: replace-with-your-model-id
+  base_url: http://127.0.0.1:1234/v1
+  temperature: 0
+  max_output_tokens: 256
+  timeout_seconds: 60
+output_dir: ../outputs/rag

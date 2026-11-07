@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "suite_id": "policy-qa-smoke-v1",
+  "chunks": [
+    {"chunk_id": "refund", "document_id": "store-policy", "text": "Refunds are accepted within 30 days of delivery."},
+    {"chunk_id": "refund-history", "document_id": "store-policy", "text": "The refund policy was last revised in 2024."},
+    {"chunk_id": "shipping", "document_id": "store-policy", "text": "Standard shipping takes 5 business days."},
+    {"chunk_id": "warranty", "document_id": "electronics-guide", "text": "Electronics carry a 2 year warranty."},
+    {"chunk_id": "password", "document_id": "account-guide", "text": "Passwords can be reset from the account settings page."}
+  ],
+  "scenarios": [
+    {"query_id": "q-refund", "text": "How long is the refund period?", "reference_answers": ["30 days"], "relevant_chunk_ids": ["refund"]},
+    {"query_id": "q-shipping", "text": "How long does standard shipping take?", "reference_answers": ["5 business days"], "relevant_chunk_ids": ["shipping"]},
+    {"query_id": "q-warranty", "text": "How long is the electronics warranty?", "reference_answers": ["2 years", "2 year"], "relevant_chunk_ids": ["warranty"]},
+    {"query_id": "q-password", "text": "Where can I reset my password?", "reference_answers": ["account settings page", "the account settings page"], "relevant_chunk_ids": ["password"]},
+    {"query_id": "q-gift-card", "text": "Can gift cards be exchanged for cash?", "answerable": false}
+  ]
+}

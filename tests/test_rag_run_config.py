@@ -176,3 +176,41 @@ def test_example_configs_load_and_point_at_the_fixture(name):
     assert loaded.suite_path == (ROOT / "examples/rag/policy_qa_smoke.json").resolve()
     assert loaded.suite_path.is_file()
     assert loaded.output_dir == (ROOT / "outputs/rag").resolve()
+
+
+@pytest.mark.parametrize(
+    ("name", "retriever", "provider"),
+    [
+        ("rag_failure_cases_synthetic.yaml", "bm25", "synthetic"),
+        ("rag_failure_cases_hybrid_synthetic.yaml", "hybrid", "synthetic"),
+        ("rag_failure_cases_openai_compatible.yaml", "bm25", "openai_compatible"),
+        (
+            "rag_failure_cases_hybrid_openai_compatible.yaml",
+            "hybrid",
+            "openai_compatible",
+        ),
+    ],
+)
+def test_failure_case_configs_point_at_their_fixture(name, retriever, provider):
+    loaded = load_rag_run_config(ROOT / "configs" / name)
+    fixture = ROOT / "examples/rag/policy_qa_failure_cases.json"
+    assert loaded.suite_path == fixture.resolve()
+    assert loaded.suite_path.is_file()
+    assert loaded.output_dir == (ROOT / "outputs/rag").resolve()
+    assert loaded.config.retriever == retriever
+    assert loaded.config.provider == provider
+    assert loaded.config.k == 2
+    # Smaller than the warranty-terms chunk, so the budget case is exercised.
+    assert loaded.config.max_context_chars == 1000
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "rag_failure_cases_openai_compatible.yaml",
+        "rag_failure_cases_hybrid_openai_compatible.yaml",
+    ],
+)
+def test_opt_in_failure_case_configs_keep_a_placeholder_model(name):
+    loaded = load_rag_run_config(ROOT / "configs" / name)
+    assert loaded.config.model.model_id == "replace-with-your-model-id"

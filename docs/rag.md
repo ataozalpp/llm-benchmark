@@ -118,6 +118,25 @@ constants such as NaN and Infinity, trailing prose, and excessively nested
 JSON are rejected with `RagParseError`. This parsing limit does not replace
 the future provider's output-token limit.
 
+Every `RagParseError` carries a stable `code`, recorded as the row's
+`failure_code` for `invalid_response` cases and counted in the summary's
+`invalid_response_reasons`. Checks run in the order below; the first
+violated rule determines the code.
+
+| Code | Meaning |
+| --- | --- |
+| `not_string`, `blank_response`, `too_long` | Raw response shape |
+| `invalid_json`, `duplicate_field`, `invalid_constant` | Not strict JSON |
+| `not_object` | JSON value is not an object |
+| `wrong_fields` | Missing or extra fields |
+| `invalid_field_type` | `answer` not a string, `citations` not an array, or `abstained` not a boolean |
+| `invalid_citation_id` | A citation is not a nonblank string |
+| `duplicate_citation` | A citation ID appears more than once |
+| `abstention_with_content` | `abstained: true` with a nonblank answer or citations |
+| `blank_answer` | `abstained: false` with a blank answer |
+
+Codes are diagnostics; they do not change how the response is scored.
+
 ## Evaluation semantics
 
 Answer exact match uses Unicode NFKC normalization, case folding,
@@ -152,9 +171,8 @@ abstention may then be prudent for the generator, but it does not satisfy
 the corpus-level end-to-end task. Context evidence recall helps distinguish
 this case from a generation failure with adequate evidence.
 
-Parsing failures must remain distinct from valid abstentions.
-Future run summaries must report invalid responses explicitly rather
-than silently excluding them from all-case denominators.
+Parsing failures remain distinct from valid abstentions. Run summaries
+report invalid responses explicitly and keep them in all-case denominators.
 
 ## Run integration
 
@@ -170,6 +188,18 @@ Answer exact match uses all answerable cases as the denominator, including
 provider failures, invalid responses, and incomplete generation. Unanswerable
 abstention uses all unanswerable cases; only valid abstaining answers count.
 An empty denominator produces null, not zero or NaN.
+
+`answer_exact_match_given_full_context` restricts the exact-match denominator
+to answerable cases whose context contains every gold evidence chunk (context
+evidence recall 1.0). Generation failures on such cases (invalid, incomplete,
+provider failure) stay in the denominator. Cases with partial or no evidence
+are excluded, so a correct answer produced without evidence does not count.
+The metric isolates generation quality when retrieval succeeded; it does not
+replace end-to-end exact match. It is null when no case is eligible.
+
+`invalid_response_reasons` counts `failure_code` values of invalid responses,
+sorted by code. Every invalid response has a code and no other status has one;
+an inconsistent result is rejected.
 
 Context evidence recall is computed from context for every answerable case,
 even if generation fails. Citation validity is a macro average over completed
@@ -266,11 +296,13 @@ Each run writes `outputs/rag/<run_id>/`:
   scenario IDs, Python version, timestamps, status, completed case count, and,
   for dense/hybrid, embedding runtime, load policy, and input statistics.
 - `results.jsonl`: one row per processed case, appended and fsynced before the
-  next query. Rows contain status, retrieved and context chunk IDs, the raw
+  next query. Rows contain status, `failure_code` (parse failure code for
+  `invalid_response`, otherwise null), retrieved and context chunk IDs, the raw
   response with finish reason and token usage, the parsed answer, the
   evaluation, and retrieval/generation latency. Context text and reference
   answers are not written.
-- `summary.json`: the `summarize_rag` output plus `model_load_ms`,
+- `summary.json`: the `summarize_rag` output (including
+  `invalid_response_reasons` and `answer_exact_match_given_full_context`) plus `model_load_ms`,
   `index_build_ms`, `retrieval_total_ms`, `generation_total_ms`, and
   `wall_time_ms`. It is written only for completed runs.
 
@@ -289,6 +321,8 @@ The CLI exits with code 2 for invalid configuration and failed runs.
 therefore be much slower than later cases; compare per-row
 `generation_latency_ms` before interpreting run-level generation time.
 `model_load_ms` is the embedding model load and is zero for lexical retrievers.
+It includes disk reads, so the first dense/hybrid run after a reboot or long
+pause is slower than later runs (observed about 40 s versus 12 s).
 
 ### Interpreting results
 
@@ -303,8 +337,13 @@ therefore be much slower than later cases; compare per-row
   fusion keeps the distractor first because it appears in both rankings.
 - Small suites move rates in large steps: one of four answerable cases is
   25 percentage points.
-- `invalid_response` currently records the raw response but not the parser
-  failure reason; inspect `response.text` in `results.jsonl`.
+- `answer_exact_match` minus `answer_exact_match_given_full_context`
+  separates retrieval misses from generation errors. Read the full-context
+  denominator first: it states how many cases generation was actually tested on.
+- `invalid_response_reasons` names the contract violation; inspect
+  `response.text` in `results.jsonl` for the raw output.
+- Exact match does not credit verbose or shortened answers that are
+  semantically correct (for example a full sentence containing the reference).
 
 Real-model observations are recorded in `validation.md`.
 

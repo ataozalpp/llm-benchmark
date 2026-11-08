@@ -2254,8 +2254,79 @@ Observations:
 Interpretation boundary: five questions, one small model, one run each.
 These results validate the live config-to-artifact path and expose failure
 modes; they are not model or retriever quality conclusions. The model ID
-does not pin weights or quantization. The summary does not yet record parser
-failure reasons, so the violation type was read from raw responses.
+does not pin weights or quantization. At the time, the summary did not record
+parser failure reasons, so the violation type was read from raw responses;
+see the next section for repeated runs with recorded reasons.
+
+## RAG failure diagnostics checkpoint (2026-11-08)
+
+Scope: parse failure codes (`failure_code`, `invalid_response_reasons`) and
+`answer_exact_match_given_full_context`.
+
+Offline gate: `ruff check .` passed; `pytest -q` with Hugging Face offline
+variables: 2557 passed, 12 skipped (PostgreSQL URL not configured).
+
+While adding parse-code tests, a missing `not` in the citation check was
+found: nonblank citation IDs were rejected and blank IDs reached `RagAnswer`,
+which raised a plain `ValueError`. A blank citation from a real model would
+have failed the run instead of producing `invalid_response`. Existing parser
+tests caught the regression before commit.
+
+### Repeated real-model runs
+
+Source: user-executed runs, artifacts inspected locally. Same setup as the
+previous section (`qwen3.5-0.8b`, LM Studio, prompt `rag-grounded-json-v1`,
+temperature 0, `max_tokens` 256, K=2, `max_context_chars` 2000,
+`policy-qa-smoke-v1`, evaluator `rag-exact-v1`). One BM25 warm-up run, then
+three BM25 and three hybrid runs. All manifests are `completed`, and within
+each retriever the run fingerprint is identical (BM25 `3c1a0edf…`, hybrid
+`50169b16…`).
+
+| Run | Retriever | Run ID | EM | EM given full context | Invalid reasons | Embedding load | Generation total | Wall time |
+| --- | --- | --- | ---: | ---: | --- | ---: | ---: | ---: |
+| warm-up | BM25 | `369f1c79…` | 2/4 | 2/3 | abstention_with_content: 2 | 0 ms | 18778 ms | 18958 ms |
+| 1 | BM25 | `18119b76…` | 2/4 | 2/3 | abstention_with_content: 2 | 0 ms | 10978 ms | 11045 ms |
+| 2 | BM25 | `5135b862…` | 2/4 | 2/3 | abstention_with_content: 2 | 0 ms | 11412 ms | 11466 ms |
+| 3 | BM25 | `70513d73…` | 2/4 | 2/3 | abstention_with_content: 2 | 0 ms | 10577 ms | 10652 ms |
+| 1 | hybrid | `5405e018…` | 1/4 | 1/3 | abstention_with_content: 2 | 40325 ms | 10070 ms | 50658 ms |
+| 2 | hybrid | `73892705…` | 1/4 | 1/3 | abstention_with_content: 2 | 12189 ms | 10710 ms | 23086 ms |
+| 3 | hybrid | `1e057894…` | 1/4 | 1/3 | abstention_with_content: 2 | 11471 ms | 10528 ms | 22177 ms |
+
+Every run: status counts 3 completed / 2 invalid / 0 incomplete / 0 provider
+failed, unanswerable abstention 0/1, context evidence recall 0.75, citation
+validity 1.0 over 3 completed cases. Observed tokens: BM25 1138 input / 158
+output, hybrid 1200 / 152, identical to the previous section's runs.
+
+Observations:
+
+- Generation was fully deterministic. All seven runs produced the same raw
+  response text per query for a given retriever, and the same outputs as the
+  single runs of the previous section. Repeats at temperature 0 add no
+  information for this endpoint and model; they remain useful as a check
+  after a configuration or software change.
+- Both invalid responses are `abstention_with_content` in every run:
+  `q-refund` (`"The refund policy was last revised in 2024."`, citing
+  `refund-history`, `abstained: true`) and `q-gift-card` (`"No"`,
+  `abstained: true`). In both cases abstaining was the appropriate decision
+  (no gold evidence in context; unanswerable query), but the model also
+  filled the answer field. The violation is in following the answer
+  contract, not in recognizing missing evidence. The parser was not relaxed.
+- The full-context denominator is 3 for both retrievers: `q-refund` is
+  excluded as a retrieval miss and `q-gift-card` is unanswerable. Of the
+  three generation-eligible cases, BM25 fails only `q-shipping`; hybrid fails
+  `q-shipping` and `q-password`.
+- Both full-context failures are exact-match strictness, not wrong facts:
+  `q-shipping` returned the full chunk sentence (`"Standard shipping takes 5
+  business days."`), and hybrid `q-password` returned `"Account settings"`
+  instead of `"account settings page"`. The hybrid/BM25 difference remains
+  this one shortened answer next to an extra distractor chunk.
+- After warm-up, the first case's generation latency fell from 10569 ms to
+  about 2.7 s; per-case latencies were 1.6 to 2.8 s. Embedding load was 40 s
+  on the first hybrid run and 11 to 12 s on later runs (disk cache).
+
+Interpretation boundary: five questions, one small model. Determinism makes
+the results reproducible on this machine, not representative. The model ID
+does not pin weights or quantization.
 
 ## Licensing note
 

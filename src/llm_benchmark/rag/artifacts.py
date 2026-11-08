@@ -55,6 +55,7 @@ def serialize_rag_case(
         "run_id": run_id,
         "query_id": result.query_id,
         "status": result.status,
+        "failure_code": result.failure_code,
         "retrieved_chunk_ids": list(case.ranking.chunk_ids),
         "context_chunk_ids": list(case.context.chunk_ids),
         "response": None

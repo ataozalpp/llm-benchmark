@@ -68,7 +68,10 @@ def summarize_rag(
     unanswerable_count = 0
     correct_answers = 0
     correct_abstentions = 0
+    full_context_count = 0
+    full_context_correct = 0
     no_citations = 0
+    failure_codes: Counter[str] = Counter()
 
     context_recalls: list[float] = []
     citation_validities: list[float] = []
@@ -114,17 +117,32 @@ def summarize_rag(
             elif result.response.finish_reason == "stop":
                 raise ValueError("Incomplete responses must not finish with stop.")
 
+        if result.status == "invalid_response":
+            if result.failure_code is None:
+                raise ValueError("Invalid responses require a failure code.")
+            failure_codes[result.failure_code] += 1
+        elif result.failure_code is not None:
+            raise ValueError("Only invalid responses may have a failure code.")
+
         counts[result.status] += 1
 
         if scenario.answerable:
             answerable_count += 1
             gold_ids = scenario.relevant_chunk_ids
             context_ids = set(case.context.chunk_ids)
+            recall = len(gold_ids & context_ids) / len(gold_ids)
 
-            context_recalls.append(len(gold_ids & context_ids) / len(gold_ids))
+            context_recalls.append(recall)
 
-            if result.evaluation is not None:
-                correct_answers += result.evaluation.answer_exact_match is True
+            exact = (
+                result.evaluation is not None
+                and result.evaluation.answer_exact_match is True
+            )
+            correct_answers += exact
+
+            if recall == 1.0:
+                full_context_count += 1
+                full_context_correct += exact
         else:
             unanswerable_count += 1
             if result.answer is not None:
@@ -151,8 +169,13 @@ def summarize_rag(
         "answerable_case_count": answerable_count,
         "unanswerable_case_count": unanswerable_count,
         "status_counts": dict(counts),
+        "invalid_response_reasons": dict(sorted(failure_codes.items())),
         "completion": _rate(counts["completed"], total),
         "answer_exact_match": _rate(correct_answers, answerable_count),
+        "answer_exact_match_given_full_context": _rate(
+            full_context_correct,
+            full_context_count,
+        ),
         "unanswerable_abstention": _rate(
             correct_abstentions,
             unanswerable_count,

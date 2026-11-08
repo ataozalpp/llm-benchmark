@@ -53,6 +53,7 @@ def case(status):
             response=response,
             answer=answer,
             evaluation=evaluation,
+            failure_code="invalid_json" if status == "invalid_response" else None,
         ),
     )
 
@@ -103,6 +104,7 @@ def test_completed_case_row():
     )
     assert row["schema_version"] == 1
     assert row["status"] == "completed"
+    assert row["failure_code"] is None
     assert row["retrieved_chunk_ids"] == ["refund", "other"]
     assert row["context_chunk_ids"] == ["refund"]
     assert row["answer"] == {
@@ -123,6 +125,9 @@ def test_unsuccessful_rows_keep_raw_response_without_evaluation(status):
         case(status), run_id="run", retrieval_latency_ms=None, generation_latency_ms=None
     )
     assert row["status"] == status
+    assert row["failure_code"] == (
+        "invalid_json" if status == "invalid_response" else None
+    )
     assert row["response"]["text"] == "not json"
     assert row["answer"] is None
     assert row["evaluation"] is None
@@ -138,6 +143,7 @@ def test_provider_failure_row_has_no_response():
     assert row["response"] is None
     assert row["answer"] is None
     assert row["evaluation"] is None
+    assert row["failure_code"] is None
 
 
 @pytest.mark.parametrize(

@@ -211,6 +211,7 @@ def test_bm25_keyword_distractor_is_a_measured_retrieval_miss(tmp_path):
     assert refund["evaluation"]["context_evidence_recall"] == 0.0
     assert refund["answer"]["citations"] == ["refund-history"]
     assert summary["context_evidence_recall"]["mean"] == 0.75
+    assert summary["answer_exact_match_given_full_context"]["denominator"] == 3
 
 
 def test_small_context_budget_is_recorded(tmp_path):
@@ -515,3 +516,68 @@ def test_cli_run_failure_exits_with_two(tmp_path, capsys, monkeypatch):
         main(["rag-run", "--config", str(write_config(tmp_path))])
     assert caught.value.code == 2
     assert "error: RAG run failed; run ID:" in capsys.readouterr().err
+
+
+def test_abstention_violation_is_reported_by_reason(tmp_path):
+    # Mirrors the recorded qwen3.5-0.8b behavior: an answer with abstained=true.
+    transport = FakeTransport(
+        {
+            "Can gift cards be exchanged for cash?": chat_response(
+                json.dumps({"answer": "No", "citations": [], "abstained": True})
+            )
+        }
+    )
+    run_dir, summary = run(
+        tmp_path, transport, provider="openai_compatible", model=MODEL
+    )
+    rows = {row["query_id"]: row for row in read_jsonl(run_dir / "results.jsonl")}
+
+    assert rows["q-gift-card"]["status"] == "invalid_response"
+    assert rows["q-gift-card"]["failure_code"] == "abstention_with_content"
+    assert rows["q-refund"]["failure_code"] is None
+    assert summary["invalid_response_reasons"] == {"abstention_with_content": 1}
+    assert summary["unanswerable_abstention"]["numerator"] == 0
+    assert read_json(run_dir / "summary.json") == summary
+
+
+def test_case_failure_reasons_are_distinct(tmp_path):
+    transport = FakeTransport(
+        {
+            "How long does standard shipping take?": chat_response("not json"),
+            "Where can I reset my password?": chat_response(
+                json.dumps({"answer": " ", "citations": [], "abstained": False})
+            ),
+        }
+    )
+    _, summary = run(tmp_path, transport, provider="openai_compatible", model=MODEL)
+    assert summary["invalid_response_reasons"] == {
+        "blank_answer": 1,
+        "invalid_json": 1,
+    }
+
+def test_full_context_accuracy_separates_generation_from_retrieval(tmp_path):
+    def answer(text, chunk_id):
+        return chat_response(
+            json.dumps({"answer": text, "citations": [chunk_id], "abstained": False})
+        )
+
+    transport = FakeTransport(
+        {
+            "How long is the refund period?": answer("30 days", "refund-history"),
+            "How long does standard shipping take?": answer(
+                "5 business days", "shipping"
+            ),
+            "How long is the electronics warranty?": answer("2 years", "warranty"),
+            "Where can I reset my password?": answer("Settings", "password"),
+        }
+    )
+    _, summary = run(tmp_path, transport, provider="openai_compatible", model=MODEL)
+
+    # q-refund is correct end to end, but its context lacked the gold chunk.
+    assert summary["answer_exact_match"]["numerator"] == 3
+    assert summary["answer_exact_match"]["denominator"] == 4
+    assert summary["answer_exact_match_given_full_context"] == {
+        "numerator": 2,
+        "denominator": 3,
+        "rate": 2 / 3,
+    }

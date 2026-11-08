@@ -89,7 +89,7 @@ def test_valid_wrong_answer_is_still_evaluated():
     assert result.evaluation.answer_exact_match is False
 
 
-def test_aprse_failure_is_not_an_abstention():
+def test_parse_failure_is_not_an_abstention():
     provider = StubProvider(
         response=RagGenerationResponse(
             text="I dont know.",
@@ -195,3 +195,54 @@ def test_mismatched_context_is_rejected_before_generation():
         )
 
     assert provider.requests == []
+
+
+@pytest.mark.parametrize(
+    "text,code",
+    [
+        ('{"answer": "No", "citations": [], "abstained": true}', "abstention_with_content"),
+        ("not json", "invalid_json"),
+        ('{"answer": "30 days"}', "wrong_fields"),
+    ],
+)
+def test_invalid_response_records_parse_failure_code(text, code):
+    provider = StubProvider(
+        response=RagGenerationResponse(text=text, finish_reason="stop")
+    )
+    result = run_rag_case(
+        scenario=make_scenario(),
+        context=make_context(),
+        provider=provider,
+    )
+
+    assert result.status == "invalid_response"
+    assert result.failure_code == code
+    assert result.response.text == text
+    assert result.answer is None
+    assert result.evaluation is None
+
+
+@pytest.mark.parametrize("reason", ["stop", "length"])
+def test_non_parse_outcomes_have_no_failure_code(reason):
+    provider = StubProvider(
+        response=RagGenerationResponse(text=VALID_ANSWER, finish_reason=reason)
+    )
+    result = run_rag_case(
+        scenario=make_scenario(),
+        context=make_context(),
+        provider=provider,
+    )
+
+    assert result.failure_code is None
+
+
+def test_provider_failure_has_no_parse_failure_code():
+    provider = StubProvider(error=RagProviderError("Unavailable"))
+    result = run_rag_case(
+        scenario=make_scenario(),
+        context=make_context(),
+        provider=provider,
+    )
+
+    assert result.status == "provider_failed"
+    assert result.failure_code is None

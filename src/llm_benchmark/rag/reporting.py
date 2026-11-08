@@ -69,6 +69,7 @@ def summarize_rag(
     correct_answers = 0
     correct_abstentions = 0
     no_citations = 0
+    failure_codes: Counter[str] = Counter()
 
     context_recalls: list[float] = []
     citation_validities: list[float] = []
@@ -114,6 +115,13 @@ def summarize_rag(
             elif result.response.finish_reason == "stop":
                 raise ValueError("Incomplete responses must not finish with stop.")
 
+        if result.status == "invalid_response":
+            if result.failure_code is None:
+                raise ValueError("Invalid responses require a failure code.")
+            failure_codes[result.failure_code] += 1
+        elif result.failure_code is not None:
+            raise ValueError("Only invalid responses may have a failure code.")
+
         counts[result.status] += 1
 
         if scenario.answerable:
@@ -151,6 +159,7 @@ def summarize_rag(
         "answerable_case_count": answerable_count,
         "unanswerable_case_count": unanswerable_count,
         "status_counts": dict(counts),
+        "invalid_response_reasons": dict(sorted(failure_codes.items())),
         "completion": _rate(counts["completed"], total),
         "answer_exact_match": _rate(correct_answers, answerable_count),
         "unanswerable_abstention": _rate(

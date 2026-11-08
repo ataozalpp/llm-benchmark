@@ -320,3 +320,39 @@ def test_provider_failure_cannot_have_response():
     )
     with pytest.raises(ValueError):
         summarize_pairs((scenario, case))
+
+
+def test_invalid_response_reasons_are_counted():
+    summary = summarize_pairs(
+        make_case("q1", status="invalid_response"),
+        make_case("q2", status="invalid_response"),
+        make_case("q3"),
+    )
+    assert summary["invalid_response_reasons"] == {"invalid_json": 2}
+    assert summary["status_counts"]["invalid_response"] == 2
+
+
+def test_no_invalid_responses_give_empty_reasons():
+    summary = summarize_pairs(
+        make_case("q1"),
+        make_case("q2", status="provider_failed"),
+        make_case("q3", status="incomplete_response"),
+    )
+    assert summary["invalid_response_reasons"] == {}
+
+
+def test_invalid_response_without_code_is_rejected():
+    scenario, case = make_case(status="invalid_response")
+    case = replace(case, result=replace(case.result, failure_code=None))
+    with pytest.raises(ValueError, match="require a failure code"):
+        summarize_pairs((scenario, case))
+
+
+@pytest.mark.parametrize(
+    "status", ["completed", "provider_failed", "incomplete_response"]
+)
+def test_failure_code_on_other_statuses_is_rejected(status):
+    scenario, case = make_case(status=status)
+    case = replace(case, result=replace(case.result, failure_code="invalid_json"))
+    with pytest.raises(ValueError, match="Only invalid responses"):
+        summarize_pairs((scenario, case))

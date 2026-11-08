@@ -32,6 +32,7 @@ class RagCaseResult:
     response: RagGenerationResponse | None = None
     answer: RagAnswer | None = None
     evaluation: RagEvaluation | None = None
+    failure_code: str | None = None
 
 
 def run_rag_case(
@@ -69,11 +70,12 @@ def run_rag_case(
 
     try:
         answer = parse_rag_answer(response.text)
-    except RagParseError:
+    except RagParseError as exc:
         return RagCaseResult(
             query_id=query_id,
             status="invalid_response",
             response=response,
+            failure_code=exc.code,
         )
 
     evaluation = evaluate_rag_answer(

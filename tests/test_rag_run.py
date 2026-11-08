@@ -211,6 +211,7 @@ def test_bm25_keyword_distractor_is_a_measured_retrieval_miss(tmp_path):
     assert refund["evaluation"]["context_evidence_recall"] == 0.0
     assert refund["answer"]["citations"] == ["refund-history"]
     assert summary["context_evidence_recall"]["mean"] == 0.75
+    assert summary["answer_exact_match_given_full_context"]["denominator"] == 3
 
 
 def test_small_context_budget_is_recorded(tmp_path):
@@ -552,4 +553,31 @@ def test_case_failure_reasons_are_distinct(tmp_path):
     assert summary["invalid_response_reasons"] == {
         "blank_answer": 1,
         "invalid_json": 1,
+    }
+
+def test_full_context_accuracy_separates_generation_from_retrieval(tmp_path):
+    def answer(text, chunk_id):
+        return chat_response(
+            json.dumps({"answer": text, "citations": [chunk_id], "abstained": False})
+        )
+
+    transport = FakeTransport(
+        {
+            "How long is the refund period?": answer("30 days", "refund-history"),
+            "How long does standard shipping take?": answer(
+                "5 business days", "shipping"
+            ),
+            "How long is the electronics warranty?": answer("2 years", "warranty"),
+            "Where can I reset my password?": answer("Settings", "password"),
+        }
+    )
+    _, summary = run(tmp_path, transport, provider="openai_compatible", model=MODEL)
+
+    # q-refund is correct end to end, but its context lacked the gold chunk.
+    assert summary["answer_exact_match"]["numerator"] == 3
+    assert summary["answer_exact_match"]["denominator"] == 4
+    assert summary["answer_exact_match_given_full_context"] == {
+        "numerator": 2,
+        "denominator": 3,
+        "rate": 2 / 3,
     }

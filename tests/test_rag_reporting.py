@@ -101,6 +101,7 @@ def make_case(
     status="completed",
     input_tokens=None,
     output_tokens=None,
+    context_chunk_id="refund",
 ):
     scenario = RagScenario(
         query=RetrievalQuery(query_id=query_id, text="Refund period?"),
@@ -110,7 +111,7 @@ def make_case(
     )
     context = RagContext(
         query_id=query_id,
-        chunks=(Chunk(chunk_id="refund", document_id="policy", text="30 days."),),
+        chunks=(Chunk(chunk_id=context_chunk_id, document_id="policy", text="30 days."),),
     )
 
     class Provider:
@@ -356,3 +357,52 @@ def test_failure_code_on_other_statuses_is_rejected(status):
     case = replace(case, result=replace(case.result, failure_code="invalid_json"))
     with pytest.raises(ValueError, match="Only invalid responses"):
         summarize_pairs((scenario, case))
+
+def test_full_context_accuracy_excludes_retrieval_misses():
+    summary = summarize_pairs(
+        make_case("q1"),
+        make_case("q2", context_chunk_id="other", citations=("other",)),
+    )
+    assert summary["answer_exact_match"] == {
+        "numerator": 2,
+        "denominator": 2,
+        "rate": 1.0,
+    }
+    assert summary["answer_exact_match_given_full_context"] == {
+        "numerator": 1,
+        "denominator": 1,
+        "rate": 1.0,
+    }
+
+
+def test_full_context_denominator_includes_generation_failures():
+    summary = summarize_pairs(
+        make_case("q1"),
+        make_case("q2", status="invalid_response"),
+        make_case("q3", status="provider_failed"),
+    )
+    assert summary["answer_exact_match_given_full_context"] == {
+        "numerator": 1,
+        "denominator": 3,
+        "rate": 1 / 3,
+    }
+
+
+def test_full_context_rate_is_null_without_eligible_cases():
+    summary = summarize_pairs(
+        make_case("q1", context_chunk_id="other", citations=("other",)),
+        make_case("q2", answerable=False, answer="", citations=(), abstained=True),
+    )
+    assert summary["answer_exact_match_given_full_context"] == {
+        "numerator": 0,
+        "denominator": 0,
+        "rate": None,
+    }
+
+
+def test_unanswerable_cases_are_not_full_context_eligible():
+    summary = summarize_pairs(
+        make_case("q1"),
+        make_case("q2", answerable=False, answer="", citations=(), abstained=True),
+    )
+    assert summary["answer_exact_match_given_full_context"]["denominator"] == 1

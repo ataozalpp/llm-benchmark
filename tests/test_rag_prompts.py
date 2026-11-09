@@ -1,9 +1,14 @@
 import json
+from pathlib import Path
 
 import pytest
 
+from llm_benchmark.rag.dataset import load_rag_dataset
 from llm_benchmark.rag.models import RagContext, RagGenerationRequest
+from llm_benchmark.rag.parsing import parse_rag_answer
 from llm_benchmark.rag.prompts import (
+    ABSTENTION_JSON,
+    PROMPT_VERSION,
     SYSTEM_PROMPT,
     build_rag_messages,
 )
@@ -94,3 +99,33 @@ def test_message_building_is_deterministic():
 def test_invalid_request_type_is_rejected():
     with pytest.raises(TypeError, match="RagGenerationRequest"):
         build_rag_messages(None)
+
+
+EXAMPLES = Path(__file__).parents[1] / "examples/rag"
+
+
+def test_prompt_version():
+    assert PROMPT_VERSION == "rag-grounded-json-v2"
+
+
+def test_abstention_example_is_a_valid_abstention():
+    assert ABSTENTION_JSON in SYSTEM_PROMPT
+    answer = parse_rag_answer(ABSTENTION_JSON)
+    assert answer.abstained is True
+    assert answer.answer == ""
+    assert answer.citations == ()
+
+
+def test_prompt_forbids_observed_abstention_content():
+    for phrase in ("No", "None", "empty string"):
+        assert phrase in SYSTEM_PROMPT
+
+
+@pytest.mark.parametrize(
+    "name", ["policy_qa_smoke.json", "policy_qa_failure_cases.json"]
+)
+def test_prompt_does_not_leak_reference_answers(name):
+    prompt = SYSTEM_PROMPT.casefold()
+    for scenario in load_rag_dataset(EXAMPLES / name).scenarios:
+        for reference in scenario.reference_answers:
+            assert reference.casefold() not in prompt

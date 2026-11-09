@@ -176,7 +176,7 @@ def test_synthetic_run_writes_complete_artifacts(tmp_path, forbid_embedder, caps
     assert [row["query_id"] for row in rows] == SCENARIO_IDS
     assert manifest["completed_case_count"] == len(rows) == summary["case_count"] == 5
     assert manifest["suite_id"] == "policy-qa-smoke-v1"
-    assert manifest["prompt_version"] == "rag-grounded-json-v1"
+    assert manifest["prompt_version"] == "rag-grounded-json-v2"
     assert manifest["generation"] == {"provider": "synthetic"}
     assert manifest["retriever_profile"]["name"] == "bm25-rank-bm25-okapi"
     assert "embedding_runtime" not in manifest

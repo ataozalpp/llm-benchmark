@@ -1,0 +1,10 @@
+# Failure-case fixture: conflicting documents, multi-chunk evidence, an
+# over-budget evidence chunk, a stemming miss, an embedded instruction, and
+# near-topic unanswerable questions. Synthetic output is not a quality measure.
+schema_version: 1
+suite_path: ../examples/rag/policy_qa_failure_cases.json
+retriever: bm25
+k: 2
+max_context_chars: 1000
+provider: synthetic
+output_dir: ../outputs/rag

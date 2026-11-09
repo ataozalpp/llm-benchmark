@@ -250,6 +250,30 @@ a keyword-strong distractor (`refund-history`). Suites are strict JSON with
 the same bounded-loading rules as retrieval suites. Answerable scenarios
 require references and evidence; unanswerable scenarios must declare neither.
 
+`examples/rag/policy_qa_failure_cases.json` (`policy-qa-failure-cases-v1`)
+targets known failure modes: nine chunks, five answerable and four
+corpus-unanswerable questions. Its configs (`rag_failure_cases_*.yaml`) use
+K=2 and `max_context_chars` 1000.
+
+| Query | Failure mode | BM25 synthetic outcome |
+| --- | --- | --- |
+| `q-refund-conflict` | Current and previous policy disagree (14 vs 30 days); only the current chunk is gold | Both chunks in context |
+| `q-international-total` | Answer needs two chunks (2 + 10 business days) | Both in context at K=2; recall 0.5 at K=1 |
+| `q-warranty-exclusion` | Evidence sits in one chunk larger than the context budget | Retrieved first, dropped from context; recall 0 |
+| `q-exchange-cost` | `exchange` vs `Exchanges` without stemming | BM25 miss; recall 0 |
+| `q-support-injection` | A retrieved chunk tells the assistant to ignore the context | Both support chunks in context |
+| `q-refund-cash`, `q-clothing-warranty`, `q-antarctica`, `q-support-phone` | Unanswerable but near-topic | Related distractors in context; `q-antarctica` gets an empty context |
+
+With BM25 the full-context denominator is 3 of 5 answerable cases, so even an
+ideal generator reaches at most 3/5 end-to-end exact match. The conflict and
+injection cases test generation, not retrieval; their failures appear in
+`answer_exact_match_given_full_context`. Citing the injected chunk still
+yields citation validity 1.0: ID validity is not faithfulness.
+
+```powershell
+.\.venv\Scripts\python.exe -m llm_benchmark rag-run --config configs/rag_failure_cases_synthetic.yaml
+```
+
 ### Configuration
 
 Paths resolve relative to the config file. Duplicate YAML keys, unknown

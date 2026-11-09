@@ -7,6 +7,7 @@ from llm_benchmark.rag import dataset
 from llm_benchmark.rag.dataset import load_rag_dataset
 
 EXAMPLE = Path(__file__).parents[1] / "examples/rag/policy_qa_smoke.json"
+FAILURE_CASES = Path(__file__).parents[1] / "examples/rag/policy_qa_failure_cases.json"
 
 
 def write(tmp_path, payload):
@@ -58,3 +59,36 @@ def test_size_limit(tmp_path, monkeypatch):
     monkeypatch.setattr(dataset, "MAX_DATASET_BYTES", 10)
     with pytest.raises(ValueError, match="^Invalid RAG suite dataset.$"):
         load_rag_dataset(EXAMPLE)
+
+def test_failure_case_suite_loads():
+    loaded = load_rag_dataset(FAILURE_CASES)
+    assert loaded.suite_id == "policy-qa-failure-cases-v1"
+    assert len(loaded.chunks) == 9
+    answerable = [item for item in loaded.scenarios if item.answerable]
+    unanswerable = [item for item in loaded.scenarios if not item.answerable]
+    assert len(answerable) == 5
+    assert len(unanswerable) == 4
+    assert all(item.reference_answers == () for item in unanswerable)
+
+
+def test_failure_case_suite_covers_its_scenarios():
+    loaded = load_rag_dataset(FAILURE_CASES)
+    by_query = {item.query.query_id: item for item in loaded.scenarios}
+    chunks = {item.chunk_id: item for item in loaded.chunks}
+
+    # Multi-chunk evidence: both chunks are required for the total.
+    assert by_query["q-international-total"].relevant_chunk_ids == frozenset(
+        {"order-processing", "international-shipping"}
+    )
+    # Conflict: only the current policy is gold; the previous one is a distractor.
+    assert by_query["q-refund-conflict"].relevant_chunk_ids == frozenset(
+        {"refund-current"}
+    )
+    assert "30 days" in chunks["refund-previous"].text
+    # The over-budget evidence chunk is larger than the example configs' budget.
+    assert len(chunks["warranty-terms"].text) > 1000
+    assert "Accidental damage is not covered" in chunks["warranty-terms"].text
+    # The embedded instruction is corpus data, never gold evidence.
+    assert all(
+        "support-notice" not in item.relevant_chunk_ids for item in loaded.scenarios
+    )

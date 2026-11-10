@@ -2521,9 +2521,8 @@ dispatch by task type:
 
 - `ruff check .`: passed.
 - `pytest -q` with the three offline variables: **2701 passed, 12 skipped**
-  (the same seven MCP stdio and five PostgreSQL skips). The PostgreSQL
-  migration and worker tests were updated for the new revision but were not
-  run in this environment.
+  (the same seven MCP stdio and five PostgreSQL skips). PostgreSQL was
+  validated separately; see the next section.
 - The migration was exercised on SQLite through upgrade, downgrade and
   re-upgrade with an existing run row: the row became `multiple_choice`
   with its seed, the `ck_benchmark_runs_run_status` and new
@@ -2540,6 +2539,36 @@ dispatch by task type:
 - Dense and hybrid API runs were tested with an injected embedder only; no
   real embedding model was loaded, and the Docker embeddings image was not
   built.
+
+## PostgreSQL and Docker checkpoint for the RAG API (2026-11-10)
+
+Run against the Compose `postgres:16` service before merging
+`feature/rag-prompt-v2`:
+
+- `pytest -m postgres -q` with
+  `LLM_BENCHMARK_TEST_POSTGRES_URL=postgresql+psycopg://…@127.0.0.1:5432/llm_benchmark_test`:
+  **5 passed**, including the migration to `20261110_0002` and the
+  PostgreSQL-backed worker test.
+- Migration cycle on PostgreSQL (`head` → `20260817_0001` → `head`): the
+  `ck_benchmark_runs_task_type` constraint, nullable `seed`, and
+  `rag_case_results` were created, removed, and recreated;
+  `ck_benchmark_runs_run_status` stayed in place throughout.
+- `docker compose build` and `docker compose up` (default image, no
+  embeddings extra): `postgres` healthy, `migrate` exited 0 after upgrading
+  the existing development database from `20260817_0001` to
+  `20261110_0002` (existing rows kept), `api` and `worker` running.
+- RAG over HTTP: mock endpoint, `policy_qa_failure_cases.json` uploaded as
+  `rag_json`, BM25 run queued with `seed` null and `sample_count` 9; the
+  worker completed it with nine `completed` cases and a full-context
+  denominator of 3, nine `rag_case_results` rows, artifacts under
+  `/app/outputs/api/rag/`, and 409 from `/runs/{id}/results`.
+- MCQ regression over HTTP in the same stack: a one-row uploaded CSV run
+  completed with `task_type` `multiple_choice`, seed 42, and one correct
+  sample.
+- `docker compose down` preserved all named volumes.
+
+Not covered: the embeddings Docker image, dense or hybrid runs with a real
+embedding model, and real-model RAG generation.
 
 ## Licensing note
 

@@ -103,3 +103,57 @@ def test_polling_sleeps_when_idle_and_stops_cleanly() -> None:
 
     assert runs.calls == 1
     assert sleeps == [0.25]
+
+
+@dataclass(frozen=True)
+class _TaskType:
+    value: str
+
+
+@dataclass(frozen=True)
+class TypedRun:
+    id: int
+    task_type: _TaskType
+
+
+class TransitionRecorder:
+    def __init__(self) -> None:
+        self.calls: list[tuple[int, str, dict[str, Any]]] = []
+
+    def transition_status(self, run_id: int, status: str, **kwargs: Any) -> str:
+        self.calls.append((run_id, status, kwargs))
+        return "failed-run"
+
+
+def test_dispatcher_routes_by_task_type() -> None:
+    from llm_benchmark.worker import TaskTypeDispatcher
+
+    mcq, rag = StubService(), StubService()
+    dispatcher = TaskTypeDispatcher({"multiple_choice": mcq, "rag": rag})
+    first = TypedRun(1, _TaskType("rag"))
+    second = TypedRun(2, _TaskType("multiple_choice"))
+
+    dispatcher.execute_claimed(first)
+    dispatcher.execute_claimed(second)
+
+    assert rag.runs == [first]
+    assert mcq.runs == [second]
+
+
+def test_dispatcher_fails_runs_with_unknown_task_type() -> None:
+    from llm_benchmark.worker import TaskTypeDispatcher
+
+    runs = TransitionRecorder()
+    dispatcher = TaskTypeDispatcher({"multiple_choice": StubService()}, runs=runs)
+
+    assert dispatcher.execute_claimed(TypedRun(7, _TaskType("rag"))) == "failed-run"
+    ((run_id, status, kwargs),) = runs.calls
+    assert (run_id, status) == (7, "failed")
+    assert kwargs["error_type"] == "UnsupportedTaskType"
+
+
+def test_dispatcher_without_run_writer_raises_for_unknown_task_type() -> None:
+    from llm_benchmark.worker import TaskTypeDispatcher
+
+    with pytest.raises(ValueError, match="Unsupported task type"):
+        TaskTypeDispatcher({}).execute_claimed(TypedRun(1, _TaskType("rag")))

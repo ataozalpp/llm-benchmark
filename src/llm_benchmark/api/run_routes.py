@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from llm_benchmark.application import BenchmarkApplicationService
 from llm_benchmark.db.registry import RegistryRepositories
@@ -70,6 +70,11 @@ def list_run_results(
     run_id: int,
     registry: RegistryRepositories = Depends(get_registry),
 ) -> list[SampleResultResponse]:
+    if registry.runs.get_by_id(run_id).task_type.value != "multiple_choice":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Run is a RAG run; use /api/v1/rag-runs/{run_id}/results",
+        )
     return [
         SampleResultResponse.from_record(record)
         for record in registry.samples.list_by_run_id(run_id)

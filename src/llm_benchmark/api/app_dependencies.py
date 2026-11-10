@@ -12,6 +12,9 @@ from llm_benchmark.dataset_storage import (
     LocalDatasetStorage,
 )
 from llm_benchmark.db.registry import RegistryRepositories
+from llm_benchmark.rag.application import RagApplicationService
+from llm_benchmark.rag.run_preflight import RagRunPreflightService
+from llm_benchmark.rag.run_resolution import RegisteredRagRunConfigResolver
 from llm_benchmark.run_preflight import RunPreflightService
 from llm_benchmark.run_resolution import RegisteredRunConfigResolver
 
@@ -65,4 +68,35 @@ def get_run_preflight_service(request: Request) -> RunPreflightService:
     return RunPreflightService(
         policy=request.app.state.run_guardrail_policy,
         loader=request.app.state.dataset_loader,
+    )
+
+
+def get_rag_run_resolver(request: Request) -> RegisteredRagRunConfigResolver:
+    registry = get_registry(request)
+    return RegisteredRagRunConfigResolver(
+        endpoints=registry.endpoints,
+        models=registry.models,
+        datasets=registry.datasets,
+        output_root=request.app.state.run_output_root,
+        embedding_profiles=request.app.state.embedding_profiles,
+    )
+
+
+def get_rag_preflight_service(request: Request) -> RagRunPreflightService:
+    return RagRunPreflightService(
+        policy=request.app.state.rag_guardrail_policy,
+        storage=LocalDatasetStorage(request.app.state.dataset_storage_root),
+        embeddings_check=request.app.state.embeddings_check,
+    )
+
+
+def get_rag_service(request: Request) -> RagApplicationService:
+    registry = get_registry(request)
+    return RagApplicationService(
+        endpoints=registry.endpoints,
+        models=registry.models,
+        datasets=registry.datasets,
+        runs=registry.runs,
+        rag_cases=registry.rag_cases,
+        storage=LocalDatasetStorage(request.app.state.dataset_storage_root),
     )

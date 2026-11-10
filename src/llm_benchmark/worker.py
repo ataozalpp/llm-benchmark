@@ -14,6 +14,9 @@ from .dataset_storage import LocalDatasetStorage
 from .datasets import DatasetLoader
 from .db.records import BenchmarkRunRecord
 from .db.registry import RegistryRepositories, create_registry_repositories
+from .rag.application import RagApplicationService
+from .rag.run_config import LoadedRagRunConfig
+from .rag.run_service import RagPipelineExecution, execute_rag_benchmark
 from .runner import PipelineExecution, execute_benchmark
 
 
@@ -23,6 +26,33 @@ class QueuedRunClaimer(Protocol):
 
 class ClaimedRunExecutor(Protocol):
     def execute_claimed(self, run: BenchmarkRunRecord) -> object: ...
+
+
+class TaskTypeDispatcher:
+    """Route a claimed run to the service for its task type."""
+
+    def __init__(
+        self,
+        services: dict[str, ClaimedRunExecutor],
+        *,
+        runs: object | None = None,
+    ) -> None:
+        self._services = services
+        self._runs = runs
+
+    def execute_claimed(self, run: BenchmarkRunRecord) -> object:
+        service = self._services.get(run.task_type.value)
+        if service is None:
+            if self._runs is None:
+                raise ValueError(f"Unsupported task type {run.task_type.value!r}")
+            # Fail the claimed run instead of leaving it running forever.
+            return self._runs.transition_status(
+                run.id,
+                "failed",
+                error_type="UnsupportedTaskType",
+                error_message=f"No executor for task type {run.task_type.value!r}",
+            )
+        return service.execute_claimed(run)
 
 
 class BenchmarkWorker:
@@ -45,11 +75,15 @@ def create_worker(
     registry_factory: Callable[[], RegistryRepositories] = create_registry_repositories,
     dataset_storage_root: Path = Path("runtime/datasets"),
     executor: Callable[[RunConfig], PipelineExecution] | None = None,
+    rag_executor: Callable[[LoadedRagRunConfig], RagPipelineExecution] = (
+        execute_rag_benchmark
+    ),
 ) -> BenchmarkWorker:
     """Construct the default worker lazily when the entry point is invoked."""
 
     registry = registry_factory()
-    dataset_loader = DatasetLoader(LocalDatasetStorage(dataset_storage_root)).load
+    storage = LocalDatasetStorage(dataset_storage_root)
+    dataset_loader = DatasetLoader(storage).load
     benchmark_executor = executor or partial(
         execute_benchmark,
         dataset_loader=dataset_loader,
@@ -62,7 +96,19 @@ def create_worker(
         samples=registry.samples,
         executor=benchmark_executor,
     )
-    return BenchmarkWorker(runs=registry.runs, service=service)
+    rag_service = RagApplicationService(
+        endpoints=registry.endpoints,
+        models=registry.models,
+        datasets=registry.datasets,
+        runs=registry.runs,
+        rag_cases=registry.rag_cases,
+        storage=storage,
+        executor=rag_executor,
+    )
+    dispatcher = TaskTypeDispatcher(
+        {"multiple_choice": service, "rag": rag_service}, runs=registry.runs
+    )
+    return BenchmarkWorker(runs=registry.runs, service=dispatcher)
 
 
 def run_polling_loop(

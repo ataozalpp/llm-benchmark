@@ -24,6 +24,7 @@ from ..retrieval.run_config import (
     _UniqueKeySafeLoader,
     validate_retriever_settings,
 )
+from .prompts import DEFAULT_PROMPT_VERSION, validate_prompt_version
 
 
 class RagRunConfig(BaseModel):
@@ -38,7 +39,14 @@ class RagRunConfig(BaseModel):
     max_context_chars: StrictInt = Field(ge=2)
     provider: Literal["synthetic", "openai_compatible"] = "synthetic"
     model: ModelConfig | None = None
+    prompt_version: StrictStr = DEFAULT_PROMPT_VERSION
+    structured_output: Literal["none", "json_schema"] = "none"
     output_dir: StrictStr = "outputs/rag"
+
+    @field_validator("prompt_version")
+    @classmethod
+    def validate_prompt(cls, value: str) -> str:
+        return validate_prompt_version(value)
 
     @field_validator("schema_version")
     @classmethod
@@ -69,6 +77,8 @@ class RagRunConfig(BaseModel):
         if self.provider == "synthetic":
             if self.model is not None:
                 raise ValueError("Synthetic runs must not include a model.")
+            if self.structured_output != "none":
+                raise ValueError("Synthetic runs do not use structured output.")
             return self
 
         model = self.model

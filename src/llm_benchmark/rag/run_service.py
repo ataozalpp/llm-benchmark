@@ -12,6 +12,7 @@ from ..providers import JsonTransport
 from ..retrieval.embedding_runtime import collect_embedding_runtime
 from ..retrieval.factory import build_retriever
 from ..retrieval.run_config import build_retrieval_profile
+from .answer_schema import ANSWER_SCHEMA_VERSION
 from .artifacts import RagArtifactWriter, serialize_rag_case
 from .dataset import load_rag_dataset
 from .demo_provider import SyntheticRagProvider
@@ -41,6 +42,8 @@ def _build_provider(loaded: LoadedRagRunConfig, transport: JsonTransport | None)
         timeout_seconds=model.timeout_seconds,
         max_tokens=model.max_output_tokens,
         transport=transport,
+        prompt_version=config.prompt_version,
+        structured_output=config.structured_output,
     )
     generation = {
         "provider": "openai_compatible",
@@ -49,6 +52,11 @@ def _build_provider(loaded: LoadedRagRunConfig, transport: JsonTransport | None)
         "temperature": 0.0,
         "max_tokens": model.max_output_tokens,
     }
+    # Added only when enabled so unconstrained runs keep their earlier
+    # generation_config_hash.
+    if config.structured_output != "none":
+        generation["structured_output"] = config.structured_output
+        generation["answer_schema_version"] = ANSWER_SCHEMA_VERSION
     return provider, generation
 
 
@@ -78,6 +86,7 @@ def run_rag_benchmark(
         k=config.k,
         max_context_chars=config.max_context_chars,
         generation=generation,
+        prompt_version=config.prompt_version,
     )
 
     run_id = uuid4().hex

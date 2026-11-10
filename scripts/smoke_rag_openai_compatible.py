@@ -8,7 +8,7 @@ from dataclasses import asdict
 from llm_benchmark.rag.case import run_rag_case
 from llm_benchmark.rag.models import RagContext, RagScenario
 from llm_benchmark.rag.openai_compatible import OpenAICompatibleRagProvider
-from llm_benchmark.rag.prompts import PROMPT_VERSION
+from llm_benchmark.rag.prompts import DEFAULT_PROMPT_VERSION, PROMPTS
 from llm_benchmark.retrieval.models import Chunk, RetrievalQuery
 
 
@@ -18,6 +18,12 @@ def main() -> int:
     parser.add_argument("--model", required=True)
     parser.add_argument("--timeout", type=float, default=120.0)
     parser.add_argument("--max-tokens", type=int, default=256)
+    parser.add_argument(
+        "--prompt-version", choices=sorted(PROMPTS), default=DEFAULT_PROMPT_VERSION
+    )
+    parser.add_argument(
+        "--structured-output", choices=["none", "json_schema"], default="none"
+    )
     args = parser.parse_args()
 
     try:
@@ -26,6 +32,8 @@ def main() -> int:
             model_id=args.model,
             timeout_seconds=args.timeout,
             max_tokens=args.max_tokens,
+            prompt_version=args.prompt_version,
+            structured_output=args.structured_output,
         )
     except ValueError as exc:
         print(f"Invalid smoke configuration: {exc}", file=sys.stderr)
@@ -75,7 +83,7 @@ def main() -> int:
         "smoke_passed": passed,
         "model_id": args.model,
         "base_url": args.base_url,
-        "prompt_version": PROMPT_VERSION,
+        "prompt_version": args.prompt_version,
         "context": json.loads(context.render()),
         "scenario": {
             "query_id": scenario.query.query_id,
@@ -87,6 +95,7 @@ def main() -> int:
             "temperature": 0.0,
             "timeout_seconds": args.timeout,
             "max_tokens": args.max_tokens,
+            "structured_output": args.structured_output,
         },
         "case": asdict(result),
     }

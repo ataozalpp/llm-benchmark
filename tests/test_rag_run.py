@@ -8,7 +8,9 @@ import yaml
 
 from llm_benchmark.cli import main
 from llm_benchmark.rag import run_service
+from llm_benchmark.rag.answer_schema import ANSWER_SCHEMA_VERSION, response_format
 from llm_benchmark.rag.artifacts import RagArtifactWriter
+from llm_benchmark.rag.prompts import PROMPTS
 from llm_benchmark.rag.run_config import load_rag_run_config
 from llm_benchmark.retrieval import factory
 
@@ -286,6 +288,62 @@ def test_openai_compatible_run_uses_injected_transport(tmp_path):
         "max_tokens": 128,
     }
     assert "127.0.0.1" not in json.dumps(manifest)
+    assert "response_format" not in payload
+    assert payload["messages"][0]["content"] == PROMPTS["rag-grounded-json-v1"]
+
+
+def test_selected_prompt_version_is_sent_and_recorded(tmp_path):
+    transport = FakeTransport()
+    base_dir, _ = run(
+        tmp_path / "a", FakeTransport(), provider="openai_compatible", model=MODEL
+    )
+    run_dir, _ = run(
+        tmp_path / "b",
+        transport,
+        provider="openai_compatible",
+        model=MODEL,
+        prompt_version="rag-grounded-json-v3",
+    )
+
+    for _, payload, _ in transport.calls:
+        assert payload["messages"][0]["content"] == PROMPTS["rag-grounded-json-v3"]
+    base = read_json(base_dir / "manifest.json")
+    manifest = read_json(run_dir / "manifest.json")
+    assert manifest["prompt_version"] == "rag-grounded-json-v3"
+    assert manifest["generation_config_hash"] == base["generation_config_hash"]
+    assert manifest["run_fingerprint"] != base["run_fingerprint"]
+
+
+def test_synthetic_prompt_version_is_recorded(tmp_path, forbid_embedder):
+    run_dir, _ = run(tmp_path, prompt_version="rag-grounded-json-v3")
+    assert read_json(run_dir / "manifest.json")["prompt_version"] == (
+        "rag-grounded-json-v3"
+    )
+
+
+def test_structured_output_is_requested_and_recorded(tmp_path):
+    transport = FakeTransport()
+    base_dir, _ = run(
+        tmp_path / "a", FakeTransport(), provider="openai_compatible", model=MODEL
+    )
+    run_dir, summary = run(
+        tmp_path / "b",
+        transport,
+        provider="openai_compatible",
+        model=MODEL,
+        structured_output="json_schema",
+    )
+
+    for _, payload, _ in transport.calls:
+        assert payload["response_format"] == response_format()
+    manifest = read_json(run_dir / "manifest.json")
+    assert manifest["generation"]["structured_output"] == "json_schema"
+    assert manifest["generation"]["answer_schema_version"] == ANSWER_SCHEMA_VERSION
+    base = read_json(base_dir / "manifest.json")
+    assert manifest["generation_config_hash"] != base["generation_config_hash"]
+    assert manifest["prompt_version"] == base["prompt_version"]
+    # The parser still validates the server output.
+    assert summary["status_counts"]["completed"] == 5
 
 
 def test_requests_never_include_gold_labels(tmp_path):

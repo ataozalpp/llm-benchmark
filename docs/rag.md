@@ -72,7 +72,14 @@ deterministic; this does not imply deterministic model generation.
 
 Context content is treated as evidence rather than instructions. Separating
 instructions and data is not a guarantee against prompt injection.
-The prompt version should be recorded when run manifests are implemented.
+The prompt version is part of the run identity and manifest.
+
+A candidate `rag-grounded-json-v2` (explicit abstention object, shorter
+answers with an inline example value) was evaluated and not adopted: the
+small test model copied the example value into unrelated answers and began
+answering without evidence. See `validation.md`. Prompts must not contain
+concrete answer-like example values, and prompt tests reject reference
+answers from the shipped fixtures.
 
 ## Provider contract and prepared case execution
 

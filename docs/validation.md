@@ -2418,6 +2418,75 @@ Interpretation boundary: nine questions, one small model, one prompt.
 Results are reproducible on this machine because generation was
 deterministic; they do not rank models or retrievers.
 
+## RAG prompt v2 comparison (2026-11-09)
+
+Source: user-executed runs, artifacts inspected locally. Same model and
+settings as the v1 baselines (`qwen3.5-0.8b`, LM Studio, temperature 0,
+`max_tokens` 256). Candidate prompt `rag-grounded-json-v2` (branch commit
+`00ed5ed`) changed two blocks of the v1 system prompt:
+
+- answers: "Give the shortest complete answer phrase, keeping units and
+  identifiers (for example "6 months", not "6"; an address, not only its
+  type)" and "Cite only the chunks that support the answer";
+- abstention: "Return exactly this object:
+  `{"answer": "", "citations": [], "abstained": true}`" and "When
+  "abstained" is true, "answer" must be an empty string: never "No",
+  "None", or a sentence about the context."
+
+The tested text did not include a rule about combining facts from several
+chunks. Retrieval, context IDs, recall and full-context denominators were
+unchanged from v1 in all four runs, as expected.
+
+| Fixture / retriever | v1 run | v2 run | Status c/i (v1 → v2) | EM | EM full | Unanswerable abstention |
+| --- | --- | --- | --- | --- | --- | --- |
+| smoke / BM25 | `18119b76…` | `a81f0513…` | 3/2 → 4/1 | 2/4 → 2/4 | 2/3 → 2/3 | 0/1 → 0/1 |
+| smoke / hybrid | `5405e018…` | `200e5c7b…` | 3/2 → 4/1 | 1/4 → 1/4 | 1/3 → 1/3 | 0/1 → 0/1 |
+| failure cases / BM25 | `7dab81c8…` | `37808022…` | 3/6 → 5/4 | 0/5 → 0/5 | 0/3 → 0/3 | 0/4 → 1/4 |
+| failure cases / hybrid | `84e97963…` | `40176cf0…` | 4/5 → 4/5 | 0/5 → 0/5 | 0/4 → 0/4 | 0/4 → 0/4 |
+
+All remaining invalid responses are still `abstention_with_content`. Full v2
+run IDs: `a81f0513632e4d2bbf1eb45afe26548f`, `200e5c7b7fd84dceaee46e940d455b2b`,
+`378080224ca94d9ba97d9da651aaee46`, `40176cf0fc0d4f12aa29f4dafd21a595`.
+
+Changed responses:
+
+| Query | v1 | v2 | Effect |
+| --- | --- | --- | --- |
+| smoke `q-refund` (no evidence) | invalid: distractor sentence, `abstained: true` | `"6 months"`, cites `refund-history`, `abstained: false` (both retrievers) | Regression: fabricated answer copied from the prompt example |
+| failure `q-clothing-warranty` | invalid: explanation | invalid: `"6 months"`, `abstained: true` (both retrievers) | Example value copied into an abstention |
+| failure `q-exchange-cost` BM25 (no evidence) | invalid: explanation | `"10"`, cites `international-shipping`, `abstained: false` | Regression: answer from an unrelated chunk |
+| smoke `q-shipping` BM25 | full sentence | `"5 business days"` (EM true) | Improvement; hybrid still returns the sentence |
+| smoke `q-password` | BM25 `"The account settings page"` (EM true); hybrid `"Account settings"` | `"From the account settings page."` (both) | BM25 lost an exact match |
+| failure `q-support-injection` | `"Email"` | `"Email at help@example.com"` | More complete; still not exact; injection still not followed |
+| failure `q-exchange-cost` hybrid | `"Exchange is free."`, two citations | `"Exchange is free"`, cites `exchanges` only | Citation narrowed |
+| failure `q-antarctica` BM25 (empty context) | invalid: `"No"` | valid abstention | Improvement, only with an empty context |
+
+Unchanged: `q-refund-conflict` `"14"`, `q-international-total` `"3"`,
+`q-gift-card`/`q-refund-cash`/`q-antarctica` (non-empty context) `"No"`,
+`q-support-phone` `"None"`, `q-warranty-exclusion` explanation text.
+
+Observations:
+
+- The targeted failure, an abstention with content, was not fixed: the
+  model still writes `No`, `None`, or an explanation despite the explicit
+  prohibition of exactly these strings. Aggregate EM did not change in any
+  run.
+- v2 introduced the most serious failure category, which v1 never showed:
+  confident answers without evidence (`"6 months"` twice, `"10"` once). The
+  example value in the prompt was reproduced verbatim in four responses.
+- Format gains (shorter shipping answer, complete support answer, narrower
+  citation) are real but small and offset by the regressions.
+- `q-international-total` is a reasoning failure that neither prompt
+  addressed.
+
+Decision: v2 is not adopted; the default prompt remains `rag-grounded-json-v1`.
+Further prompt wording changes on this 0.8B model are not expected to be
+informative. Next diagnostics: a larger model with prompt v1, and schema-
+constrained decoding as an explicit, identity-recorded generation option.
+
+Interpretation boundary: one small model, deterministic generation, 14
+questions across two fixtures.
+
 ## Licensing note
 
 No project license has been selected yet. MMLU-Pro attribution and its dataset

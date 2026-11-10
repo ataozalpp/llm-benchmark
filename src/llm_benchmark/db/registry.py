@@ -10,6 +10,7 @@ from .repositories import (
     DatasetRepository,
     ModelRepository,
     ProviderEndpointRepository,
+    RagCaseResultRepository,
     SampleResultRepository,
 )
 
@@ -21,6 +22,7 @@ class RegistryRepositories:
     datasets: DatasetRepository
     runs: BenchmarkRunRepository
     samples: SampleResultRepository
+    rag_cases: RagCaseResultRepository
 
 
 def create_registry_repositories(
@@ -36,4 +38,5 @@ def create_registry_repositories(
         datasets=DatasetRepository(session_factory),
         runs=BenchmarkRunRepository(session_factory),
         samples=SampleResultRepository(session_factory),
+        rag_cases=RagCaseResultRepository(session_factory),
     )

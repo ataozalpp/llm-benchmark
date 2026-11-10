@@ -22,17 +22,21 @@ from .models import (
     BenchmarkRun,
     ProviderEndpoint,
     ProviderType,
+    RagCaseResult,
     ReasoningPolicy,
     RegisteredDataset,
     RegisteredModel,
     RunStatus,
     SampleResult,
+    TaskType,
 )
 from .records import (
     BenchmarkRunRecord,
     DatasetRecord,
     ModelRecord,
     ProviderEndpointRecord,
+    RagCaseResultCreate,
+    RagCaseResultRecord,
     SampleResultCreate,
     SampleResultRecord,
 )
@@ -352,10 +356,14 @@ class BenchmarkRunRepository(_Repository):
         dataset_id: int,
         resolved_config: dict[str, Any],
         config_hash: str,
-        seed: int,
+        seed: int | None,
         sample_count: int,
         artifact_directory: str,
+        task_type: TaskType | str = TaskType.MULTIPLE_CHOICE,
     ) -> BenchmarkRunRecord:
+        task = TaskType(task_type)
+        if task is TaskType.MULTIPLE_CHOICE and seed is None:
+            raise ValueError("Multiple-choice runs require a seed.")
         with self._session_factory() as session, session.begin():
             model = self._require(session, RegisteredModel, model_id, "model")
             dataset = self._require(session, RegisteredDataset, dataset_id, "dataset")
@@ -368,8 +376,14 @@ class BenchmarkRunRepository(_Repository):
                 raise InactiveDependencyError("model", model.id)
             if not dataset.is_active:
                 raise InactiveDependencyError("dataset", dataset.id)
+            if dataset.task_type != task.value:
+                raise ValueError(
+                    f"Dataset task type {dataset.task_type!r} does not match "
+                    f"run task type {task.value!r}."
+                )
             run = BenchmarkRun(
                 experiment_name=experiment_name,
+                task_type=task,
                 model_id=model_id,
                 dataset_id=dataset_id,
                 status=RunStatus.QUEUED,
@@ -494,6 +508,39 @@ class SampleResultRepository(_Repository):
                 .order_by(SampleResult.id)
             ).all()
             return [SampleResultRecord.model_validate(row) for row in rows]
+
+
+class RagCaseResultRepository(_Repository):
+    def add_many(
+        self, run_id: int, cases: Iterable[RagCaseResultCreate]
+    ) -> list[RagCaseResultRecord]:
+        inputs = list(cases)
+        with self._session_factory() as session:
+            try:
+                with session.begin():
+                    run = self._require(session, BenchmarkRun, run_id, "benchmark run")
+                    if TaskType(run.task_type) is not TaskType.RAG:
+                        raise ValueError("RAG case results require a RAG run.")
+                    rows = [
+                        RagCaseResult(run_id=run_id, **item.model_dump())
+                        for item in inputs
+                    ]
+                    session.add_all(rows)
+                    session.flush()
+                    results = [RagCaseResultRecord.model_validate(row) for row in rows]
+            except IntegrityError as error:
+                _raise_integrity_error(error, "RAG case result", f"run={run_id}")
+        return results
+
+    def list_by_run_id(self, run_id: int) -> list[RagCaseResultRecord]:
+        with self._session_factory() as session:
+            self._require(session, BenchmarkRun, run_id, "benchmark run")
+            rows = session.scalars(
+                select(RagCaseResult)
+                .where(RagCaseResult.run_id == run_id)
+                .order_by(RagCaseResult.id)
+            ).all()
+            return [RagCaseResultRecord.model_validate(row) for row in rows]
 
 
 def _validated_capabilities(

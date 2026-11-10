@@ -3,7 +3,7 @@
 import platform
 import sys
 import time
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -60,11 +60,31 @@ def _build_provider(loaded: LoadedRagRunConfig, transport: JsonTransport | None)
     return provider, generation
 
 
+@dataclass(frozen=True)
+class RagPipelineExecution:
+    """A completed run: artifact directory, final manifest, summary and rows."""
+
+    run_dir: Path
+    manifest: dict[str, object]
+    summary: dict[str, object]
+    rows: tuple[dict[str, object], ...]
+
+
 def run_rag_benchmark(
     loaded: LoadedRagRunConfig,
     *,
     transport: JsonTransport | None = None,
 ) -> tuple[Path, dict[str, object]]:
+    """Preserve the CLI-facing contract."""
+    execution = execute_rag_benchmark(loaded, transport=transport)
+    return execution.run_dir, execution.summary
+
+
+def execute_rag_benchmark(
+    loaded: LoadedRagRunConfig,
+    *,
+    transport: JsonTransport | None = None,
+) -> RagPipelineExecution:
     started = time.perf_counter()
     config = loaded.config
     dataset = load_rag_dataset(loaded.suite_path)
@@ -108,6 +128,7 @@ def run_rag_benchmark(
     writer = None
     embedder = None
     retrieval_latencies: dict[str, float] = {}
+    rows: list[dict[str, object]] = []
     generation_latencies: dict[str, float] = {}
 
     def update_embedding_statistics():
@@ -124,14 +145,14 @@ def run_rag_benchmark(
 
     def save_case(case):
         query_id = case.result.query_id
-        writer.append_result(
-            serialize_rag_case(
-                case,
-                run_id=run_id,
-                retrieval_latency_ms=retrieval_latencies.get(query_id),
-                generation_latency_ms=generation_latencies.get(query_id),
-            )
+        row = serialize_rag_case(
+            case,
+            run_id=run_id,
+            retrieval_latency_ms=retrieval_latencies.get(query_id),
+            generation_latency_ms=generation_latencies.get(query_id),
         )
+        writer.append_result(row)
+        rows.append(row)
         manifest["completed_case_count"] += 1
         completed = manifest["completed_case_count"]
         total = len(dataset.scenarios)
@@ -207,7 +228,12 @@ def run_rag_benchmark(
         update_embedding_statistics()
         manifest.update(status="completed", completed_at=_now())
         writer.write_json("manifest.json", manifest)
-        return writer.directory, summary
+        return RagPipelineExecution(
+            run_dir=writer.directory,
+            manifest=dict(manifest),
+            summary=summary,
+            rows=tuple(rows),
+        )
     except KeyboardInterrupt:
         mark_failed("rag_run_interrupted")
         raise

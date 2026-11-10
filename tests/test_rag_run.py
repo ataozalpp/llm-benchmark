@@ -826,3 +826,13 @@ def test_failure_case_suite_has_its_own_identity(tmp_path):
     assert cases["suite_hash"] != smoke["suite_hash"]
     assert cases["corpus_hash"] != smoke["corpus_hash"]
     assert cases["run_fingerprint"] != smoke["run_fingerprint"]
+
+
+def test_execute_returns_rows_matching_artifacts(tmp_path, forbid_embedder):
+    loaded = load_rag_run_config(write_config(tmp_path))
+    execution = run_service.execute_rag_benchmark(loaded)
+
+    assert list(execution.rows) == read_jsonl(execution.run_dir / "results.jsonl")
+    assert execution.manifest == read_json(execution.run_dir / "manifest.json")
+    assert execution.summary == read_json(execution.run_dir / "summary.json")
+    assert execution.manifest["status"] == "completed"

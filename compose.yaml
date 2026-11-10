@@ -21,6 +21,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        INSTALL_EMBEDDINGS: ${INSTALL_EMBEDDINGS:-false}
     image: llm-benchmark-poc:local
     depends_on:
       postgres:
@@ -38,6 +40,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        INSTALL_EMBEDDINGS: ${INSTALL_EMBEDDINGS:-false}
     image: llm-benchmark-poc:local
     depends_on:
       migrate:
@@ -71,11 +75,17 @@ services:
       - llm_benchmark.worker
     environment:
       LLM_BENCHMARK_DATABASE_URL: postgresql+psycopg://llm_benchmark:llm_benchmark_dev@postgres:5432/llm_benchmark
+      # Embedding models are read from the cache volume only, never downloaded.
+      HF_HOME: /app/hf_cache
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
     volumes:
       - benchmark_runtime:/app/runtime
       - benchmark_outputs:/app/outputs
+      - hf_cache:/app/hf_cache
 
 volumes:
   postgres_data:
   benchmark_runtime:
   benchmark_outputs:
+  hf_cache:

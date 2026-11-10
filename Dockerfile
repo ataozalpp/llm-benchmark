@@ -12,7 +12,10 @@ COPY migrations ./migrations
 COPY configs ./configs
 COPY data/fixtures ./data/fixtures
 
-RUN python -m pip install --no-cache-dir .
+# Dense and hybrid RAG runs need the optional CPU embedding stack:
+#   docker compose build --build-arg INSTALL_EMBEDDINGS=true
+ARG INSTALL_EMBEDDINGS=false
+RUN if [ "$INSTALL_EMBEDDINGS" = "true" ]; then         python -m pip install --no-cache-dir             --extra-index-url https://download.pytorch.org/whl/cpu ".[embeddings]";     else         python -m pip install --no-cache-dir .;     fi
 
 RUN addgroup --system benchmark \
     && adduser --system --ingroup benchmark benchmark \

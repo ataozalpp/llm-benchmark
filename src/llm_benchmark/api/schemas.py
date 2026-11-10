@@ -181,7 +181,7 @@ class ModelResponse(TimestampedResponse):
 
 class DatasetUploadForm(StrictSchema):
     name: str = Field(min_length=1, max_length=255)
-    file_format: Literal["csv", "jsonl"]
+    file_format: Literal["csv", "jsonl", "rag_json"]
     split: str = Field(
         default="test",
         min_length=1,

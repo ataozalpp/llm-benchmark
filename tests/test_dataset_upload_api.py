@@ -590,3 +590,94 @@ def test_duplicate_upload_preserves_reused_file(
     registered = client.get("/api/v1/datasets").json()
 
     assert len(registered) == 1
+
+
+RAG_SUITE = Path(__file__).parents[1] / "examples/rag/policy_qa_smoke.json"
+
+
+def test_upload_rag_suite_registers_rag_dataset(
+    upload_api_client: tuple[TestClient, Path],
+) -> None:
+    client, storage_root = upload_api_client
+    from llm_benchmark.rag.dataset import load_rag_dataset
+    from llm_benchmark.rag.identity import corpus_fingerprint, suite_fingerprint
+
+    response = client.post(
+        "/api/v1/datasets/upload",
+        data={"name": "policy-qa", "file_format": "rag_json"},
+        files={"file": ("suite.json", RAG_SUITE.read_bytes(), "application/json")},
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["task_type"] == "rag"
+    assert payload["adapter_type"] == "rag_suite_json_v1"
+    assert payload["source_uri"].endswith(".json")
+    suite = load_rag_dataset(RAG_SUITE)
+    assert payload["metadata"] == {
+        "schema_version": "rag_suite_upload_v1",
+        "format": "rag_json",
+        "size_bytes": RAG_SUITE.stat().st_size,
+        "suite_id": suite.suite_id,
+        "chunk_count": len(suite.chunks),
+        "scenario_count": 5,
+        "answerable_count": 4,
+        "unanswerable_count": 1,
+        "corpus_hash": corpus_fingerprint(suite.chunks),
+        "suite_hash": suite_fingerprint(suite.scenarios),
+    }
+    storage = LocalDatasetStorage(storage_root)
+    assert storage.verify(payload["source_uri"], payload["checksum"]).is_file()
+
+
+@pytest.mark.parametrize(
+    "content",
+    [b'{"schema_version": 1}', b"not json", b'{"schema_version": 2, "suite_id": "x"}'],
+)
+def test_invalid_rag_suite_is_rejected_and_not_stored(
+    upload_api_client: tuple[TestClient, Path], content: bytes
+) -> None:
+    client, storage_root = upload_api_client
+
+    response = client.post(
+        "/api/v1/datasets/upload",
+        data={"name": "broken", "file_format": "rag_json"},
+        files={"file": ("suite.json", content, "application/json")},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "invalid_uploaded_dataset"
+    assert client.get("/api/v1/datasets").json() == []
+    assert not list(storage_root.rglob("*.json"))
+
+
+def test_rag_suite_cannot_start_a_multiple_choice_run(
+    upload_api_client: tuple[TestClient, Path],
+) -> None:
+    client, _ = upload_api_client
+    dataset = client.post(
+        "/api/v1/datasets/upload",
+        data={"name": "policy-qa", "file_format": "rag_json"},
+        files={"file": ("suite.json", RAG_SUITE.read_bytes(), "application/json")},
+    ).json()
+    endpoint = client.post(
+        "/api/v1/endpoints",
+        json={"name": "mock", "provider_type": "mock", "base_url": "http://localhost"},
+    ).json()
+    model = client.post(
+        "/api/v1/models",
+        json={
+            "name": "mock",
+            "model_identifier": "mock-model",
+            "endpoint_id": endpoint["id"],
+            "reasoning_policy": "unsupported",
+        },
+    ).json()
+
+    response = client.post(
+        "/api/v1/runs",
+        json={"experiment_name": "x", "model_id": model["id"], "dataset_id": dataset["id"]},
+    )
+
+    assert response.status_code == 409
+    assert client.get("/api/v1/runs").json() == []

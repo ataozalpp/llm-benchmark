@@ -300,8 +300,13 @@ This may create the ignored local runtime database. The schema contains:
 - `provider_endpoints`
 - `models`
 - `datasets`
-- `benchmark_runs`
-- `sample_results`
+- `benchmark_runs` (with `task_type`: `multiple_choice` or `rag`)
+- `sample_results` (multiple-choice samples)
+- `rag_case_results` (RAG cases)
+
+Migration `20261110_0002` adds `task_type` (existing runs become
+`multiple_choice`), makes `seed` nullable for RAG runs, and creates
+`rag_case_results`. Downgrading it deletes RAG runs.
 
 The schema uses portable SQLAlchemy types and generic JSON fields. PostgreSQL
 16 integration has been validated through Psycopg 3, Alembic, the synchronous
@@ -646,6 +651,44 @@ Compare two recorded runs over the same suite and evaluation settings:
 .\.venv\Scripts\python.exe -m scripts.compare_rag_runs --suite examples/rag/policy_qa_smoke.json --baseline outputs/rag/<a> --candidate outputs/rag/<b> --output outputs/rag/<b>/comparison.json
 ```
 
+## RAG runs through the API
+
+Upload a RAG suite (the same strict JSON as `rag-run`) and submit a run
+against a registered model:
+
+```text
+POST /api/v1/datasets/upload        file_format=rag_json
+POST /api/v1/rag-runs               {"experiment_name", "model_id", "dataset_id",
+                                     "retriever", "k", "max_context_chars",
+                                     "embedding_profile"?, "hybrid"?,
+                                     "prompt_version"?, "structured_output"?}
+GET  /api/v1/runs/{run_id}          status, task_type, summary
+GET  /api/v1/rag-runs/{run_id}/results
+```
+
+The same worker processes RAG runs. A mock endpoint selects the synthetic
+provider; an OpenAI-compatible endpoint uses the registered model identifier
+and base URL, with `max_output_tokens` and `timeout_seconds` taken from the
+model's default generation config (256 and 60 when absent). Preflight limits
+are 100 scenarios, `k` 20, `max_context_chars` 20000, and hybrid
+`candidate_k` 100. Dense and hybrid runs name a server-side profile from
+`configs/api/embedding_profiles.yaml` and need the `embeddings` extra:
+
+```powershell
+python -m pip install -e ".[dev,embeddings]"
+```
+
+Models load from the local Hugging Face cache only. In Docker, build with
+`INSTALL_EMBEDDINGS=true docker compose build`, then populate the worker's
+`hf_cache` volume once with an explicit download (the only step that uses the
+network):
+
+```powershell
+docker compose run --rm --no-deps -e HF_HUB_OFFLINE=0 -e TRANSFORMERS_OFFLINE=0 worker python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2', revision='1110a243fdf4706b3f48f1d95db1a4f5529b4d41', device='cpu')"
+```
+
+See [RAG](docs/rag.md#api-and-worker-runs).
+
 ## Security boundaries and limitations
 
 - No authentication or authorization.
@@ -667,9 +710,11 @@ Compare two recorded runs over the same suite and evaluation settings:
   only the high-level error type.
 - Actual secrets are never persisted; only credential environment-variable
   names may be stored.
-- The registered API/worker benchmark task is currently multiple-choice only;
-  tool-use and retrieval evaluation have separate CLI commands and are not
-  integrated into that registered execution path.
+- The registered API/worker path runs multiple-choice and RAG evaluations.
+  Tool-use and standalone retrieval evaluation have separate CLI commands and
+  are not integrated into it. RAG API runs support mock (synthetic) and
+  credential-free OpenAI-compatible endpoints only; the worker loads the
+  embedding model once per dense/hybrid run.
 - Execution traces are diagnostic lifecycle data. Events are buffered in
   memory and successful pipelines write `trace.jsonl` on a best-effort basis;
   missing trace persistence is not reported separately in the summary or DB.

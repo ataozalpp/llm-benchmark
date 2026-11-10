@@ -2512,6 +2512,35 @@ local endpoint enforces `response_format`. The planned matrix is smoke and
 failure-case fixtures by BM25/hybrid by {v1, v3} by {none, json_schema},
 recorded with `compare_rag_runs`.
 
+## RAG API and worker checkpoint (2026-11-10)
+
+Offline validation on Python 3.12.10 after adding `benchmark_runs.task_type`,
+`rag_case_results` (migration `20261110_0002`), RAG suite uploads,
+`POST /api/v1/rag-runs`, server-controlled embedding profiles, and worker
+dispatch by task type:
+
+- `ruff check .`: passed.
+- `pytest -q` with the three offline variables: **2701 passed, 12 skipped**
+  (the same seven MCP stdio and five PostgreSQL skips). The PostgreSQL
+  migration and worker tests were updated for the new revision but were not
+  run in this environment.
+- The migration was exercised on SQLite through upgrade, downgrade and
+  re-upgrade with an existing run row: the row became `multiple_choice`
+  with its seed, the `ck_benchmark_runs_run_status` and new
+  `ck_benchmark_runs_task_type` CHECK constraints rejected invalid values,
+  and the ORM metadata showed no column or nullability differences.
+- Real-process smoke: Uvicorn on `127.0.0.1` with a scratch SQLite
+  database, a mock endpoint, and `policy_qa_failure_cases.json` uploaded as
+  `rag_json`. A BM25 run with prompt v3 was queued (`seed` null,
+  `sample_count` 9); a request with `k` 50 was rejected with
+  `run_guardrail_violation`. A separate worker process completed the run
+  with nine `completed` cases, exact match 0/5 (synthetic provider) and a
+  full-context denominator of 3, matching the documented BM25 analysis.
+  `/runs/{id}/results` returned 409 for the RAG run.
+- Dense and hybrid API runs were tested with an injected embedder only; no
+  real embedding model was loaded, and the Docker embeddings image was not
+  built.
+
 ## Licensing note
 
 No project license has been selected yet. MMLU-Pro attribution and its dataset

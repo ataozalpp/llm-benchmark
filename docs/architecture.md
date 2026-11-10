@@ -1184,3 +1184,25 @@ The suite has an optional completed-case callback so persistence does not leak
 into evaluation logic. The run service owns lifecycle and measurements. Retrieval
 does not import tool-use or MCP integration, and this command does not participate
 in the existing API/worker execution path. See [Retrieval](retrieval.md).
+
+RAG lives in `llm_benchmark.rag` and reuses the retrieval retrievers. Its CLI
+path is:
+
+```text
+cli.py rag-run
+  -> rag/run_config.py (strict YAML; prompt_version, structured_output)
+  -> rag/run_service.py execute_rag_benchmark
+     -> dataset.py -> identity.py (corpus, suite, prompt, generation hashes)
+     -> retrieval/factory.py (keyword, bm25, dense, hybrid)
+     -> suite.py -> context.py -> prompts.py -> provider -> parsing.py
+     -> evaluation.py -> reporting.py -> artifacts.py
+```
+
+RAG imports retrieval but not tool-use or MCP integration. Registered RAG
+runs share `benchmark_runs` with multiple-choice runs through
+`task_type`; the worker's `TaskTypeDispatcher` routes a claimed run to
+`BenchmarkApplicationService` or `rag/application.py:RagApplicationService`.
+RAG case results live in `rag_case_results`, separate from the MCQ-shaped
+`sample_results`. The strict comparison service accepts multiple-choice runs
+only. The API package still does not import SQLAlchemy or ORM models. See
+[RAG](rag.md#api-and-worker-runs).

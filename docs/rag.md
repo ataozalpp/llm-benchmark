@@ -481,10 +481,53 @@ Use a small QA fixture with explicit reference answers and evidence IDs
 for the first integration run. SciFact retrieval relevance labels alone
 are not reference answers for a QA benchmark.
 
+## API and worker runs
+
+`POST /api/v1/rag-runs` builds a `RagRunConfig` from registrations only:
+
+```text
+rag_run_routes.py
+  -> rag/run_resolution.py   registered endpoint/model/dataset -> RagRunConfig
+                             (suite_path is the opaque upload key; output_dir
+                             is outputs/api/rag; embedding from a named profile)
+  -> rag/run_preflight.py    limits, checksum-verified suite load, embedding
+                             dependency check; rejection creates nothing
+  -> rag/application.py      enqueue: benchmark_runs row, task_type=rag, seed null
+worker.py TaskTypeDispatcher
+  -> rag/application.py      execute_claimed: re-validate config hash and
+                             registrations, verify suite checksum,
+                             execute_rag_benchmark outside any transaction,
+                             rag_case_results in one transaction, final status
+```
+
+Clients cannot set the endpoint URL, model identifier, suite path, output
+directory, embedding model or revision, or `local_files_only`. Endpoints with
+a credential variable, LM Studio native endpoints, and models whose default
+generation config sets a nonzero temperature are rejected (409). Invalid
+setting combinations return 422 `invalid_rag_run_request`; exceeded limits
+return 422 `run_guardrail_violation`; dense or hybrid without the
+`embeddings` extra returns 409 `embeddings_unavailable`.
+
+Embedding profiles live in `configs/api/embedding_profiles.yaml`
+(`LLM_BENCHMARK_EMBEDDING_PROFILES` overrides the path). A profile must pin
+a 40-character revision and may not set `local_files_only: false`. A missing
+file offers no dense/hybrid profiles.
+
+`rag_case_results` stores, per query, answerability, status, failure code,
+retrieved and context chunk IDs, raw response and finish reason, parsed
+answer, evaluation, token counts, and latencies. Context text and reference
+answers are not stored. Artifacts are written as for the CLI under
+`outputs/api/rag/<run_id>/`; database rows and files are not one
+cross-storage transaction. A run whose suite file no longer matches its
+checksum fails without results.
+
 ## Future work
 
 - A larger local model with prompt v1, and the v1/v3 by constrained and
   unconstrained comparison on the shipped fixtures; results belong in
   `validation.md` before any default changes.
-- Credential support in the RAG HTTP adapter.
+- Credential support in the RAG HTTP adapter (and then for API RAG runs).
+- Reusing a loaded embedding model across worker runs.
+- Standalone retrieval and local tool-use runs through the API on the same
+  `task_type` infrastructure.
 - Semantic answer matching; exact match remains the only answer metric.

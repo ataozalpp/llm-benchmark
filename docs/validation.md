@@ -2487,6 +2487,31 @@ constrained decoding as an explicit, identity-recorded generation option.
 Interpretation boundary: one small model, deterministic generation, 14
 questions across two fixtures.
 
+## RAG prompt registry, constrained decoding and comparison checkpoint (2026-11-10)
+
+Offline validation on Python 3.12.10 after adding selectable RAG prompts
+(`rag-grounded-json-v1` default, historical `v2` verbatim, `v3` without
+example values), optional `structured_output: json_schema` with
+`rag-answer-schema-v1`, and `scripts/compare_rag_runs.py`:
+
+- `ruff check .`: passed.
+- `pytest -q` with the three offline variables: **2651 passed, 12 skipped**.
+  Skips: seven MCP stdio tests (`LLM_BENCHMARK_MCP_PYTHON` not configured)
+  and five PostgreSQL tests (`LLM_BENCHMARK_TEST_POSTGRES_URL` not
+  configured).
+- The registered v1 and v2 texts were checked to be byte-identical to the
+  texts of commits `97c31cb` and `00ed5ed`; refactored identity hashes were
+  checked to be identical to the previous implementation on both shipped
+  fixtures.
+- Two synthetic failure-case runs (v1 and v3) were compared through the CLI:
+  `varied_fields` was `["prompt_version"]`, deltas were zero, and a second
+  invocation with an existing output path exited with code 2.
+
+Not yet validated: v3 and `json_schema` on a real model, and whether the
+local endpoint enforces `response_format`. The planned matrix is smoke and
+failure-case fixtures by BM25/hybrid by {v1, v3} by {none, json_schema},
+recorded with `compare_rag_runs`.
+
 ## Licensing note
 
 No project license has been selected yet. MMLU-Pro attribution and its dataset

@@ -637,6 +637,15 @@ and summary under `outputs/rag/<run_id>/`. Retrieval evidence recall, exact
 match, abstention, citation validity, status counts, and token usage are
 reported separately, without a combined score. See [RAG](docs/rag.md).
 
+The config selects a registered prompt with `prompt_version` (default
+`rag-grounded-json-v1`) and can request schema-constrained decoding with
+`structured_output: json_schema`; both are recorded in the run identity.
+Compare two recorded runs over the same suite and evaluation settings:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.compare_rag_runs --suite examples/rag/policy_qa_smoke.json --baseline outputs/rag/<a> --candidate outputs/rag/<b> --output outputs/rag/<b>/comparison.json
+```
+
 ## Security boundaries and limitations
 
 - No authentication or authorization.

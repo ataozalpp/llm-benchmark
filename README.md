@@ -733,4 +733,8 @@ policies only after the current contracts stabilize. Comparison API, leases,
 heartbeat/stale recovery, retry/resume, pricing, and additional deterministic
 task families remain future work.
 
+The step-by-step plan, phase status, and branch/PR workflow are in
+[Roadmap](docs/roadmap.md). CI (`.github/workflows/ci.yml`) runs `ruff check .`
+and the offline `pytest -q` suite on every pull request and on `main`.
+
 No project license has been selected yet.

@@ -30,6 +30,16 @@ from llm_benchmark.db.errors import (
     UniquenessConflictError,
 )
 from llm_benchmark.db.registry import RegistryRepositories, create_registry_repositories
+from llm_benchmark.rag.embedding_profiles import (
+    embeddings_available,
+    load_embedding_profiles,
+)
+from llm_benchmark.rag.run_preflight import (
+    EmbeddingsUnavailableError,
+    RagRunGuardrailPolicy,
+)
+from llm_benchmark.rag.run_resolution import RagRunRequestError
+from llm_benchmark.retrieval.run_config import DenseEmbeddingConfig
 from llm_benchmark.run_preflight import (
     DatasetPreflightError,
     RunApiGuardrailPolicy,
@@ -48,6 +58,9 @@ def create_app(
     run_output_root: Path = Path("outputs/api"),
     dataset_storage_root: Path = Path("runtime/datasets"),
     run_guardrail_policy: RunApiGuardrailPolicy | None = None,
+    rag_guardrail_policy: RagRunGuardrailPolicy | None = None,
+    embedding_profiles: dict[str, DenseEmbeddingConfig] | None = None,
+    embeddings_check: Callable[[], bool] = embeddings_available,
 ) -> FastAPI:
     app = FastAPI(title="LLM Benchmark Registry API", version="1.0.0")
     app.state.registry = registry
@@ -63,6 +76,11 @@ def create_app(
         else benchmark_executor
     )
     app.state.run_guardrail_policy = run_guardrail_policy or RunApiGuardrailPolicy()
+    app.state.rag_guardrail_policy = rag_guardrail_policy or RagRunGuardrailPolicy()
+    app.state.embedding_profiles = (
+        load_embedding_profiles() if embedding_profiles is None else embedding_profiles
+    )
+    app.state.embeddings_check = embeddings_check
     _install_exception_handlers(app)
 
     from .routes import router
@@ -236,6 +254,30 @@ def _install_exception_handlers(app: FastAPI) -> None:
             content={
                 "detail": "Registered dataset is unavailable for preflight",
                 "code": "dataset_preflight_failed",
+            },
+        )
+
+    @app.exception_handler(RagRunRequestError)
+    async def rag_run_request_invalid(
+        _: Request, __: RagRunRequestError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": "RAG run settings are invalid",
+                "code": "invalid_rag_run_request",
+            },
+        )
+
+    @app.exception_handler(EmbeddingsUnavailableError)
+    async def embeddings_unavailable(
+        _: Request, __: EmbeddingsUnavailableError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": "Dense and hybrid retrieval are not installed on this server",
+                "code": "embeddings_unavailable",
             },
         )
 

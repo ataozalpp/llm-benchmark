@@ -10,11 +10,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, Literal, cast
 
-DatasetStorageFormat = Literal["csv", "jsonl"]
+DatasetStorageFormat = Literal["csv", "jsonl", "json"]
 
-_SUPPORTED_FORMATS = frozenset({"csv", "jsonl"})
+_SUPPORTED_FORMATS = frozenset({"csv", "jsonl", "json"})
 _STORAGE_KEY_PATTERN = re.compile(
-    r"upload://sha256/(?P<digest>[0-9a-f]{64})\.(?P<file_format>csv|jsonl)\Z"
+    r"upload://sha256/(?P<digest>[0-9a-f]{64})\.(?P<file_format>csv|jsonl|json)\Z"
 )
 _CHECKSUM_PATTERN = re.compile(r"sha256:(?P<digest>[0-9a-f]{64})\Z")
 

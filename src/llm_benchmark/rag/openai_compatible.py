@@ -6,9 +6,16 @@ from http.client import HTTPException
 from urllib.parse import urlsplit
 
 from ..providers import JsonTransport, UrllibJsonTransport
+from .answer_schema import response_format
 from .models import RagGenerationRequest
-from .prompts import build_rag_messages
+from .prompts import (
+    DEFAULT_PROMPT_VERSION,
+    build_rag_messages,
+    validate_prompt_version,
+)
 from .providers import RagGenerationResponse, RagProviderError
+
+STRUCTURED_OUTPUT_MODES = frozenset({"none", "json_schema"})
 
 
 def _normalize_response(payload: object) -> RagGenerationResponse:
@@ -69,7 +76,13 @@ class OpenAICompatibleRagProvider:
         timeout_seconds: float = 60.0,
         max_tokens: int = 256,
         transport: JsonTransport | None = None,
+        prompt_version: str = DEFAULT_PROMPT_VERSION,
+        structured_output: str = "none",
     ) -> None:
+        validate_prompt_version(prompt_version)
+        if structured_output not in STRUCTURED_OUTPUT_MODES:
+            raise ValueError("structured_output must be 'none' or 'json_schema'.")
+
         if not isinstance(base_url, str):
             raise ValueError("base_url must be a string.")
 
@@ -116,6 +129,8 @@ class OpenAICompatibleRagProvider:
         self.model_id = model_id
         self.timeout_seconds = float(timeout_seconds)
         self.max_tokens = max_tokens
+        self.prompt_version = prompt_version
+        self.structured_output = structured_output
         self.transport = transport if transport is not None else UrllibJsonTransport()
 
     def generate(
@@ -124,12 +139,14 @@ class OpenAICompatibleRagProvider:
     ) -> RagGenerationResponse:
         payload = {
             "model": self.model_id,
-            "messages": build_rag_messages(request),
+            "messages": build_rag_messages(request, self.prompt_version),
             "temperature": 0.0,
             "max_tokens": self.max_tokens,
             "stream": False,
             "n": 1,
         }
+        if self.structured_output == "json_schema":
+            payload["response_format"] = response_format()
 
         try:
             response = self.transport.post_json(

@@ -39,6 +39,11 @@ class ReasoningPolicy(str, Enum):
     PROVIDER_MANAGED = "provider_managed"
 
 
+class TaskType(str, Enum):
+    MULTIPLE_CHOICE = "multiple_choice"
+    RAG = "rag"
+
+
 class RunStatus(str, Enum):
     QUEUED = "queued"
     RUNNING = "running"
@@ -173,10 +178,17 @@ class BenchmarkRun(Base):
         Index("ix_benchmark_runs_status_created", "status", "created_at"),
         Index("ix_benchmark_runs_config_hash", "config_hash"),
         Index("ix_benchmark_runs_model_dataset", "model_id", "dataset_id"),
+        Index("ix_benchmark_runs_task_type", "task_type"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     experiment_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    task_type: Mapped[TaskType] = mapped_column(
+        portable_enum(TaskType, "task_type"),
+        nullable=False,
+        default=TaskType.MULTIPLE_CHOICE,
+        server_default="multiple_choice",
+    )
     model_id: Mapped[int] = mapped_column(ForeignKey("models.id"), nullable=False)
     dataset_id: Mapped[int] = mapped_column(ForeignKey("datasets.id"), nullable=False)
     status: Mapped[RunStatus] = mapped_column(
@@ -187,7 +199,7 @@ class BenchmarkRun(Base):
     )
     resolved_config_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     config_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-    seed: Mapped[int] = mapped_column(Integer, nullable=False)
+    seed: Mapped[int | None] = mapped_column(Integer)
     sample_count: Mapped[int] = mapped_column(Integer, nullable=False)
     summary_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     artifact_directory: Mapped[str] = mapped_column(String(2048), nullable=False)
@@ -205,6 +217,9 @@ class BenchmarkRun(Base):
     model: Mapped[RegisteredModel] = relationship(back_populates="benchmark_runs")
     dataset: Mapped[RegisteredDataset] = relationship(back_populates="benchmark_runs")
     sample_results: Mapped[list[SampleResult]] = relationship(
+        back_populates="run", cascade="all, delete-orphan", passive_deletes=True
+    )
+    rag_case_results: Mapped[list[RagCaseResult]] = relationship(
         back_populates="run", cascade="all, delete-orphan", passive_deletes=True
     )
 
@@ -241,3 +256,32 @@ class SampleResult(Base):
     provider_error_message: Mapped[str | None] = mapped_column(Text)
 
     run: Mapped[BenchmarkRun] = relationship(back_populates="sample_results")
+
+
+class RagCaseResult(Base):
+    __tablename__ = "rag_case_results"
+    __table_args__ = (
+        UniqueConstraint("run_id", "query_id", name="uq_rag_case_results_run_query"),
+        Index("ix_rag_case_results_run_status", "run_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[int] = mapped_column(
+        ForeignKey("benchmark_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    query_id: Mapped[str] = mapped_column(String(512), nullable=False)
+    answerable: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    status: Mapped[str] = mapped_column(String(64), nullable=False)
+    failure_code: Mapped[str | None] = mapped_column(String(64))
+    retrieved_chunk_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    context_chunk_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    raw_response: Mapped[str | None] = mapped_column(Text)
+    finish_reason: Mapped[str | None] = mapped_column(String(64))
+    parsed_answer: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    evaluation: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    input_tokens: Mapped[int | None] = mapped_column(Integer)
+    output_tokens: Mapped[int | None] = mapped_column(Integer)
+    retrieval_latency_ms: Mapped[float | None] = mapped_column(Float)
+    generation_latency_ms: Mapped[float | None] = mapped_column(Float)
+
+    run: Mapped[BenchmarkRun] = relationship(back_populates="rag_case_results")

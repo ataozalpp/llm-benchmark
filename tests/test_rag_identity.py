@@ -4,7 +4,11 @@ from pathlib import Path
 import pytest
 
 from llm_benchmark.rag.dataset import load_rag_dataset
-from llm_benchmark.rag.identity import build_rag_run_identity
+from llm_benchmark.rag.identity import (
+    build_rag_run_identity,
+    corpus_fingerprint,
+    suite_fingerprint,
+)
 from llm_benchmark.retrieval.profile import BM25_PROFILE, KEYWORD_PROFILE
 
 EXAMPLE = Path(__file__).parents[1] / "examples/rag/policy_qa_smoke.json"
@@ -58,3 +62,26 @@ def test_settings_change_identity(key, value, field):
 def test_invalid_settings(key, value):
     with pytest.raises(ValueError):
         identity(**{key: value})
+
+def test_default_prompt_version_is_recorded():
+    assert identity()["prompt_version"] == "rag-grounded-json-v1"
+
+
+def test_prompt_version_changes_only_the_fingerprint():
+    base = identity()
+    other = identity(prompt_version="rag-grounded-json-v3")
+    assert other["prompt_version"] == "rag-grounded-json-v3"
+    assert other["run_fingerprint"] != base["run_fingerprint"]
+    changed = {key for key in base if base[key] != other[key]}
+    assert changed == {"prompt_version", "run_fingerprint"}
+
+
+def test_unknown_prompt_version_is_rejected():
+    with pytest.raises(ValueError, match="Unknown RAG prompt version"):
+        identity(prompt_version="rag-grounded-json-v9")
+
+
+def test_fingerprint_helpers_match_identity():
+    result = identity()
+    assert corpus_fingerprint(DATASET.chunks) == result["corpus_hash"]
+    assert suite_fingerprint(DATASET.scenarios) == result["suite_hash"]

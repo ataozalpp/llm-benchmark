@@ -1,0 +1,13 @@
+# Server-controlled embedding profiles for API-submitted dense and hybrid
+# RAG runs. Clients select a profile by name; they cannot supply model IDs,
+# revisions, or download policy. Models load only from the local Hugging
+# Face cache (local_files_only is always true and may not be overridden).
+schema_version: 1
+profiles:
+  minilm-l6-v2:
+    model_id: sentence-transformers/all-MiniLM-L6-v2
+    model_revision: 1110a243fdf4706b3f48f1d95db1a4f5529b4d41
+    embedding_dimension: 384
+    max_sequence_length: 256
+    batch_size: 8
+    truncation_policy: reject

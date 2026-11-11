@@ -66,6 +66,27 @@ def test_defaults(tmp_path):
     assert loaded.config.provider == "synthetic"
     assert loaded.config.model is None
     assert loaded.output_dir == tmp_path / "outputs" / "rag"
+    assert loaded.config.prompt_version == "rag-grounded-json-v1"
+    assert loaded.config.structured_output == "none"
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"prompt_version": "rag-grounded-json-v3"},
+        {
+            "provider": "openai_compatible",
+            "model": MODEL,
+            "prompt_version": "rag-grounded-json-v2",
+            "structured_output": "json_schema",
+        },
+    ],
+)
+def test_prompt_and_structured_output_are_accepted(tmp_path, updates):
+    loaded = load_rag_run_config(write(tmp_path, {**base_payload(), **updates}))
+    for key, value in updates.items():
+        if key != "model":
+            assert getattr(loaded.config, key) == value
 
 
 def test_openai_compatible_config(tmp_path):
@@ -135,6 +156,14 @@ def test_all_retrievers_are_accepted(tmp_path, updates):
             "hybrid": {"candidate_k": 5},
         },
         {"retriever": "dense", "embedding": {**EMBEDDING, "model_revision": "main"}},
+        {"prompt_version": "rag-grounded-json-v9"},
+        {"prompt_version": 1},
+        {"structured_output": "json_schema"},
+        {
+            "provider": "openai_compatible",
+            "model": MODEL,
+            "structured_output": "json_object",
+        },
     ],
 )
 def test_invalid_config(tmp_path, updates):

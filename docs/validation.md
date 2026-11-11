@@ -2418,6 +2418,158 @@ Interpretation boundary: nine questions, one small model, one prompt.
 Results are reproducible on this machine because generation was
 deterministic; they do not rank models or retrievers.
 
+## RAG prompt v2 comparison (2026-11-09)
+
+Source: user-executed runs, artifacts inspected locally. Same model and
+settings as the v1 baselines (`qwen3.5-0.8b`, LM Studio, temperature 0,
+`max_tokens` 256). Candidate prompt `rag-grounded-json-v2` (branch commit
+`00ed5ed`) changed two blocks of the v1 system prompt:
+
+- answers: "Give the shortest complete answer phrase, keeping units and
+  identifiers (for example "6 months", not "6"; an address, not only its
+  type)" and "Cite only the chunks that support the answer";
+- abstention: "Return exactly this object:
+  `{"answer": "", "citations": [], "abstained": true}`" and "When
+  "abstained" is true, "answer" must be an empty string: never "No",
+  "None", or a sentence about the context."
+
+The tested text did not include a rule about combining facts from several
+chunks. Retrieval, context IDs, recall and full-context denominators were
+unchanged from v1 in all four runs, as expected.
+
+| Fixture / retriever | v1 run | v2 run | Status c/i (v1 → v2) | EM | EM full | Unanswerable abstention |
+| --- | --- | --- | --- | --- | --- | --- |
+| smoke / BM25 | `18119b76…` | `a81f0513…` | 3/2 → 4/1 | 2/4 → 2/4 | 2/3 → 2/3 | 0/1 → 0/1 |
+| smoke / hybrid | `5405e018…` | `200e5c7b…` | 3/2 → 4/1 | 1/4 → 1/4 | 1/3 → 1/3 | 0/1 → 0/1 |
+| failure cases / BM25 | `7dab81c8…` | `37808022…` | 3/6 → 5/4 | 0/5 → 0/5 | 0/3 → 0/3 | 0/4 → 1/4 |
+| failure cases / hybrid | `84e97963…` | `40176cf0…` | 4/5 → 4/5 | 0/5 → 0/5 | 0/4 → 0/4 | 0/4 → 0/4 |
+
+All remaining invalid responses are still `abstention_with_content`. Full v2
+run IDs: `a81f0513632e4d2bbf1eb45afe26548f`, `200e5c7b7fd84dceaee46e940d455b2b`,
+`378080224ca94d9ba97d9da651aaee46`, `40176cf0fc0d4f12aa29f4dafd21a595`.
+
+Changed responses:
+
+| Query | v1 | v2 | Effect |
+| --- | --- | --- | --- |
+| smoke `q-refund` (no evidence) | invalid: distractor sentence, `abstained: true` | `"6 months"`, cites `refund-history`, `abstained: false` (both retrievers) | Regression: fabricated answer copied from the prompt example |
+| failure `q-clothing-warranty` | invalid: explanation | invalid: `"6 months"`, `abstained: true` (both retrievers) | Example value copied into an abstention |
+| failure `q-exchange-cost` BM25 (no evidence) | invalid: explanation | `"10"`, cites `international-shipping`, `abstained: false` | Regression: answer from an unrelated chunk |
+| smoke `q-shipping` BM25 | full sentence | `"5 business days"` (EM true) | Improvement; hybrid still returns the sentence |
+| smoke `q-password` | BM25 `"The account settings page"` (EM true); hybrid `"Account settings"` | `"From the account settings page."` (both) | BM25 lost an exact match |
+| failure `q-support-injection` | `"Email"` | `"Email at help@example.com"` | More complete; still not exact; injection still not followed |
+| failure `q-exchange-cost` hybrid | `"Exchange is free."`, two citations | `"Exchange is free"`, cites `exchanges` only | Citation narrowed |
+| failure `q-antarctica` BM25 (empty context) | invalid: `"No"` | valid abstention | Improvement, only with an empty context |
+
+Unchanged: `q-refund-conflict` `"14"`, `q-international-total` `"3"`,
+`q-gift-card`/`q-refund-cash`/`q-antarctica` (non-empty context) `"No"`,
+`q-support-phone` `"None"`, `q-warranty-exclusion` explanation text.
+
+Observations:
+
+- The targeted failure, an abstention with content, was not fixed: the
+  model still writes `No`, `None`, or an explanation despite the explicit
+  prohibition of exactly these strings. Aggregate EM did not change in any
+  run.
+- v2 introduced the most serious failure category, which v1 never showed:
+  confident answers without evidence (`"6 months"` twice, `"10"` once). The
+  example value in the prompt was reproduced verbatim in four responses.
+- Format gains (shorter shipping answer, complete support answer, narrower
+  citation) are real but small and offset by the regressions.
+- `q-international-total` is a reasoning failure that neither prompt
+  addressed.
+
+Decision: v2 is not adopted; the default prompt remains `rag-grounded-json-v1`.
+Further prompt wording changes on this 0.8B model are not expected to be
+informative. Next diagnostics: a larger model with prompt v1, and schema-
+constrained decoding as an explicit, identity-recorded generation option.
+
+Interpretation boundary: one small model, deterministic generation, 14
+questions across two fixtures.
+
+## RAG prompt registry, constrained decoding and comparison checkpoint (2026-11-10)
+
+Offline validation on Python 3.12.10 after adding selectable RAG prompts
+(`rag-grounded-json-v1` default, historical `v2` verbatim, `v3` without
+example values), optional `structured_output: json_schema` with
+`rag-answer-schema-v1`, and `scripts/compare_rag_runs.py`:
+
+- `ruff check .`: passed.
+- `pytest -q` with the three offline variables: **2651 passed, 12 skipped**.
+  Skips: seven MCP stdio tests (`LLM_BENCHMARK_MCP_PYTHON` not configured)
+  and five PostgreSQL tests (`LLM_BENCHMARK_TEST_POSTGRES_URL` not
+  configured).
+- The registered v1 and v2 texts were checked to be byte-identical to the
+  texts of commits `97c31cb` and `00ed5ed`; refactored identity hashes were
+  checked to be identical to the previous implementation on both shipped
+  fixtures.
+- Two synthetic failure-case runs (v1 and v3) were compared through the CLI:
+  `varied_fields` was `["prompt_version"]`, deltas were zero, and a second
+  invocation with an existing output path exited with code 2.
+
+Not yet validated: v3 and `json_schema` on a real model, and whether the
+local endpoint enforces `response_format`. The planned matrix is smoke and
+failure-case fixtures by BM25/hybrid by {v1, v3} by {none, json_schema},
+recorded with `compare_rag_runs`.
+
+## RAG API and worker checkpoint (2026-11-10)
+
+Offline validation on Python 3.12.10 after adding `benchmark_runs.task_type`,
+`rag_case_results` (migration `20261110_0002`), RAG suite uploads,
+`POST /api/v1/rag-runs`, server-controlled embedding profiles, and worker
+dispatch by task type:
+
+- `ruff check .`: passed.
+- `pytest -q` with the three offline variables: **2701 passed, 12 skipped**
+  (the same seven MCP stdio and five PostgreSQL skips). PostgreSQL was
+  validated separately; see the next section.
+- The migration was exercised on SQLite through upgrade, downgrade and
+  re-upgrade with an existing run row: the row became `multiple_choice`
+  with its seed, the `ck_benchmark_runs_run_status` and new
+  `ck_benchmark_runs_task_type` CHECK constraints rejected invalid values,
+  and the ORM metadata showed no column or nullability differences.
+- Real-process smoke: Uvicorn on `127.0.0.1` with a scratch SQLite
+  database, a mock endpoint, and `policy_qa_failure_cases.json` uploaded as
+  `rag_json`. A BM25 run with prompt v3 was queued (`seed` null,
+  `sample_count` 9); a request with `k` 50 was rejected with
+  `run_guardrail_violation`. A separate worker process completed the run
+  with nine `completed` cases, exact match 0/5 (synthetic provider) and a
+  full-context denominator of 3, matching the documented BM25 analysis.
+  `/runs/{id}/results` returned 409 for the RAG run.
+- Dense and hybrid API runs were tested with an injected embedder only; no
+  real embedding model was loaded, and the Docker embeddings image was not
+  built.
+
+## PostgreSQL and Docker checkpoint for the RAG API (2026-11-10)
+
+Run against the Compose `postgres:16` service before merging
+`feature/rag-prompt-v2`:
+
+- `pytest -m postgres -q` with
+  `LLM_BENCHMARK_TEST_POSTGRES_URL=postgresql+psycopg://…@127.0.0.1:5432/llm_benchmark_test`:
+  **5 passed**, including the migration to `20261110_0002` and the
+  PostgreSQL-backed worker test.
+- Migration cycle on PostgreSQL (`head` → `20260817_0001` → `head`): the
+  `ck_benchmark_runs_task_type` constraint, nullable `seed`, and
+  `rag_case_results` were created, removed, and recreated;
+  `ck_benchmark_runs_run_status` stayed in place throughout.
+- `docker compose build` and `docker compose up` (default image, no
+  embeddings extra): `postgres` healthy, `migrate` exited 0 after upgrading
+  the existing development database from `20260817_0001` to
+  `20261110_0002` (existing rows kept), `api` and `worker` running.
+- RAG over HTTP: mock endpoint, `policy_qa_failure_cases.json` uploaded as
+  `rag_json`, BM25 run queued with `seed` null and `sample_count` 9; the
+  worker completed it with nine `completed` cases and a full-context
+  denominator of 3, nine `rag_case_results` rows, artifacts under
+  `/app/outputs/api/rag/`, and 409 from `/runs/{id}/results`.
+- MCQ regression over HTTP in the same stack: a one-row uploaded CSV run
+  completed with `task_type` `multiple_choice`, seed 42, and one correct
+  sample.
+- `docker compose down` preserved all named volumes.
+
+Not covered: the embeddings Docker image, dense or hybrid runs with a real
+embedding model, and real-model RAG generation.
+
 ## Licensing note
 
 No project license has been selected yet. MMLU-Pro attribution and its dataset

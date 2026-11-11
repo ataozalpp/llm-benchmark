@@ -19,9 +19,11 @@ from llm_benchmark.db.records import (
     DatasetRecord,
     ModelRecord,
     ProviderEndpointRecord,
+    RagCaseResultRecord,
     SampleResultRecord,
 )
 from llm_benchmark.db.schemas import ModelCapabilities
+from llm_benchmark.rag.prompts import PROMPTS
 
 _ENV_VAR_PATTERN = r"^[A-Za-z_][A-Za-z0-9_]*$"
 _SENSITIVE_KEYS = {
@@ -181,7 +183,7 @@ class ModelResponse(TimestampedResponse):
 
 class DatasetUploadForm(StrictSchema):
     name: str = Field(min_length=1, max_length=255)
-    file_format: Literal["csv", "jsonl"]
+    file_format: Literal["csv", "jsonl", "rag_json"]
     split: str = Field(
         default="test",
         min_length=1,
@@ -298,11 +300,12 @@ class RunCreate(StrictSchema):
 class RunResponse(StrictSchema):
     id: int
     experiment_name: str
+    task_type: Literal["multiple_choice", "rag"]
     model_id: int
     dataset_id: int
     status: Literal["queued", "running", "completed", "failed", "cancelled"]
     config_hash: str
-    seed: int
+    seed: int | None
     sample_count: int
     summary: dict[str, Any] | None
     created_at: datetime
@@ -324,6 +327,7 @@ class RunResponse(StrictSchema):
         return cls(
             id=record.id,
             experiment_name=record.experiment_name,
+            task_type=record.task_type.value,
             model_id=record.model_id,
             dataset_id=record.dataset_id,
             status=record.status.value,
@@ -362,6 +366,65 @@ class SampleResultResponse(StrictSchema):
 
     @classmethod
     def from_record(cls, record: SampleResultRecord) -> "SampleResultResponse":
+        return cls.model_validate(record.model_dump(mode="python"))
+
+
+class HybridSettings(StrictSchema):
+    candidate_k: int = Field(gt=0)
+    rank_constant: int = Field(default=60, gt=0)
+
+
+class RagRunCreate(StrictSchema):
+    experiment_name: str = Field(min_length=1, max_length=255)
+    model_id: int = Field(gt=0)
+    dataset_id: int = Field(gt=0)
+    retriever: Literal["keyword", "bm25", "dense", "hybrid"] = "bm25"
+    k: int = Field(gt=0)
+    max_context_chars: int = Field(ge=2)
+    embedding_profile: str | None = Field(default=None, min_length=1, max_length=64)
+    hybrid: HybridSettings | None = None
+    prompt_version: str | None = None
+    structured_output: Literal["none", "json_schema"] = "none"
+
+    @field_validator("prompt_version")
+    @classmethod
+    def validate_prompt_version(cls, value: str | None) -> str | None:
+        if value is not None and value not in PROMPTS:
+            raise ValueError("unknown prompt version")
+        return value
+
+    @model_validator(mode="after")
+    def validate_retriever_options(self) -> "RagRunCreate":
+        dense = self.retriever in {"dense", "hybrid"}
+        if dense != (self.embedding_profile is not None):
+            raise ValueError(
+                "embedding_profile is required for dense and hybrid retrievers only"
+            )
+        if (self.retriever == "hybrid") != (self.hybrid is not None):
+            raise ValueError("hybrid settings are required for the hybrid retriever only")
+        return self
+
+
+class RagCaseResultResponse(StrictSchema):
+    id: int
+    run_id: int
+    query_id: str
+    answerable: bool
+    status: str
+    failure_code: str | None
+    retrieved_chunk_ids: list[str]
+    context_chunk_ids: list[str]
+    raw_response: str | None
+    finish_reason: str | None
+    parsed_answer: dict[str, Any] | None
+    evaluation: dict[str, Any] | None
+    input_tokens: int | None
+    output_tokens: int | None
+    retrieval_latency_ms: float | None
+    generation_latency_ms: float | None
+
+    @classmethod
+    def from_record(cls, record: RagCaseResultRecord) -> "RagCaseResultResponse":
         return cls.model_validate(record.model_dump(mode="python"))
 
 

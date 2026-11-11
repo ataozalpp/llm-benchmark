@@ -4,9 +4,11 @@ from urllib.error import HTTPError, URLError
 
 import pytest
 
+from llm_benchmark.rag.answer_schema import response_format
 from llm_benchmark.rag.case import run_rag_case
 from llm_benchmark.rag.models import RagContext, RagGenerationRequest, RagScenario
 from llm_benchmark.rag.openai_compatible import OpenAICompatibleRagProvider
+from llm_benchmark.rag.prompts import PROMPTS
 from llm_benchmark.rag.providers import RagProviderError
 from llm_benchmark.retrieval.models import Chunk, RetrievalQuery
 
@@ -298,3 +300,46 @@ def test_http_adapter_and_case_runner_integration(payload, error, status):
         assert result.answer is None
         assert result.evaluation is None
     assert (result.response is None) == (status == "provider_failed")
+
+
+def test_default_request_uses_v1_prompt_without_response_format():
+    transport = StubTransport(response=make_response())
+    make_provider(transport).generate(make_request())
+
+    payload = transport.calls[0]["payload"]
+    assert "response_format" not in payload
+    assert payload["messages"][0]["content"] == PROMPTS["rag-grounded-json-v1"]
+
+
+def test_selected_prompt_and_schema_are_sent():
+    transport = StubTransport(response=make_response())
+    OpenAICompatibleRagProvider(
+        base_url="http://localhost:1234/v1",
+        model_id="test-model",
+        transport=transport,
+        prompt_version="rag-grounded-json-v3",
+        structured_output="json_schema",
+    ).generate(make_request())
+
+    payload = transport.calls[0]["payload"]
+    assert payload["messages"][0]["content"] == PROMPTS["rag-grounded-json-v3"]
+    assert payload["response_format"] == response_format()
+    assert payload["response_format"]["json_schema"]["strict"] is True
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"prompt_version": "rag-grounded-json-v9"},
+        {"structured_output": "json_object"},
+        {"structured_output": None},
+    ],
+)
+def test_invalid_prompt_or_structured_output_is_rejected(overrides):
+    with pytest.raises(ValueError):
+        OpenAICompatibleRagProvider(
+            base_url="http://localhost:1234/v1",
+            model_id="test-model",
+            transport=StubTransport(),
+            **overrides,
+        )

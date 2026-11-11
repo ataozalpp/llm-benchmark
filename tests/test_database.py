@@ -30,7 +30,9 @@ EXPECTED_TABLES = {
     "datasets",
     "benchmark_runs",
     "sample_results",
+    "rag_case_results",
 }
+HEAD_REVISION = "20261110_0002"
 
 
 def sqlite_url(path: Path) -> str:
@@ -116,7 +118,7 @@ def test_initial_migration_creates_registry_schema(tmp_path: Path) -> None:
 
     with engine.connect() as connection:
         revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
-    assert revision == "20260817_0001"
+    assert revision == HEAD_REVISION
 
 
 def test_alembic_honors_database_url_environment_override(
@@ -141,7 +143,7 @@ def test_alembic_honors_database_url_environment_override(
             revision = connection.scalar(
                 text("SELECT version_num FROM alembic_version")
             )
-        assert revision == "20260817_0001"
+        assert revision == HEAD_REVISION
     finally:
         engine.dispose()
 
@@ -187,6 +189,17 @@ def test_migration_has_expected_foreign_keys_and_uniqueness(tmp_path: Path) -> N
         ("datasets", ("dataset_id",)),
         ("models", ("model_id",)),
     }
+
+    rag_foreign_keys = inspector.get_foreign_keys("rag_case_results")
+    assert [
+        (item["referred_table"], item["options"].get("ondelete"))
+        for item in rag_foreign_keys
+    ] == [("benchmark_runs", "CASCADE")]
+    rag_uniques = {
+        tuple(item["column_names"])
+        for item in inspector.get_unique_constraints("rag_case_results")
+    }
+    assert ("run_id", "query_id") in rag_uniques
 
     result_foreign_keys = inspector.get_foreign_keys("sample_results")
     assert {
@@ -280,6 +293,7 @@ def test_registry_schema_has_no_secret_value_columns_and_uses_portable_enums(
     assert any(name.endswith("_provider_type") for name in check_constraints)
     assert any(name.endswith("_reasoning_policy") for name in check_constraints)
     assert any(name.endswith("_run_status") for name in check_constraints)
+    assert "ck_benchmark_runs_task_type" in check_constraints
 
 
 def test_model_capabilities_validate_known_shape() -> None:
@@ -289,3 +303,110 @@ def test_model_capabilities_validate_known_shape() -> None:
 
     with pytest.raises(ValidationError):
         ModelCapabilities(unknown_capability=True)
+
+
+def test_task_type_migration_preserves_existing_runs(tmp_path: Path) -> None:
+    database_url = sqlite_url(tmp_path / "task-type.sqlite")
+    config = alembic_config(database_url)
+    command.upgrade(config, "20260817_0001")
+
+    engine = create_db_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO provider_endpoints (name, provider_type, base_url) "
+                "VALUES ('e', 'mock', 'http://localhost')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO models (name, model_identifier, endpoint_id, "
+                "reasoning_policy, capabilities_json, "
+                "default_generation_config_json, metadata_json) "
+                "VALUES ('m', 'm', 1, 'unsupported', '{}', '{}', '{}')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO datasets (name, source_type, source_uri, split, "
+                "task_type, adapter_type, metadata_json) VALUES "
+                "('d', 'local', 'x', 'test', 'multiple_choice', 'a', '{}')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO benchmark_runs (experiment_name, model_id, dataset_id, "
+                "resolved_config_json, config_hash, seed, sample_count, "
+                "artifact_directory) VALUES ('x', 1, 1, '{}', 'h', 42, 1, 'o')"
+            )
+        )
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_db_engine(database_url)
+    try:
+        columns = {
+            item["name"]: item for item in inspect(engine).get_columns("benchmark_runs")
+        }
+        assert columns["seed"]["nullable"] is True
+        assert columns["status"]["nullable"] is False
+        with engine.connect() as connection:
+            assert connection.execute(
+                text("SELECT task_type, seed FROM benchmark_runs")
+            ).all() == [("multiple_choice", 42)]
+            with pytest.raises(IntegrityError):
+                connection.execute(text("UPDATE benchmark_runs SET task_type = 'other'"))
+    finally:
+        engine.dispose()
+
+
+def test_downgrade_removes_rag_runs_and_restores_seed(tmp_path: Path) -> None:
+    database_url = sqlite_url(tmp_path / "task-type-down.sqlite")
+    config = alembic_config(database_url)
+    command.upgrade(config, "head")
+
+    engine = create_db_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO provider_endpoints (name, provider_type, base_url) "
+                "VALUES ('e', 'mock', 'http://localhost')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO models (name, model_identifier, endpoint_id, "
+                "reasoning_policy, capabilities_json, "
+                "default_generation_config_json, metadata_json) "
+                "VALUES ('m', 'm', 1, 'unsupported', '{}', '{}', '{}')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO datasets (name, source_type, source_uri, split, "
+                "task_type, adapter_type, metadata_json) VALUES "
+                "('d', 'local', 'x', 'test', 'rag', 'a', '{}')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO benchmark_runs (experiment_name, task_type, model_id, "
+                "dataset_id, resolved_config_json, config_hash, seed, "
+                "sample_count, artifact_directory) "
+                "VALUES ('x', 'rag', 1, 1, '{}', 'h', NULL, 1, 'o')"
+            )
+        )
+    engine.dispose()
+
+    command.downgrade(config, "20260817_0001")
+    engine = create_db_engine(database_url)
+    try:
+        inspector = inspect(engine)
+        columns = {item["name"]: item for item in inspector.get_columns("benchmark_runs")}
+        assert "task_type" not in columns
+        assert columns["seed"]["nullable"] is False
+        assert "rag_case_results" not in inspector.get_table_names()
+        with engine.connect() as connection:
+            assert connection.scalar(text("SELECT COUNT(*) FROM benchmark_runs")) == 0
+    finally:
+        engine.dispose()

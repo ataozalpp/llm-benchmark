@@ -36,7 +36,10 @@ The provider protocol and a non-streaming HTTP adapter are tested with
 injected transports, including integration with the case runner.
 Retrieval-to-generation suite orchestration is available in `rag/suite.py`.
 Aggregation, run identity, local run artifacts, and the `rag-run` CLI are
-available; see [Run CLI and artifacts](#run-cli-and-artifacts).
+available; see [Run CLI and artifacts](#run-cli-and-artifacts). Prompts are
+selectable by version, schema-constrained decoding is an optional generation
+setting, and two recorded runs can be compared with
+`scripts/compare_rag_runs.py`; see [Comparing recorded runs](#comparing-recorded-runs).
 
 ## Suite orchestration
 
@@ -67,12 +70,52 @@ wall-time budget. The HTTP adapter already provides a transport timeout.
 `prompts.py` builds a system instruction and a JSON user message from
 `RagGenerationRequest`. The user message contains only `question` and
 `context`; each context item contains `chunk_id` and `text`.
-The prompt version is `rag-grounded-json-v1`. Prompt construction is
-deterministic; this does not imply deterministic model generation.
+Prompt construction is deterministic; this does not imply deterministic
+model generation.
+
+System prompts are registered by version in `PROMPTS`, and the config field
+`prompt_version` selects one (default `rag-grounded-json-v1`):
+
+| Version | Status |
+| --- | --- |
+| `rag-grounded-json-v1` | Default. Concise answer, citations, empty answer and citations for abstention. |
+| `rag-grounded-json-v2` | Historical candidate evaluated on 2026-11-09 and not adopted. Kept verbatim so recorded v2 runs can be reproduced. |
+| `rag-grounded-json-v3` | v2 without answer-like example values: shortest complete answer phrase, the exact abstention object, and no explanation when abstaining. Not yet evaluated on a real model. |
+
+A registered text never changes; `tests/test_rag_prompts.py` pins the SHA-256
+of every version, so a wording change requires a new version name. Unknown
+versions are rejected by the config, the adapter, and the identity builder.
 
 Context content is treated as evidence rather than instructions. Separating
 instructions and data is not a guarantee against prompt injection.
-The prompt version should be recorded when run manifests are implemented.
+The prompt version is part of the run identity and manifest.
+
+A candidate `rag-grounded-json-v2` (explicit abstention object, shorter
+answers with an inline example value) was evaluated and not adopted: the
+small test model copied the example value into unrelated answers and began
+answering without evidence. See `validation.md`. Current prompts must not
+contain concrete answer-like example values (tests reject any digit in v1 and
+v3), and prompt tests reject reference answers from the shipped fixtures for
+every registered version.
+
+### Schema-constrained decoding
+
+`structured_output: json_schema` (OpenAI-compatible provider only) adds a
+`response_format` of type `json_schema` with schema `rag-answer-schema-v1`
+(`rag/answer_schema.py`). The schema has two branches: an abstention with an
+empty answer, no citations and `abstained: true`, or a nonblank answer with
+unique nonblank citation IDs and `abstained: false`. A server that enforces
+it cannot produce `abstention_with_content` or `blank_answer`. Citation IDs
+are not restricted to the supplied context, so citation validity still
+measures the model.
+
+Constrained decoding changes what is measured: the model can no longer
+express an inconsistent answer, so it must choose between answering and
+abstaining. Compare constrained and unconstrained runs rather than reading a
+constrained run alone. Servers may ignore `response_format` without
+reporting it; every response is still parsed with the strict parser, and the
+manifest records the requested mode, not proof of enforcement. Inspect
+`invalid_response_reasons` to confirm enforcement on a given endpoint.
 
 ## Provider contract and prepared case execution
 
@@ -288,6 +331,10 @@ temperature zero, and no `credential_env_var`. These constraints mirror the
 adapter: accepting other values would make the manifest misdescribe the
 actual request.
 
+`prompt_version` must name a registered prompt. `structured_output` is
+`none` (default) or `json_schema`; the synthetic provider rejects
+`json_schema` because it generates no model output.
+
 The synthetic provider answers with the first context chunk text and cites
 it, or abstains when context is empty. It reads only the generation request,
 never evaluation labels, and reports no token usage. It validates the
@@ -303,11 +350,13 @@ The manifest records a run fingerprint over:
 | `suite_hash` | Ordered query IDs, texts, answerability, references, and sorted gold IDs. |
 | `retriever_profile_hash` | The complete retriever profile, including embedding model revision and fusion settings. |
 | `context_policy_version` | `whole-chunk-json-chars-v1`. |
-| `prompt_version` | `rag-grounded-json-v1`. |
-| `generation_config_hash` | Provider kind, endpoint alias, model ID, temperature, and `max_tokens`. |
+| `prompt_version` | The selected registered prompt (default `rag-grounded-json-v1`). |
+| `generation_config_hash` | Provider kind, endpoint alias, model ID, temperature, and `max_tokens`; with `json_schema`, also `structured_output` and `answer_schema_version`. |
 | `evaluation_config_hash` | `k` and `max_context_chars`. |
 | `evaluator_version` | `rag-exact-v1`. |
 
+The structured-output fields are added only when enabled, so unconstrained
+runs keep the `generation_config_hash` they had before the option existed.
 The base URL and timeout are operational settings and are not part of the
 identity or manifest. The model ID is the identifier reported to the endpoint;
 it does not pin weights, quantization, or chat template.
@@ -371,6 +420,37 @@ pause is slower than later runs (observed about 40 s versus 12 s).
 
 Real-model observations are recorded in `validation.md`.
 
+### Comparing recorded runs
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.compare_rag_runs `
+  --suite examples/rag/policy_qa_failure_cases.json `
+  --baseline outputs/rag/<baseline_run_id> `
+  --candidate outputs/rag/<candidate_run_id> `
+  --output outputs/rag/<candidate_run_id>/comparison.json
+```
+
+Both runs must be completed, with every scenario row present in order and
+belonging to that run. The suite file must reproduce the runs' `corpus_hash`
+and `suite_hash`. The runs must also agree on `evaluation_config_hash`,
+`evaluator_version`, `context_policy_version`, `k`, and `max_context_chars`.
+`prompt_version`, `generation_config_hash`, and `retriever_profile_hash` may
+differ; the report lists the differing ones as `varied_fields` and states
+when none differ. Nothing is retrieved or generated again.
+
+The report groups query IDs for `answer_exact_match` (answerable cases) and
+`unanswerable_abstention` (unanswerable cases) into `both_correct`,
+`baseline_only`, `candidate_only`, and `both_incorrect`, using the same
+denominators as the summary: a case without an evaluation counts as
+incorrect. `delta` is candidate minus baseline. It also lists
+`status_transitions`, `failure_code_changes`, `context_changed`, and
+`answer_changed` (both parsed answers), plus the recorded summary values of
+both runs. There is no combined score. The output file must not exist; exit
+code 2 reports invalid or incompatible inputs.
+
+For one variable at a time, change only the prompt, only the structured
+output mode, or only the retriever between the two runs.
+
 ## Prepared-context smoke
 
 `scripts/smoke_rag_openai_compatible.py` runs one refund-policy case with
@@ -383,6 +463,9 @@ an unsuccessful smoke, and 2 for invalid provider configuration.
 ```powershell
 .\.venv\Scripts\python.exe scripts/smoke_rag_openai_compatible.py --model "YOUR_MODEL_ID" --max-tokens 256
 ```
+
+`--prompt-version` and `--structured-output` select the same options as the
+run config and are recorded in the report.
 
 This is not a retrieval benchmark. A completed case can fail the smoke:
 for example, `30` omits the unit required by `30 days`. Do not add the
@@ -397,3 +480,54 @@ single example until it passes.
 Use a small QA fixture with explicit reference answers and evidence IDs
 for the first integration run. SciFact retrieval relevance labels alone
 are not reference answers for a QA benchmark.
+
+## API and worker runs
+
+`POST /api/v1/rag-runs` builds a `RagRunConfig` from registrations only:
+
+```text
+rag_run_routes.py
+  -> rag/run_resolution.py   registered endpoint/model/dataset -> RagRunConfig
+                             (suite_path is the opaque upload key; output_dir
+                             is outputs/api/rag; embedding from a named profile)
+  -> rag/run_preflight.py    limits, checksum-verified suite load, embedding
+                             dependency check; rejection creates nothing
+  -> rag/application.py      enqueue: benchmark_runs row, task_type=rag, seed null
+worker.py TaskTypeDispatcher
+  -> rag/application.py      execute_claimed: re-validate config hash and
+                             registrations, verify suite checksum,
+                             execute_rag_benchmark outside any transaction,
+                             rag_case_results in one transaction, final status
+```
+
+Clients cannot set the endpoint URL, model identifier, suite path, output
+directory, embedding model or revision, or `local_files_only`. Endpoints with
+a credential variable, LM Studio native endpoints, and models whose default
+generation config sets a nonzero temperature are rejected (409). Invalid
+setting combinations return 422 `invalid_rag_run_request`; exceeded limits
+return 422 `run_guardrail_violation`; dense or hybrid without the
+`embeddings` extra returns 409 `embeddings_unavailable`.
+
+Embedding profiles live in `configs/api/embedding_profiles.yaml`
+(`LLM_BENCHMARK_EMBEDDING_PROFILES` overrides the path). A profile must pin
+a 40-character revision and may not set `local_files_only: false`. A missing
+file offers no dense/hybrid profiles.
+
+`rag_case_results` stores, per query, answerability, status, failure code,
+retrieved and context chunk IDs, raw response and finish reason, parsed
+answer, evaluation, token counts, and latencies. Context text and reference
+answers are not stored. Artifacts are written as for the CLI under
+`outputs/api/rag/<run_id>/`; database rows and files are not one
+cross-storage transaction. A run whose suite file no longer matches its
+checksum fails without results.
+
+## Future work
+
+- A larger local model with prompt v1, and the v1/v3 by constrained and
+  unconstrained comparison on the shipped fixtures; results belong in
+  `validation.md` before any default changes.
+- Credential support in the RAG HTTP adapter (and then for API RAG runs).
+- Reusing a loaded embedding model across worker runs.
+- Standalone retrieval and local tool-use runs through the API on the same
+  `task_type` infrastructure.
+- Semantic answer matching; exact match remains the only answer metric.

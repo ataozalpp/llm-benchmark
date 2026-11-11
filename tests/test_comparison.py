@@ -530,3 +530,13 @@ def test_module_has_no_sqlalchemy_orm_artifact_or_network_dependency():
     assert "sqlalchemy" not in source.lower()
     assert "requests" not in source and "httpx" not in source
     assert "open(" not in source and "write_" not in source
+
+
+def test_rag_runs_are_rejected_by_multiple_choice_comparison():
+    from llm_benchmark.comparison import IncompatibleRunsError
+    from llm_benchmark.db.models import TaskType
+
+    with pytest.raises(IncompatibleRunsError, match="multiple-choice"):
+        BenchmarkComparisonService._require_completed(
+            run(1, 1, 1, task_type=TaskType.RAG)
+        )

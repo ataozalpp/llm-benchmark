@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from .models import ProviderType, ReasoningPolicy, RunStatus
+from .models import ProviderType, ReasoningPolicy, RunStatus, TaskType
 
 
 class RepositoryRecord(BaseModel):
@@ -59,12 +59,13 @@ class DatasetRecord(RepositoryRecord):
 class BenchmarkRunRecord(RepositoryRecord):
     id: int
     experiment_name: str
+    task_type: TaskType = TaskType.MULTIPLE_CHOICE
     model_id: int
     dataset_id: int
     status: RunStatus
     resolved_config_json: dict[str, Any]
     config_hash: str
-    seed: int
+    seed: int | None
     sample_count: int
     summary_json: dict[str, Any] | None
     artifact_directory: str
@@ -99,6 +100,32 @@ class SampleResultCreate(BaseModel):
 
 
 class SampleResultRecord(SampleResultCreate):
+    model_config = ConfigDict(from_attributes=True, frozen=True)
+
+    id: int
+    run_id: int
+
+
+class RagCaseResultCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    query_id: str
+    answerable: bool
+    status: str
+    failure_code: str | None = None
+    retrieved_chunk_ids: list[str]
+    context_chunk_ids: list[str]
+    raw_response: str | None = None
+    finish_reason: str | None = None
+    parsed_answer: dict[str, Any] | None = None
+    evaluation: dict[str, Any] | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    retrieval_latency_ms: float | None = None
+    generation_latency_ms: float | None = None
+
+
+class RagCaseResultRecord(RagCaseResultCreate):
     model_config = ConfigDict(from_attributes=True, frozen=True)
 
     id: int

@@ -27,9 +27,11 @@ EXPECTED_TABLES = {
     "datasets",
     "benchmark_runs",
     "sample_results",
+    "rag_case_results",
 }
-EXPECTED_REVISION = "20260817_0001"
+EXPECTED_REVISION = "20261110_0002"
 APPLICATION_TABLES_IN_DELETE_ORDER = (
+    "rag_case_results",
     "sample_results",
     "benchmark_runs",
     "models",

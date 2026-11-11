@@ -48,7 +48,7 @@ _UPLOAD_FORM_FIELDS = {
 async def _dataset_upload_form(
     request: Request,
     name: Annotated[str, Form(...)],
-    file_format: Annotated[Literal["csv", "jsonl"], Form(...)],
+    file_format: Annotated[Literal["csv", "jsonl", "rag_json"], Form(...)],
     split: Annotated[str, Form()] = "test",
     revision: Annotated[str | None, Form()] = None,
     license: Annotated[str | None, Form()] = None,

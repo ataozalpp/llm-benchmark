@@ -310,6 +310,10 @@ class BenchmarkComparisonService:
     def _require_completed(run: BenchmarkRunRecord) -> None:
         if run.status.value != "completed":
             raise RunNotCompletedError("Only completed benchmark runs can be compared")
+        if run.task_type.value != "multiple_choice":
+            raise IncompatibleRunsError(
+                "Only multiple-choice runs are supported by this comparison"
+            )
 
 
 def _index_samples(samples: list[SampleResultRecord]) -> dict[str, SampleResultRecord]:

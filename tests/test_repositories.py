@@ -16,13 +16,14 @@ from llm_benchmark.db.errors import (
     RecordNotFoundError,
     UniquenessConflictError,
 )
-from llm_benchmark.db.models import ProviderEndpoint, RunStatus
-from llm_benchmark.db.records import SampleResultCreate
+from llm_benchmark.db.models import ProviderEndpoint, RunStatus, TaskType
+from llm_benchmark.db.records import RagCaseResultCreate, SampleResultCreate
 from llm_benchmark.db.repositories import (
     BenchmarkRunRepository,
     DatasetRepository,
     ModelRepository,
     ProviderEndpointRepository,
+    RagCaseResultRepository,
     SampleResultRepository,
 )
 
@@ -42,6 +43,7 @@ def repositories(tmp_path: Path) -> dict[str, Any]:
         "datasets": DatasetRepository(session_factory),
         "runs": BenchmarkRunRepository(session_factory),
         "samples": SampleResultRepository(session_factory),
+        "rag_cases": RagCaseResultRepository(session_factory),
     }
 
 
@@ -519,3 +521,127 @@ def test_bulk_sample_failure_rolls_back_entire_transaction(
             run.id, [sample("duplicate"), sample("duplicate")]
         )
     assert repositories["samples"].list_by_run_id(run.id) == []
+
+
+def create_rag_run(repositories: dict[str, Any], suffix: str = "-rag") -> Any:
+    _, model, _ = create_dependencies(repositories, suffix)
+    dataset = repositories["datasets"].create(
+        name=f"rag-suite{suffix}",
+        source_type="uploaded",
+        source_uri=f"upload://sha256/{'b' * 64}.json",
+        revision=None,
+        split="test",
+        task_type="rag",
+        adapter_type="rag_suite_json_v1",
+        license=None,
+        checksum=f"sha256:{'b' * 64}",
+    )
+    return repositories["runs"].create_queued(
+        experiment_name="rag",
+        model_id=model.id,
+        dataset_id=dataset.id,
+        resolved_config={"schema_version": 1},
+        config_hash="c" * 64,
+        seed=None,
+        sample_count=2,
+        artifact_directory="outputs/api/rag",
+        task_type="rag",
+    )
+
+
+def rag_case(query_id: str, **changes: Any) -> RagCaseResultCreate:
+    values: dict[str, Any] = {
+        "query_id": query_id,
+        "answerable": True,
+        "status": "completed",
+        "retrieved_chunk_ids": ["a", "b"],
+        "context_chunk_ids": ["a"],
+        "raw_response": '{"answer": "x", "citations": ["a"], "abstained": false}',
+        "finish_reason": "stop",
+        "parsed_answer": {"answer": "x", "citations": ["a"], "abstained": False},
+        "evaluation": {"answer_exact_match": True},
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "retrieval_latency_ms": 1.5,
+        "generation_latency_ms": 20.0,
+    }
+    values.update(changes)
+    return RagCaseResultCreate(**values)
+
+
+def test_runs_default_to_multiple_choice(repositories: dict[str, Any]) -> None:
+    run = create_run(repositories)
+    assert run.task_type is TaskType.MULTIPLE_CHOICE
+    assert run.seed == 42
+
+
+def test_rag_run_has_no_seed_and_persists_case_results(
+    repositories: dict[str, Any],
+) -> None:
+    run = create_rag_run(repositories)
+    assert run.task_type is TaskType.RAG
+    assert run.seed is None
+
+    stored = repositories["rag_cases"].add_many(
+        run.id,
+        [
+            rag_case("q1"),
+            rag_case(
+                "q2",
+                answerable=False,
+                status="invalid_response",
+                failure_code="abstention_with_content",
+                parsed_answer=None,
+                evaluation=None,
+            ),
+        ],
+    )
+    assert [item.query_id for item in stored] == ["q1", "q2"]
+    listed = repositories["rag_cases"].list_by_run_id(run.id)
+    assert listed == stored
+    assert listed[0].context_chunk_ids == ["a"]
+    assert listed[1].failure_code == "abstention_with_content"
+
+
+def test_rag_case_results_are_atomic_and_unique(repositories: dict[str, Any]) -> None:
+    run = create_rag_run(repositories)
+    with pytest.raises(UniquenessConflictError):
+        repositories["rag_cases"].add_many(run.id, [rag_case("q1"), rag_case("q1")])
+    assert repositories["rag_cases"].list_by_run_id(run.id) == []
+
+
+def test_rag_case_results_require_a_rag_run(repositories: dict[str, Any]) -> None:
+    run = create_run(repositories)
+    with pytest.raises(ValueError, match="RAG run"):
+        repositories["rag_cases"].add_many(run.id, [rag_case("q1")])
+
+
+def test_run_task_type_must_match_dataset(repositories: dict[str, Any]) -> None:
+    _, model, dataset = create_dependencies(repositories)
+    with pytest.raises(ValueError, match="does not match"):
+        repositories["runs"].create_queued(
+            experiment_name="mismatch",
+            model_id=model.id,
+            dataset_id=dataset.id,
+            resolved_config={},
+            config_hash="d" * 64,
+            seed=None,
+            sample_count=1,
+            artifact_directory="outputs",
+            task_type="rag",
+        )
+
+
+def test_multiple_choice_runs_require_a_seed(repositories: dict[str, Any]) -> None:
+    _, model, dataset = create_dependencies(repositories)
+    with pytest.raises(ValueError, match="require a seed"):
+        repositories["runs"].create_queued(
+            experiment_name="no-seed",
+            model_id=model.id,
+            dataset_id=dataset.id,
+            resolved_config={},
+            config_hash="e" * 64,
+            seed=None,
+            sample_count=1,
+            artifact_directory="outputs",
+        )

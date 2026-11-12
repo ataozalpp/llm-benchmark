@@ -70,6 +70,15 @@ Cross-cutting conventions to preserve:
 - **Secrets.** Only credential *environment-variable names* are stored or registered; never commit real `model_id`/credential replacements into the opt-in configs.
 - `MockProvider` / synthetic provider outputs are pipeline validation only, never model-quality claims; the same caveat applies when writing docs or summaries.
 
+## Workflow
+
+Full plan and phase status: `docs/roadmap.md`.
+
+- One roadmap step = one branch from `main` (`feature/…`, `chore/…`, `release/…`) = one PR, squash-merged.
+- Claude codes, tests, commits, and pushes (announce before pushing; `gh` is not installed). The maintainer opens the PR on GitHub web and merges. After a push, give the compare link `https://github.com/ataozalpp/llm-benchmark/compare/main...<branch>?expand=1`, a PR title, and a description with the checklist from `docs/roadmap.md`.
+- CI (`.github/workflows/ci.yml`: ruff + offline pytest) is the merge gate; migrations additionally need local PostgreSQL tests, API/worker changes a Docker Compose smoke.
+- After merge: `git switch main && git pull`, then `git branch -D <branch>` (squash makes `-d` refuse).
+
 ## Docs
 
-`docs/architecture.md` (component table, lifecycles, package boundaries), `docs/rag.md`, `docs/retrieval.md`, `docs/mcp.md`, `docs/validation.md` (recorded test counts and calibration runs), `docs/assumptions.md`. Behavior changes are expected to be reflected in these docs.
+`docs/architecture.md` (component table, lifecycles, package boundaries), `docs/rag.md`, `docs/retrieval.md`, `docs/mcp.md`, `docs/validation.md` (recorded test counts and calibration runs), `docs/assumptions.md`, `docs/roadmap.md` (plan and Git workflow). Behavior changes are expected to be reflected in these docs.

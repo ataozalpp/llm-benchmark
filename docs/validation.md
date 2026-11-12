@@ -2570,6 +2570,25 @@ Run against the Compose `postgres:16` service before merging
 Not covered: the embeddings Docker image, dense or hybrid runs with a real
 embedding model, and real-model RAG generation.
 
+## CI checkpoint (2026-11-11)
+
+GitHub Actions CI (`.github/workflows/ci.yml`) was added: Python 3.12,
+`pip install -e ".[dev]"` without optional extras, offline Hugging Face
+environment, `ruff check .`, and `pytest -q`.
+
+- Local suite with all extras installed: **2701 passed, 12 skipped in 118.11
+  seconds** (seven skips need `LLM_BENCHMARK_MCP_PYTHON`, five need
+  `LLM_BENCHMARK_TEST_POSTGRES_URL`).
+- Fresh venv with only the `dev` extra, matching CI: **2668 passed, 45 skipped
+  in 98.94 seconds**; the extra skips are MCP-SDK tests guarded by
+  `importorskip("mcp")`. Ruff passed.
+
+The first CI run failed at collection: plain `pytest` (unlike `python -m
+pytest`) does not put the repository root on `sys.path`, so tests importing
+`scripts.*` raised `ModuleNotFoundError`. `pythonpath = ["."]` was added to the
+pytest configuration. Re-run in a `python:3.12-slim` Linux container with plain
+`pytest -q`: **2668 passed, 45 skipped in 87.92 seconds**; ruff passed.
+
 ## Licensing note
 
 No project license has been selected yet. MMLU-Pro attribution and its dataset

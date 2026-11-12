@@ -47,6 +47,9 @@ packages = ["src/llm_benchmark"]
 [tool.pytest.ini_options]
 addopts = "-ra"
 testpaths = ["tests"]
+# Tests import `scripts.*`; plain `pytest` (unlike `python -m pytest`) does not
+# put the repository root on sys.path.
+pythonpath = ["."]
 markers = [
   "network: requires network access and Hugging Face",
   "postgres: requires an explicitly configured PostgreSQL test database",

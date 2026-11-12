@@ -2583,6 +2583,12 @@ environment, `ruff check .`, and `pytest -q`.
   in 98.94 seconds**; the extra skips are MCP-SDK tests guarded by
   `importorskip("mcp")`. Ruff passed.
 
+The first CI run failed at collection: plain `pytest` (unlike `python -m
+pytest`) does not put the repository root on `sys.path`, so tests importing
+`scripts.*` raised `ModuleNotFoundError`. `pythonpath = ["."]` was added to the
+pytest configuration. Re-run in a `python:3.12-slim` Linux container with plain
+`pytest -q`: **2668 passed, 45 skipped in 87.92 seconds**; ruff passed.
+
 ## Licensing note
 
 No project license has been selected yet. MMLU-Pro attribution and its dataset

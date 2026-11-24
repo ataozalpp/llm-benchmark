@@ -28,3 +28,4 @@ embedding:
 hybrid:
   candidate_k: 5
   rank_constant: 60
+  

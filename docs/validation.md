@@ -4,6 +4,110 @@ This document summarizes completed software and local operational validation.
 The real-model results are small diagnostic smoke runs, not statistically
 sufficient model benchmarks.
 
+## Real-model trajectory smoke (2026-11-26)
+
+Three user-executed LM Studio runs of `example-tools-v2` were reviewed from
+their manifests, summaries, and per-case results. Dates below use
+Europe/Istanbul; artifact timestamps use UTC and also fall on 2026-11-26. The
+current checkout is based on `2ee4722`; the artifacts do not record a Git
+revision, so this is not independently verified run provenance.
+
+The configuration was an untracked local copy of
+`configs/tool_trajectory_openai_compatible_smoke.yaml`. It selects
+`qwen3.5-0.8b`, OpenAI-compatible inference, temperature 0, a 2,048-token
+output budget, a 30-second provider timeout, and a 60-second scenario budget.
+The recorded `config_hash` (`23dad56d…`) was recomputed from that local file
+and matches; the timeout and scenario budget are therefore taken from the hash
+check, and every manifest also records `max_wall_time_seconds: 60.0` in each
+loop policy. All three artifacts share the same config, suite
+(`de304d20…`), catalog (`9b4bf749…`), and run (`f6eb0c9e…`) fingerprints. These
+fingerprints do not capture LM Studio version, model-file
+revision/quantization, context length, or server-side thinking settings; those
+settings were not independently verified.
+
+| Run ID | Manifest | Cases completed | Trajectory match | Execution interval |
+| --- | --- | ---: | ---: | ---: |
+| `87b855b7654142128e8ff99f7ecc2f3e` | completed | 4/5 | 4/5 | 32.671 s |
+| `827d9ffe73d84d278dfba2c5bdf3c5aa` | completed | 4/5 | 4/5 | 17.422 s |
+| `1f9d7e439c5d46369cb9f7597f2df3ae` | completed | 4/5 | 4/5 | 18.359 s |
+
+Every run used the `local` runtime (`local-tool-v1`), evaluator
+`tool-trajectory-v1`, artifact schema version 2, and `synthetic: false`, and
+wrote 5 result and 36 trace records. Per-case outcomes were identical in all
+three runs:
+
+| Case | Necessity | Stop reason | Calls requested/executed | Outcome |
+| --- | --- | --- | ---: | --- |
+| `calculator-multiply` | required | final_response | 1/1 | matched, final `391` matched |
+| `direct-answer` | not_needed | provider_turn_limit | 1/0 | `unnecessary_tool_call` |
+| `calculator-add-commutative` | required | final_response | 1/1 | matched trajectory 0 of 2, final `40` matched |
+| `no-tool-arithmetic` | not_needed | final_response | 0/0 | matched, final `13` matched |
+| `two-step` | required | final_response | 2/2 | matched trajectory 0 of 4, final `50` matched |
+
+The `direct-answer` case requested a tool despite the instruction to return
+`READY` without tools. Its single provider turn was exhausted, so the loop
+stopped before executing that request. This is an evaluated behavior failure,
+not a failed runtime or incomplete run lifecycle.
+
+Each run recorded completion 4/5, trajectory match 4/5, tool-sequence match
+4/5, conditional argument match 4/4 (1 unavailable), conditional final-answer
+match 4/4 (1 unavailable), and all-case final-answer accuracy 4/5.
+`tool_use_when_required` was 3/3 and `tool_abstention_when_not_needed` 1/2.
+Trajectory errors were `unnecessary_tool_call` 1/5 and 0/5 for `wrong_tool`,
+`missing_tool_call`, `extra_tool_call`, `invalid_arguments`, `wrong_order`, and
+`incomplete_trajectory`. Requested/executed/successful tool-call counts were
+5/4/4; stop reasons were `final_response` 4 and `provider_turn_limit` 1. Token
+coverage was 9/9 model turns: 4,241 input, 280 output, and 4,521 total tokens
+per run. The endpoint reported zero reasoning tokens for every turn; this does
+not independently establish the server's reasoning configuration.
+
+The execution interval is the summary `wall_time_ms`. The first run's longer
+interval comes mostly from its first model turn (18.93 s, against 3.56 s and
+3.81 s for the same turn in the later runs); timing differences do not
+establish a cold-start cause. Raw arguments for the unexecuted call are absent
+from the artifacts.
+
+Compared with the October MCP repeats:
+
+- **Same:** model, temperature, 2,048-token output budget; the `direct-answer`
+  case again requested a tool and stopped at `provider_turn_limit` without
+  execution; `calculator-multiply` again made one successful call and matched
+  on the second turn; zero reported reasoning tokens; identical outcomes across
+  three repeats.
+- **Different:** `local` runtime instead of `mcp_stdio`; `example-tools-v2`
+  (five cases) instead of two; evaluator `tool-trajectory-v1` with necessity
+  metrics and the error taxonomy; 30-second provider timeout and 60-second
+  scenario budget instead of 120 and 300 seconds. Fingerprints are therefore
+  not comparable across the two sets, and the October token totals are not
+  a baseline for these runs.
+
+Limitations:
+
+- Both `not_needed` cases contain an explicit instruction not to use tools
+  (`Do not use any tools.`, `Without using any tools`). The abstention metric
+  here measures compliance with that instruction, not an autonomous decision
+  about whether a tool is necessary.
+- Three repeats of five scenarios are diagnostic evidence, not a statistically
+  sufficient model-quality study. Identical repeats at temperature 0 do not
+  show that the result is stable under other settings.
+- LM Studio version and thinking/reasoning settings are not in any
+  fingerprint.
+- The local config differs from the tracked opt-in file in `model_id` and in
+  the output budget (2,048 instead of 512 tokens); the provider timeout and
+  scenario budget are the same as the tracked file. The budgets did not
+  determine these outcomes: all three runs recorded `wall_time_limit` 0 and
+  `provider_failed` 0, the longest single model turn was 18.93 s (under the
+  30-second timeout), every turn reported zero reasoning tokens, and no turn
+  produced more than 62 output tokens, far below both the 2,048-token budget
+  used and the tracked file's 512.
+- Open question: these artifacts cannot separate why `direct-answer` requested
+  a tool while `no-tool-arithmetic` did not; no cause is claimed.
+- The result is specific to this model/server/configuration setup; it does not
+  isolate model weights from chat-template or serving behavior.
+
+Run artifacts remain ignored by Git. No scenario limits or expected outcomes
+were relaxed to make the model pass.
+
 ## Trajectory-evaluation checkpoint (2026-11-26)
 
 `feature/trajectory-evaluation` (roadmap 2.2) adds `tool_necessity`, multiple

@@ -19,11 +19,11 @@ Releases so far: `v0.2.0` (RAG evaluation through the API and worker).
 |---|---|---|
 | 0 Baseline | Done | Offline suite, PostgreSQL and Docker smoke recorded in [Validation](validation.md) |
 | 1 Task adapter | Done | `task_adapters.py` (`MultipleChoiceTaskAdapter`) |
-| 2 Execution trace | Partial | `trace.py` covers MCQ events only; RAG has no trace; tool runs use a separate format |
+| 2 Execution trace | Partial | Shared event types (`retrieval_query`, `retrieval_result`, `tool_call`, `tool_result`, `final_answer`) in `trace.py` and the writer in `trace_storage.py` are on `main`; RAG runs do not write `trace.jsonl` yet and tool runs still use their own trace format |
 | 3 Tool runtime | Done | `tool_use/runtime.py`, `builtin_tools.py` |
 | 4 Tool-call normalization | Done | `tool_use/calling.py`, `generate_tool_turn()` |
 | 5 Bounded loop | Done | `tool_use/loop.py` |
-| 6 Tool/trajectory evaluation | Done | `tool_use/evaluation.py`: `tool_necessity`, multiple accepted trajectories, single-label error taxonomy, explicit denominators (`tool-trajectory-v1`) |
+| 6 Tool/trajectory evaluation | Done | `tool_use/evaluation.py`: `tool_necessity`, multiple accepted trajectories, single-label error taxonomy, explicit denominators (`tool-trajectory-v1`); real-model smoke in [Validation](validation.md#real-model-trajectory-smoke-2026-11-26) |
 | 7 MCP client | Done | `mcp_integration/` (stdio, separate venv) |
 | 8 Retrieval | Partial | keyword/BM25/dense/hybrid + SciFact; project corpus is small |
 | 9 RAG generation | Partial | Deterministic metrics, prompt registry, constrained decoding; no judge |

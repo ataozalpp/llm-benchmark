@@ -6,7 +6,12 @@ from llm_benchmark.config import ModelConfig
 from llm_benchmark.tool_use.builtin_tools import create_example_tool_registry
 from llm_benchmark.tool_use.conversation import UserMessage
 from llm_benchmark.tool_use.descriptors import descriptor_from_registration
-from llm_benchmark.tool_use.evaluation import ExpectedToolCall, ToolEvaluationCase
+from llm_benchmark.tool_use.evaluation import (
+    ExpectedToolCall,
+    ExpectedTrajectory,
+    ToolEvaluationCase,
+    ToolNecessity,
+)
 from llm_benchmark.tool_use.requests import build_openai_tool_conversation_payload
 from llm_benchmark.tool_use.runtime import ToolRegistry, ToolRuntime
 from llm_benchmark.tool_use.scenario_requests import (
@@ -93,10 +98,23 @@ def test_descriptor_gold_separation_payload_parity_and_mutation():
         original,
         evaluation=ToolEvaluationCase(
             case_id="PRIVATE_CASE",
-            expected_calls=(
-                ExpectedToolCall(
-                    tool_name="calculator",
-                    arguments={"private": "PRIVATE_ARGUMENT"},
+            tool_necessity=ToolNecessity.REQUIRED,
+            accepted_trajectories=(
+                ExpectedTrajectory(
+                    (
+                        ExpectedToolCall(
+                            tool_name="calculator",
+                            arguments={"private": "PRIVATE_ARGUMENT"},
+                        ),
+                    )
+                ),
+                ExpectedTrajectory(
+                    (
+                        ExpectedToolCall(
+                            tool_name="calculator",
+                            arguments={"private": "PRIVATE_ALTERNATIVE"},
+                        ),
+                    )
                 ),
             ),
             expected_final_text="PRIVATE_ANSWER",
@@ -149,7 +167,8 @@ def test_expectation_changes_do_not_change_provider_messages() -> None:
         original,
         evaluation=ToolEvaluationCase(
             case_id="different-case",
-            expected_calls=(),
+            tool_necessity=ToolNecessity.NOT_NEEDED,
+            accepted_trajectories=(ExpectedTrajectory(()),),
             expected_final_text="PRIVATE_EXPECTED_SENTINEL",
         ),
     )
@@ -234,10 +253,23 @@ def test_gold_arguments_and_answer_do_not_enter_serialized_payload() -> None:
         original,
         evaluation=ToolEvaluationCase(
             case_id="PRIVATE_CASE_SENTINEL",
-            expected_calls=(
-                ExpectedToolCall(
-                    tool_name="calculator",
-                    arguments={"gold": "PRIVATE_ARGUMENT_SENTINEL"},
+            tool_necessity=ToolNecessity.REQUIRED,
+            accepted_trajectories=(
+                ExpectedTrajectory(
+                    (
+                        ExpectedToolCall(
+                            tool_name="calculator",
+                            arguments={"gold": "PRIVATE_ARGUMENT_SENTINEL"},
+                        ),
+                    )
+                ),
+                ExpectedTrajectory(
+                    (
+                        ExpectedToolCall(
+                            tool_name="calculator",
+                            arguments={"gold": "PRIVATE_ALTERNATIVE_SENTINEL"},
+                        ),
+                    )
                 ),
             ),
             expected_final_text="PRIVATE_ANSWER_SENTINEL",
@@ -260,6 +292,7 @@ def test_gold_arguments_and_answer_do_not_enter_serialized_payload() -> None:
     for sentinel in (
         "PRIVATE_CASE_SENTINEL",
         "PRIVATE_ARGUMENT_SENTINEL",
+        "PRIVATE_ALTERNATIVE_SENTINEL",
         "PRIVATE_ANSWER_SENTINEL",
     ):
         assert sentinel not in str(payloads[1])

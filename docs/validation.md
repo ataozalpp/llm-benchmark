@@ -4,6 +4,26 @@ This document summarizes completed software and local operational validation.
 The real-model results are small diagnostic smoke runs, not statistically
 sufficient model benchmarks.
 
+## Trajectory-evaluation checkpoint (2026-11-26)
+
+`feature/trajectory-evaluation` (roadmap 2.2) adds `tool_necessity`, multiple
+accepted trajectories, the single-label trajectory error taxonomy, and the
+necessity metrics; the evaluator version is now `tool-trajectory-v1`. See
+[Tool-loop evaluation](architecture.md#tool-loop-evaluation).
+
+- Focused selection (`test_tool_evaluation`, `test_tool_reporting`,
+  `test_tool_scenarios`, `test_tool_scenario_requests`, `test_tool_suite`,
+  `test_tool_run_service`): **346 passed**.
+- Full forced-offline regression without the MCP server or PostgreSQL test URL:
+  **2780 passed, 12 skipped**. Ruff passed; `git diff --check` passed (Git
+  emitted only line-ending conversion warnings).
+- Synthetic CLI runs: `tool_mock_smoke.yaml` (`example-tools-v1`) completed
+  2/2 cases; `tool_trajectory_mock_smoke.yaml` (`example-tools-v2`) completed
+  5/5 cases with `tool_use_when_required` 3/3, `tool_abstention_when_not_needed`
+  2/2, and every trajectory error category at 0/5. These show that the pipeline
+  works. They say nothing about model quality.
+- No real-model or MCP-server runs were made for this step.
+
 ## Package-layout refactor checkpoint (2026-10-15)
 
 The working tree on `refactor/packages-layout` was validated after moving tool

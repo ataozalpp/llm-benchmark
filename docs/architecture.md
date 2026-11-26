@@ -594,10 +594,20 @@ defined before evaluation, not inferred from observed calls.
 
 `ExpectedToolCall` reuses `ToolCall` for name validation and strict immutable
 JSON snapshots. Its internal fixed ID is an implementation detail, never a
-provider request or matching criterion. The frozen `ToolEvaluationCase` holds
-a non-blank UTF-8 case ID, an ordered tuple of expectations (possibly empty),
-and non-blank UTF-8 expected final text. Returned argument copies do not mutate
-the stored expectation.
+provider request or matching criterion. An `ExpectedTrajectory` is one ordered
+tuple of expected calls (possibly empty). The frozen `ToolEvaluationCase` holds:
+
+| Field | Contract |
+| --- | --- |
+| `case_id` | Non-blank UTF-8 string |
+| `tool_necessity` | `required` (a correct answer needs at least one call) or `not_needed` (the correct behavior is to answer without tools) |
+| `accepted_trajectories` | Non-empty tuple of unique trajectories (name plus strict-JSON argument equality). `not_needed` accepts exactly the empty trajectory; `required` accepts only non-empty ones |
+| `expected_final_text` | Non-blank UTF-8 string |
+
+Each accepted trajectory is ordered. Order-insensitive matching is not
+supported: an alternative order or argument order is listed as its own
+trajectory (for example `add(17, 23)` and `add(23, 17)`). Returned argument
+copies do not mutate the stored expectation.
 
 Requested calls are collected in order from successful normalized turns in
 the current invocation's `provider_results`, not from runtime results or the
@@ -605,14 +615,24 @@ whole conversation. Calls rejected later by loop authorization, budget, or
 history checks still count as requested. Malformed provider responses are not
 re-parsed. Calls from supplied prior conversation history are not counted.
 
+Matching: the requested name sequence is compared with each accepted trajectory.
+Among name-matching trajectories, the first whose arguments are also strictly
+equal is selected. If none has equal arguments, the first name-matching
+trajectory is selected with `arguments_match=false`. If no trajectory matches
+by name, the index and `arguments_match` are null.
+
 The frozen `ToolEvaluationResult` exposes independent measurements:
 
 | Field | Meaning |
 | --- | --- |
 | `completed` | Stop reason is `final_response`; not proof of task correctness |
-| `tool_sequence_match` | Tool names, count, and order match exactly; call IDs are ignored |
-| `arguments_match` | Type-sensitive recursive JSON equality when the tool sequence matches; otherwise null |
+| `tool_sequence_match` | Tool names, count, and order equal those of at least one accepted trajectory; call IDs are ignored |
+| `arguments_match` | Type-sensitive recursive JSON equality against the selected trajectory when the sequence matches; otherwise null |
 | `final_answer_match` | Exact final-text equality when completed; otherwise null |
+| `tool_necessity` | Copied from the case |
+| `accepted_trajectory_count` | Number of accepted trajectories in the case |
+| `matched_trajectory_index` | Zero-based index of the selected trajectory; null exactly when the sequence does not match |
+| `trajectory_error` | One `TrajectoryErrorCategory` or null; null exactly when sequence and arguments both match |
 | `requested_tool_call_count` | Number of calls in successful normalized provider turns |
 | `executed_tool_call_count` | Number of runtime results, including rejected arguments and handler failures; not the number of handler invocations |
 | `successful_tool_call_count` | Number of runtime results with status `succeeded` |
@@ -624,35 +644,74 @@ not trimmed, case-folded, or semantically interpreted. Empty expected and
 requested sequences match, with `arguments_match=true`. Null means the
 comparison is inapplicable, not a successful match or a false match.
 
-Result construction checks strict boolean/count types, count ordering,
-completion/stop-reason agreement, and nullable-match consistency. Setup or
-contract errors raise exceptions rather than becoming model-quality failures.
-The evaluator expects coherent loop-produced results; it is not a complete
-auditor for arbitrarily constructed histories. Hidden repr fields are not
-general secret redaction, and case IDs must be chosen appropriately by callers.
+### Trajectory error taxonomy
 
-There is no combined task-success score, alternative valid call-plan matching,
-semantic judge, or token/latency aggregation here. Multi-case aggregation is
-provided separately by the suite/reporting boundary below.
+Every case receives at most one label. Rules are applied in this fixed order
+and the first applicable one wins, so label counts plus correct trajectories
+always equal the case count. `C` is the requested name sequence and `T` is any
+accepted trajectory's name sequence:
+
+| Order | Category | Condition |
+| --- | --- | --- |
+| — | null | `C` matches some `T` and its arguments are equal |
+| 1 | `unnecessary_tool_call` | `not_needed` and at least one call was requested |
+| 2 | `invalid_arguments` | `C` matches some `T` by name, but no name-matching trajectory has equal arguments |
+| 3 | `missing_tool_call` | `C` is a strict prefix of some `T` (including empty) and the loop completed |
+| 4 | `incomplete_trajectory` | `C` is a strict prefix of some `T` and the loop did not complete (provider failure, limit, deadline) |
+| 5 | `extra_tool_call` | Some `T` is a strict prefix of `C` (the expected calls were made, then more) |
+| 6 | `wrong_order` | `C` has the same multiset of names as some `T` in a different order |
+| 7 | `wrong_tool` | Anything else, including tools that are not selected |
+
+`invalid_arguments` means disagreement with the expected arguments. A runtime
+schema rejection (`ToolExecutionStatus.INVALID_ARGUMENTS`) is a separate
+observation that stays in `tool_outcomes` of `results.jsonl`; a call can match
+the expected arguments and still fail at runtime, or the reverse. Provider and
+loop failures are not taxonomy labels: they remain in `stop_reason` and the
+stop-reason distribution. The taxonomy classifies only the observed trajectory.
+
+Result construction checks strict boolean/count/enum types, count ordering,
+completion/stop-reason agreement, nullable-match consistency, and the
+trajectory contracts above (index range, label/necessity agreement, and
+label/match agreement). Setup or contract errors raise exceptions rather than
+becoming model-quality failures. The evaluator expects coherent loop-produced
+results; it is not a complete auditor for arbitrarily constructed histories.
+Hidden repr fields are not general secret redaction, and case IDs must be chosen
+appropriately by callers.
+
+There is no combined task-success score, partial-order or set-based trajectory
+matching, semantic judge, or token/latency aggregation here. Multi-case
+aggregation is provided separately by the suite/reporting boundary below.
 Correct final text and matching arguments can coexist with failed runtime
-calls; consumers must interpret the separate measurements. This boundary adds
-no CLI/runner/API/worker/trace/artifact/database integration and makes no
+calls; consumers must interpret the separate measurements. This module makes no
 real-model quality or interoperability claim.
 
 ## Tool-evaluation suites
 
 `ToolScenario` combines non-blank UTF-8 user text, unique selected tool names,
 a `ToolLoopPolicy`, and a `ToolEvaluationCase`. Its case ID comes from the
-evaluation. Expected calls must refer to selected tools, but registration
+evaluation. Every call in every accepted trajectory must refer to a selected
+tool and every trajectory must fit `policy.max_tool_calls`; registration
 membership is checked later. Selection must be non-empty under the current
-request contract, even when the expected call sequence is empty. The fresh
-example factory provides calculator multiplication and a direct-answer case
-where a calculator is available but should not be used.
+request contract, even for `not_needed` cases.
+
+`create_example_tool_scenarios(suite)` returns fresh code-defined suites
+(there is no scenario-file loader):
+
+| Suite | Cases |
+| --- | --- |
+| `example-tools-v1` (default) | `calculator-multiply` (required, one trajectory), `direct-answer` (not needed) |
+| `example-tools-v2` | The v1 cases plus `calculator-add-commutative` (required, two argument orders), `no-tool-arithmetic` (not needed, calculator available), and `two-step` (required, multiply then add, four accepted argument orders) |
+
+All example cases select only `calculator`, so the MCP calculator profile can
+run both suites. The synthetic `DemoToolProvider` answers every case correctly
+and deliberately uses the second accepted order for the add case; it is a
+pipeline fixture, not a quality measurement.
 
 `build_tool_scenario_request()` resolves only selected registrations, preserving
 their order, and creates a fresh conversation containing the user text. It does
-not execute handlers or providers. Expected calls, gold arguments, and expected
-final text are not copied from evaluation fields into provider requests. This
+not execute handlers or providers. Accepted trajectories, gold arguments, tool
+necessity, and expected final text are not copied from evaluation fields into
+provider requests. This
 is structural separation, not a content filter for caller-supplied user text.
 
 `build_descriptor_scenario_request()` performs the equivalent selection from
@@ -696,12 +755,22 @@ from those evaluations rather than stored as separately mutable state.
 `aggregate_tool_evaluations()` is pure and rejects empty input and duplicate
 case IDs. Summary measurements remain separate:
 
-| Measurement | Denominator |
-| --- | --- |
-| Completion | All cases |
-| Tool-sequence match | All cases |
-| Argument match | Cases with matching tool sequences |
-| Final-answer match | Completed cases |
+| Measurement | Numerator | Denominator |
+| --- | --- | --- |
+| `completion` | Completed cases | All cases |
+| `tool_sequence_match` | Cases whose names match any accepted trajectory | All cases |
+| `argument_match` | Cases with `arguments_match=true` | Cases with matching tool sequences |
+| `trajectory_match` | Cases with no trajectory error | All cases |
+| `final_answer_match` | Exact final-text matches | Completed cases |
+| `tool_use_when_required` | `required` cases with at least one requested call | `required` cases |
+| `tool_abstention_when_not_needed` | `not_needed` cases with no requested call | `not_needed` cases |
+| `trajectory_error_counts` | Cases per category, every category once in enum order | All cases |
+
+Summary construction enforces: error counts plus `trajectory_match` equal the
+case count; `trajectory_match` equals the argument-match numerator;
+`unnecessary_tool_call` equals non-abstaining `not_needed` cases;
+`invalid_arguments` equals argument mismatches; and the two necessity
+denominators sum to the case count.
 
 Each metric retains numerator and denominator. A zero denominator produces a
 null rate, not zero accuracy. Argument/final unavailable counts preserve
@@ -1117,8 +1186,24 @@ The pre-MCP tool CLI now provides `tool-run --config ...` through the separate
 pure evaluator boundary while writing versioned per-case results and incremental
 metadata-only traces. Atomic manifest/summary replacement and fsynced JSONL
 records retain completed cases after ordinary execution failures; this is not
-process recovery or cross-storage atomicity. Tool artifacts use their own v1
+process recovery or cross-storage atomicity. Tool artifacts use their own
 schema; existing MCQ trace/config artifacts are unchanged.
+
+Tool run identity constants live in `tool_use/identity.py`:
+
+| Constant | Value | Previous |
+| --- | --- | --- |
+| `TOOL_EVALUATOR_VERSION` (manifest `evaluator_version`) | `tool-trajectory-v1` | `tool-exact-v1` |
+| `TOOL_ARTIFACT_SCHEMA_VERSION` (manifest `artifact_schema_version`) | `2` | `1` |
+| `TOOL_RESULT_ROW_SCHEMA_VERSION` (`results.jsonl` `schema_version`) | `2` | `1` |
+
+The suite snapshot behind `suite_hash` records `tool_necessity` and
+`accepted_trajectories` instead of `expected_calls`, so `suite_hash` changed
+for `example-tools-v1` as well. Runs recorded before and after the bump are not
+comparable (`run_fingerprint` differs). The `config_hash` of existing configs is
+unchanged, and `trace.jsonl` rows keep `schema_version: 1`. `summary.json`
+reports `rate` for every metric and `trajectory_error_counts` as
+`{category: {count, denominator, rate}}`.
 
 An optional cooperative scenario deadline produces `wall_time_limit` and prevents
 further calls once observed. The OpenAI-compatible provider accepts the remaining

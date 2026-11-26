@@ -32,10 +32,14 @@ boundaries. Existing CLI and demo commands are unchanged.
   incremental metadata-only traces and case results, and explicit conditional
   versus all-case final accuracy. Scenario wall-time budgets are cooperative;
   OpenAI-compatible transport timeouts are clamped to the remaining budget.
-  This path does not use the MCQ API/worker.
+  This path does not use the MCQ API/worker. Trajectory evaluation
+  (`tool-trajectory-v1`) adds no-tool cases, multiple accepted trajectories, and
+  a single-label error taxonomy with explicit denominators; `example-tools-v2`
+  exercises them.
 
   ```powershell
   python -m llm_benchmark tool-run --config configs/tool_mock_smoke.yaml
+  python -m llm_benchmark tool-run --config configs/tool_trajectory_mock_smoke.yaml
   ```
 
   After setting up the separate server environment, run the synthetic MCP profile

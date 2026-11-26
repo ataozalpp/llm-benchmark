@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from llm_benchmark.tool_use.evaluation import ToolEvaluationResult
+from llm_benchmark.tool_use.evaluation import (
+    ToolEvaluationResult,
+    ToolNecessity,
+    TrajectoryErrorCategory,
+)
 from llm_benchmark.tool_use.loop import ToolLoopStopReason
 
 
@@ -43,6 +47,19 @@ class StopReasonCount:
 
 
 @dataclass(frozen=True)
+class TrajectoryErrorCount:
+    category: TrajectoryErrorCategory
+    count: int
+
+    def __post_init__(self) -> None:
+        if type(self.category) is not TrajectoryErrorCategory:
+            raise TypeError("Invalid trajectory error category.")
+
+        if type(self.count) is not int or self.count < 0:
+            raise ValueError("Trajectory error count must be a non negative integer.")
+
+
+@dataclass(frozen=True)
 class ToolEvaluationSummary:
     case_count: int
 
@@ -50,6 +67,10 @@ class ToolEvaluationSummary:
     tool_sequence_match: MetricCount
     argument_match: MetricCount
     final_answer_match: MetricCount
+
+    trajectory_match: MetricCount
+    tool_use_when_required: MetricCount
+    tool_abstention_when_not_needed: MetricCount
 
     argument_unavailable_count: int
     final_unavailable_count: int
@@ -59,6 +80,7 @@ class ToolEvaluationSummary:
     successful_call_count: int
 
     stop_reason_counts: tuple[StopReasonCount, ...]
+    trajectory_error_counts: tuple[TrajectoryErrorCount, ...]
 
     def __post_init__(self) -> None:
         if type(self.case_count) is not int or self.case_count <= 0:
@@ -69,6 +91,9 @@ class ToolEvaluationSummary:
             self.tool_sequence_match,
             self.argument_match,
             self.final_answer_match,
+            self.trajectory_match,
+            self.tool_use_when_required,
+            self.tool_abstention_when_not_needed,
         ):
             if type(metric) is not MetricCount:
                 raise TypeError("Expected a MetricCount.")
@@ -140,6 +165,53 @@ class ToolEvaluationSummary:
         if final_count != self.completion.numerator:
             raise ValueError("Final response count must match completion count.")
 
+        self._validate_trajectory_metrics()
+
+    def _validate_trajectory_metrics(self) -> None:
+        if self.trajectory_match.denominator != self.case_count:
+            raise ValueError("Invalid trajectory match denominator.")
+
+        if self.trajectory_match.numerator != self.argument_match.numerator:
+            raise ValueError("Trajectory matches must equal argument matches.")
+
+        if (
+            self.tool_use_when_required.denominator
+            + self.tool_abstention_when_not_needed.denominator
+            != self.case_count
+        ):
+            raise ValueError("Tool necessity coverage is inconsistent.")
+
+        if type(self.trajectory_error_counts) is not tuple:
+            raise TypeError("Trajectory error counts must be a tuple.")
+
+        if any(
+            type(item) is not TrajectoryErrorCount
+            for item in self.trajectory_error_counts
+        ):
+            raise TypeError("Invalid trajectory error entry.")
+
+        actual = tuple(item.category for item in self.trajectory_error_counts)
+        if actual != tuple(TrajectoryErrorCategory):
+            raise ValueError("Trajectory errors must occur once in canonical order.")
+
+        errors = {item.category: item.count for item in self.trajectory_error_counts}
+
+        if sum(errors.values()) + self.trajectory_match.numerator != self.case_count:
+            raise ValueError("Trajectory error total is inconsistent.")
+
+        not_needed = self.tool_abstention_when_not_needed
+        if (
+            errors[TrajectoryErrorCategory.UNNECESSARY_TOOL_CALL]
+            != not_needed.denominator - not_needed.numerator
+        ):
+            raise ValueError("Unnecessary call count must match abstention.")
+
+        if (
+            errors[TrajectoryErrorCategory.INVALID_ARGUMENTS]
+            != self.argument_match.denominator - self.argument_match.numerator
+        ):
+            raise ValueError("Invalid argument count must match argument mismatches.")
+
 
 def _count_matches(
     values: tuple[bool | None, ...],
@@ -188,6 +260,25 @@ def aggregate_tool_evaluations(
         tuple(result.final_answer_match for result in results)
     )
 
+    required = tuple(
+        result
+        for result in results
+        if result.tool_necessity is ToolNecessity.REQUIRED
+    )
+    not_needed = tuple(
+        result
+        for result in results
+        if result.tool_necessity is ToolNecessity.NOT_NEEDED
+    )
+
+    trajectory_error_counts = tuple(
+        TrajectoryErrorCount(
+            category=category,
+            count=sum(result.trajectory_error is category for result in results),
+        )
+        for category in TrajectoryErrorCategory
+    )
+
     stop_reason_counts = tuple(
         StopReasonCount(
             reason=reason,
@@ -205,6 +296,20 @@ def aggregate_tool_evaluations(
         tool_sequence_match=tool_sequence_match,
         argument_match=argument_match,
         final_answer_match=final_answer_match,
+        trajectory_match=MetricCount(
+            numerator=sum(result.trajectory_error is None for result in results),
+            denominator=case_count,
+        ),
+        tool_use_when_required=MetricCount(
+            numerator=sum(result.requested_tool_call_count > 0 for result in required),
+            denominator=len(required),
+        ),
+        tool_abstention_when_not_needed=MetricCount(
+            numerator=sum(
+                result.requested_tool_call_count == 0 for result in not_needed
+            ),
+            denominator=len(not_needed),
+        ),
         argument_unavailable_count=(case_count - argument_match.denominator),
         final_unavailable_count=(case_count - final_answer_match.denominator),
         requested_call_count=sum(
@@ -215,4 +320,5 @@ def aggregate_tool_evaluations(
             result.successful_tool_call_count for result in results
         ),
         stop_reason_counts=stop_reason_counts,
+        trajectory_error_counts=trajectory_error_counts,
     )

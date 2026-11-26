@@ -32,6 +32,11 @@ TRACE_EVENT_DATA_FIELDS = frozenset(
         "is_correct",
         "stage",
         "error_type",
+        "requested_k",
+        "retrieved_chunk_count",
+        "context_chunk_count",
+        "context_char_count",
+        "citation_count",
     }
 )
 
@@ -48,9 +53,14 @@ _POSIX_PATH_PATTERN = re.compile(r"(?:^|[\s\"'])/(?!/)")
 
 class TraceEventType(StrEnum):
     SCENARIO_STARTED = "scenario_started"
+    RETRIEVAL_QUERY = "retrieval_query"
+    RETRIEVAL_RESULT = "retrieval_result"
     MODEL_REQUEST = "model_request"
     MODEL_RESPONSE = "model_response"
+    TOOL_CALL = "tool_call"
+    TOOL_RESULT = "tool_result"
     TASK_EVALUATION = "task_evaluation"
+    FINAL_ANSWER = "final_answer"
     SCENARIO_COMPLETED = "scenario_completed"
     ERROR = "error"
 
@@ -79,6 +89,11 @@ class TraceEventData:
     is_correct: bool | None = None
     stage: str | None = None
     error_type: str | None = None
+    requested_k: int | None = None
+    retrieved_chunk_count: int | None = None
+    context_chunk_count: int | None = None
+    context_char_count: int | None = None
+    citation_count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -190,6 +205,13 @@ def serialize_trace_event(event: TraceEvent) -> dict[str, object]:
         "is_correct": _optional_boolean(data.is_correct),
         "stage": _sanitize_optional_string(data.stage),
         "error_type": _sanitize_optional_string(data.error_type),
+        "requested_k": _optional_nonnegative_integer(data.requested_k),
+        "retrieved_chunk_count": _optional_nonnegative_integer(
+            data.retrieved_chunk_count
+        ),
+        "context_chunk_count": _optional_nonnegative_integer(data.context_chunk_count),
+        "context_char_count": _optional_nonnegative_integer(data.context_char_count),
+        "citation_count": _optional_nonnegative_integer(data.citation_count),
     }
     if set(serialized_data) != TRACE_EVENT_DATA_FIELDS:
         raise AssertionError("trace event data allowlist is inconsistent")
@@ -236,6 +258,13 @@ def _optional_integer(value: int | None) -> int | None:
     if value is not None and type(value) is not int:
         raise TypeError("trace integer fields must contain integers")
     return value
+
+
+def _optional_nonnegative_integer(value: int | None) -> int | None:
+    checked = _optional_integer(value)
+    if checked is not None and checked < 0:
+        raise ValueError("trace count fields must be nonnegative.")
+    return checked
 
 
 def _optional_number(value: float | None) -> int | float | None:

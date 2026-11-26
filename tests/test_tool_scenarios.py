@@ -4,8 +4,11 @@ import pytest
 
 from llm_benchmark.tool_use.evaluation import (
     ExpectedToolCall,
+    ExpectedTrajectory,
     ToolEvaluationCase,
+    ToolNecessity,
 )
+from llm_benchmark.tool_use.loop import ToolLoopPolicy
 from llm_benchmark.tool_use.scenarios import (
     create_example_tool_scenarios,
 )
@@ -24,7 +27,9 @@ def test_calculator_scenario_matches_existing_tool_contract() -> None:
     assert scenario.available_tools == ("calculator",)
     assert scenario.policy.max_provider_turns == 2
 
-    expected = scenario.evaluation.expected_calls[0]
+    assert scenario.evaluation.tool_necessity is ToolNecessity.REQUIRED
+    (trajectory,) = scenario.evaluation.accepted_trajectories
+    expected = trajectory.calls[0]
 
     assert expected.tool_name == "calculator"
     assert expected.arguments == {
@@ -39,7 +44,8 @@ def test_direct_answer_can_expect_no_tool_calls() -> None:
     scenario = create_example_tool_scenarios()[1]
 
     assert scenario.available_tools == ("calculator",)
-    assert scenario.evaluation.expected_calls == ()
+    assert scenario.evaluation.tool_necessity is ToolNecessity.NOT_NEEDED
+    assert scenario.evaluation.accepted_trajectories == (ExpectedTrajectory(()),)
     assert scenario.evaluation.expected_final_text == "READY"
 
 
@@ -58,10 +64,11 @@ def test_factories_return_independent_snapshots() -> None:
     assert first is not second
     assert first[0] is not second[0]
 
-    arguments = first[0].evaluation.expected_calls[0].arguments
+    arguments = first[0].evaluation.accepted_trajectories[0].calls[0].arguments
     arguments["left"] = 999
 
-    assert second[0].evaluation.expected_calls[0].arguments["left"] == 17
+    second_call = second[0].evaluation.accepted_trajectories[0].calls[0]
+    assert second_call.arguments["left"] == 17
 
 
 @pytest.mark.parametrize("text", ["", " ", None, "\ud800"])
@@ -101,17 +108,32 @@ def test_expected_tool_must_be_available() -> None:
 
     other_evaluation = ToolEvaluationCase(
         case_id="other",
-        expected_calls=(
-            ExpectedToolCall(
-                tool_name="lookup_city_code",
-                arguments={"city": "northport"},
+        tool_necessity=ToolNecessity.REQUIRED,
+        accepted_trajectories=(
+            scenario.evaluation.accepted_trajectories[0],
+            ExpectedTrajectory(
+                (
+                    ExpectedToolCall(
+                        tool_name="lookup_city_code",
+                        arguments={"city": "northport"},
+                    ),
+                )
             ),
         ),
         expected_final_text="SYN-001",
     )
 
+    # Every accepted trajectory is checked, not only the first one.
     with pytest.raises(ValueError, match="available"):
         replace(scenario, evaluation=other_evaluation)
+
+
+def test_accepted_trajectories_must_fit_the_tool_budget() -> None:
+    scenario = create_example_tool_scenarios("example-tools-v2")[-1]
+    assert scenario.case_id == "two-step"
+
+    with pytest.raises(ValueError, match="budget"):
+        replace(scenario, policy=ToolLoopPolicy(max_provider_turns=3, max_tool_calls=1))
 
 
 def test_example_prompt_preserves_sentence_boundary() -> None:
@@ -155,15 +177,16 @@ def test_examples_fit_budgets_and_registered_argument_schemas() -> None:
     from llm_benchmark.tool_use.builtin_tools import create_example_tool_registry
 
     registry = create_example_tool_registry()
-    for scenario in create_example_tool_scenarios():
-        assert len(scenario.evaluation.expected_calls) <= scenario.policy.max_tool_calls
-        if scenario.evaluation.expected_calls:
-            assert scenario.policy.max_provider_turns >= 2
+    for scenario in create_example_tool_scenarios("example-tools-v2"):
         for name in scenario.available_tools:
             assert registry.get(name) is not None
-        for expected in scenario.evaluation.expected_calls:
-            registration = registry.get(expected.tool_name)
-            registration.argument_model.model_validate(expected.arguments)
+        for trajectory in scenario.evaluation.accepted_trajectories:
+            assert len(trajectory.calls) <= scenario.policy.max_tool_calls
+            # One provider turn per call plus the final answer turn.
+            assert scenario.policy.max_provider_turns >= len(trajectory.calls) + 1
+            for expected in trajectory.calls:
+                registration = registry.get(expected.tool_name)
+                registration.argument_model.model_validate(expected.arguments)
 
 
 def test_factory_does_not_initialize_runtime_or_execute_handlers(monkeypatch) -> None:
@@ -179,3 +202,36 @@ def test_factory_does_not_initialize_runtime_or_execute_handlers(monkeypatch) ->
     monkeypatch.setattr(tools, "calculator_handler", forbidden)
     monkeypatch.setattr(tools, "lookup_city_code_handler", forbidden)
     assert len(create_example_tool_scenarios()) == 2
+
+
+def test_v1_suite_is_the_default_and_v2_extends_it() -> None:
+    v1 = create_example_tool_scenarios()
+    v2 = create_example_tool_scenarios("example-tools-v2")
+
+    assert v1 == create_example_tool_scenarios("example-tools-v1")
+    assert v2[: len(v1)] == v1
+    assert tuple(scenario.case_id for scenario in v2) == (
+        "calculator-multiply",
+        "direct-answer",
+        "calculator-add-commutative",
+        "no-tool-arithmetic",
+        "two-step",
+    )
+
+
+def test_v2_covers_no_tool_and_alternative_trajectories() -> None:
+    by_id = {s.case_id: s for s in create_example_tool_scenarios("example-tools-v2")}
+
+    no_tool = by_id["no-tool-arithmetic"].evaluation
+    assert no_tool.tool_necessity is ToolNecessity.NOT_NEEDED
+    add = by_id["calculator-add-commutative"].evaluation
+    assert len(add.accepted_trajectories) == 2
+    assert len(by_id["two-step"].evaluation.accepted_trajectories) == 4
+    assert all(
+        scenario.available_tools == ("calculator",) for scenario in by_id.values()
+    )
+
+
+def test_unknown_suite_is_rejected() -> None:
+    with pytest.raises(ValueError):
+        create_example_tool_scenarios("example-tools-v9")

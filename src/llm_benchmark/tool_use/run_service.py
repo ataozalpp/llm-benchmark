@@ -14,6 +14,11 @@ from llm_benchmark.tool_use.artifacts import ToolArtifactWriter, fingerprint
 from llm_benchmark.tool_use.builtin_tools import create_example_tool_registry
 from llm_benchmark.tool_use.demo_provider import DemoToolProvider
 from llm_benchmark.tool_use.evaluation import ToolEvaluationResult
+from llm_benchmark.tool_use.identity import (
+    TOOL_ARTIFACT_SCHEMA_VERSION,
+    TOOL_EVALUATOR_VERSION,
+    TOOL_RESULT_ROW_SCHEMA_VERSION,
+)
 from llm_benchmark.tool_use.loop import ConversationProvider, ToolLoopResult
 from llm_benchmark.tool_use.run_config import ToolRunConfig
 from llm_benchmark.tool_use.scenarios import ToolScenario, create_example_tool_scenarios
@@ -77,7 +82,7 @@ def run_tool_benchmark(
                 case.policy, max_wall_time_seconds=config.max_wall_time_seconds
             ),
         )
-        for case in create_example_tool_scenarios()
+        for case in create_example_tool_scenarios(config.suite)
     )
 
     if config.runtime == "mcp_stdio":
@@ -149,9 +154,13 @@ def _run_tool_benchmark_with_artifacts(
             "user_text": case.user_text,
             "available_tools": case.available_tools,
             "policy": asdict(case.policy),
-            "expected_calls": [
-                {"name": call.tool_name, "arguments": call.arguments}
-                for call in case.evaluation.expected_calls
+            "tool_necessity": case.evaluation.tool_necessity.value,
+            "accepted_trajectories": [
+                [
+                    {"name": call.tool_name, "arguments": call.arguments}
+                    for call in trajectory.calls
+                ]
+                for trajectory in case.evaluation.accepted_trajectories
             ],
             "expected_final_text": case.evaluation.expected_final_text,
         }
@@ -167,9 +176,9 @@ def _run_tool_benchmark_with_artifacts(
         "suite_hash": fingerprint(suite_snapshot),
         "tool_catalog_hash": fingerprint(catalog),
         "config_hash": fingerprint(config_snapshot),
-        "evaluator_version": "tool-exact-v1",
+        "evaluator_version": TOOL_EVALUATOR_VERSION,
         "runtime_version": runtime_version,
-        "artifact_schema_version": 1,
+        "artifact_schema_version": TOOL_ARTIFACT_SCHEMA_VERSION,
     }
     if runtime_metadata is not None:
         identity["runtime_metadata_hash"] = fingerprint(runtime_metadata)
@@ -234,7 +243,7 @@ def _run_tool_benchmark_with_artifacts(
         writer.append(
             "results.jsonl",
             {
-                "schema_version": 1,
+                "schema_version": TOOL_RESULT_ROW_SCHEMA_VERSION,
                 **asdict(evaluation),
                 "provider_turn_count": loop.provider_turn_count,
                 "provider_telemetry": telemetry,
@@ -292,8 +301,19 @@ def _run_tool_benchmark_with_artifacts(
             "tool_sequence_match",
             "argument_match",
             "final_answer_match",
+            "trajectory_match",
+            "tool_use_when_required",
+            "tool_abstention_when_not_needed",
         ):
             summary[name]["rate"] = getattr(metrics, name).rate
+        summary["trajectory_error_counts"] = {
+            item.category.value: {
+                "count": item.count,
+                "denominator": metrics.case_count,
+                "rate": item.count / metrics.case_count,
+            }
+            for item in metrics.trajectory_error_counts
+        }
         summary["all_case_final_answer_accuracy"] = {
             "numerator": metrics.final_answer_match.numerator,
             "denominator": metrics.case_count,

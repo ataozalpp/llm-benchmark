@@ -105,6 +105,10 @@ def test_example_suite_executes_and_reports() -> None:
     assert summary.tool_sequence_match == MetricCount(2, 2)
     assert summary.argument_match == MetricCount(2, 2)
     assert summary.final_answer_match == MetricCount(2, 2)
+    assert summary.trajectory_match == MetricCount(2, 2)
+    assert summary.tool_use_when_required == MetricCount(1, 1)
+    assert summary.tool_abstention_when_not_needed == MetricCount(1, 1)
+    assert sum(item.count for item in summary.trajectory_error_counts) == 0
 
     assert summary.requested_call_count == 1
     assert summary.executed_call_count == 1

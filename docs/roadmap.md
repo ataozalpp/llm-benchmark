@@ -23,7 +23,7 @@ Releases so far: `v0.2.0` (RAG evaluation through the API and worker).
 | 3 Tool runtime | Done | `tool_use/runtime.py`, `builtin_tools.py` |
 | 4 Tool-call normalization | Done | `tool_use/calling.py`, `generate_tool_turn()` |
 | 5 Bounded loop | Done | `tool_use/loop.py` |
-| 6 Tool/trajectory evaluation | Partial | `tool_use/evaluation.py` checks one expected sequence; no no-tool scenarios, alternative trajectories, or error taxonomy |
+| 6 Tool/trajectory evaluation | Done | `tool_use/evaluation.py`: `tool_necessity`, multiple accepted trajectories, single-label error taxonomy, explicit denominators (`tool-trajectory-v1`) |
 | 7 MCP client | Done | `mcp_integration/` (stdio, separate venv) |
 | 8 Retrieval | Partial | keyword/BM25/dense/hybrid + SciFact; project corpus is small |
 | 9 RAG generation | Partial | Deterministic metrics, prompt registry, constrained decoding; no judge |

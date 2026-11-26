@@ -2,13 +2,36 @@ from dataclasses import FrozenInstanceError, replace
 
 import pytest
 
-from llm_benchmark.tool_use.evaluation import ToolEvaluationResult
+from llm_benchmark.tool_use.evaluation import (
+    ToolEvaluationResult,
+    ToolNecessity,
+    TrajectoryErrorCategory,
+)
 from llm_benchmark.tool_use.loop import ToolLoopStopReason
 from llm_benchmark.tool_use.reporting import (
     MetricCount,
     StopReasonCount,
+    TrajectoryErrorCount,
     aggregate_tool_evaluations,
 )
+
+_UNSET = object()
+
+
+def _derived_error(
+    *, necessity, completed, sequence_match, arguments_match, requested
+) -> TrajectoryErrorCategory | None:
+    if necessity is ToolNecessity.NOT_NEEDED and requested:
+        return TrajectoryErrorCategory.UNNECESSARY_TOOL_CALL
+    if sequence_match:
+        return None if arguments_match else TrajectoryErrorCategory.INVALID_ARGUMENTS
+    if requested == 0:
+        return (
+            TrajectoryErrorCategory.MISSING_TOOL_CALL
+            if completed
+            else TrajectoryErrorCategory.INCOMPLETE_TRAJECTORY
+        )
+    return TrajectoryErrorCategory.WRONG_TOOL
 
 
 def evaluation(
@@ -21,7 +44,17 @@ def evaluation(
     requested: int = 1,
     executed: int = 1,
     successful: int = 1,
+    necessity: ToolNecessity = ToolNecessity.REQUIRED,
+    trajectory_error: object = _UNSET,
 ) -> ToolEvaluationResult:
+    if trajectory_error is _UNSET:
+        trajectory_error = _derived_error(
+            necessity=necessity,
+            completed=completed,
+            sequence_match=sequence_match,
+            arguments_match=arguments_match,
+            requested=requested,
+        )
     return ToolEvaluationResult(
         case_id=case_id,
         stop_reason=(
@@ -36,6 +69,23 @@ def evaluation(
         requested_tool_call_count=requested,
         executed_tool_call_count=executed,
         successful_tool_call_count=successful,
+        tool_necessity=necessity,
+        accepted_trajectory_count=1,
+        matched_trajectory_index=0 if sequence_match else None,
+        trajectory_error=trajectory_error,
+    )
+
+
+def no_tool(case_id: str, *, called: bool = False) -> ToolEvaluationResult:
+    count = int(called)
+    return evaluation(
+        case_id,
+        necessity=ToolNecessity.NOT_NEEDED,
+        sequence_match=not called,
+        arguments_match=None if called else True,
+        requested=count,
+        executed=count,
+        successful=count,
     )
 
 
@@ -264,7 +314,15 @@ def test_summary_rejects_invalid_count_types(field, value) -> None:
 
 @pytest.mark.parametrize(
     "field",
-    ["completion", "tool_sequence_match", "argument_match", "final_answer_match"],
+    [
+        "completion",
+        "tool_sequence_match",
+        "argument_match",
+        "final_answer_match",
+        "trajectory_match",
+        "tool_use_when_required",
+        "tool_abstention_when_not_needed",
+    ],
 )
 def test_summary_requires_metric_objects(field) -> None:
     summary = aggregate_tool_evaluations((evaluation("case"),))
@@ -354,7 +412,11 @@ def test_real_evaluator_output_flows_into_reporting() -> None:
         ToolConversation,
         UserMessage,
     )
-    from llm_benchmark.tool_use.evaluation import ToolEvaluationCase, evaluate_tool_loop
+    from llm_benchmark.tool_use.evaluation import (
+        ExpectedTrajectory,
+        ToolEvaluationCase,
+        evaluate_tool_loop,
+    )
     from llm_benchmark.tool_use.loop import ToolLoopResult
     from llm_benchmark.tool_use.provider_models import (
         ToolProviderResult,
@@ -374,9 +436,14 @@ def test_real_evaluator_output_flows_into_reporting() -> None:
         final_text="done",
     )
     evaluated = evaluate_tool_loop(
-        case=ToolEvaluationCase("case", (), "done"), result=result
+        case=ToolEvaluationCase(
+            "case", ToolNecessity.NOT_NEEDED, (ExpectedTrajectory(()),), "done"
+        ),
+        result=result,
     )
     summary = aggregate_tool_evaluations((evaluated,))
+    assert summary.tool_abstention_when_not_needed == MetricCount(1, 1)
+    assert summary.trajectory_match == MetricCount(1, 1)
     assert summary.final_answer_match == MetricCount(1, 1)
     assert summary.argument_match == MetricCount(1, 1)
     assert (
@@ -385,3 +452,131 @@ def test_real_evaluator_output_flows_into_reporting() -> None:
         == summary.successful_call_count
         == 0
     )
+
+
+def test_necessity_metrics_use_their_own_denominators() -> None:
+    results = (
+        evaluation("required-used"),
+        evaluation(
+            "required-skipped",
+            sequence_match=False,
+            arguments_match=None,
+            requested=0,
+            executed=0,
+            successful=0,
+        ),
+        no_tool("abstained"),
+        no_tool("called", called=True),
+        no_tool("abstained-2"),
+    )
+
+    summary = aggregate_tool_evaluations(results)
+
+    assert summary.tool_use_when_required == MetricCount(1, 2)
+    assert summary.tool_abstention_when_not_needed == MetricCount(2, 3)
+    assert summary.trajectory_match == MetricCount(3, 5)
+    errors = {item.category: item.count for item in summary.trajectory_error_counts}
+    assert errors[TrajectoryErrorCategory.UNNECESSARY_TOOL_CALL] == 1
+    assert errors[TrajectoryErrorCategory.MISSING_TOOL_CALL] == 1
+    assert sum(errors.values()) == 2
+
+
+def test_absent_necessity_class_has_null_rate() -> None:
+    required_only = aggregate_tool_evaluations((evaluation("case"),))
+    no_tool_only = aggregate_tool_evaluations((no_tool("case"),))
+
+    assert required_only.tool_abstention_when_not_needed == MetricCount(0, 0)
+    assert required_only.tool_abstention_when_not_needed.rate is None
+    assert no_tool_only.tool_use_when_required == MetricCount(0, 0)
+    assert no_tool_only.tool_use_when_required.rate is None
+
+
+def test_every_trajectory_category_is_counted_in_canonical_order() -> None:
+    labels = {
+        TrajectoryErrorCategory.UNNECESSARY_TOOL_CALL: no_tool("u", called=True),
+        TrajectoryErrorCategory.INVALID_ARGUMENTS: evaluation(
+            "i", arguments_match=False
+        ),
+    }
+    for category in (
+        TrajectoryErrorCategory.MISSING_TOOL_CALL,
+        TrajectoryErrorCategory.INCOMPLETE_TRAJECTORY,
+        TrajectoryErrorCategory.EXTRA_TOOL_CALL,
+        TrajectoryErrorCategory.WRONG_ORDER,
+        TrajectoryErrorCategory.WRONG_TOOL,
+    ):
+        completed = category is not TrajectoryErrorCategory.INCOMPLETE_TRAJECTORY
+        labels[category] = evaluation(
+            category.value,
+            completed=completed,
+            sequence_match=False,
+            arguments_match=None,
+            final_match=True if completed else None,
+            trajectory_error=category,
+        )
+
+    summary = aggregate_tool_evaluations((*labels.values(), evaluation("ok")))
+
+    assert tuple(item.category for item in summary.trajectory_error_counts) == tuple(
+        TrajectoryErrorCategory
+    )
+    assert all(item.count == 1 for item in summary.trajectory_error_counts)
+    assert summary.trajectory_match == MetricCount(1, len(labels) + 1)
+
+
+@pytest.mark.parametrize("value", [-1, True, "1"])
+def test_trajectory_error_count_rejects_invalid_counts(value) -> None:
+    with pytest.raises(ValueError):
+        TrajectoryErrorCount(TrajectoryErrorCategory.WRONG_TOOL, value)
+
+
+def test_trajectory_error_count_requires_enum() -> None:
+    with pytest.raises(TypeError):
+        TrajectoryErrorCount("wrong_tool", 1)
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"trajectory_match": MetricCount(1, 2)},
+        {"trajectory_match": MetricCount(0, 1)},
+        {"tool_use_when_required": MetricCount(1, 2)},
+        {"tool_abstention_when_not_needed": MetricCount(0, 1)},
+    ],
+)
+def test_trajectory_summary_relationships(updates) -> None:
+    summary = aggregate_tool_evaluations((evaluation("case"),))
+    with pytest.raises(ValueError):
+        replace(summary, **updates)
+
+
+@pytest.mark.parametrize(
+    "mode", ["type", "entry", "missing", "order", "total", "unnecessary", "invalid"]
+)
+def test_trajectory_error_distribution_consistency(mode) -> None:
+    wrong_tool = evaluation("wrong", sequence_match=False, arguments_match=None)
+    summary = aggregate_tool_evaluations((wrong_tool, no_tool("n")))
+    counts = summary.trajectory_error_counts
+    error: type[Exception] = ValueError
+    if mode == "type":
+        counts, error = list(counts), TypeError
+    elif mode == "entry":
+        counts, error = (*counts[:-1], object()), TypeError
+    elif mode == "missing":
+        counts = counts[:-1]
+    elif mode == "order":
+        counts = tuple(reversed(counts))
+    elif mode == "total":
+        counts = tuple(replace(item, count=0) for item in counts)
+    else:
+        # Keep the total intact and move the one error to a constrained label.
+        target = (
+            TrajectoryErrorCategory.UNNECESSARY_TOOL_CALL
+            if mode == "unnecessary"
+            else TrajectoryErrorCategory.INVALID_ARGUMENTS
+        )
+        counts = tuple(
+            replace(item, count=int(item.category is target)) for item in counts
+        )
+    with pytest.raises(error):
+        replace(summary, trajectory_error_counts=counts)

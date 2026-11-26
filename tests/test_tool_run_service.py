@@ -1,11 +1,14 @@
 import json
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
 from llm_benchmark.cli import main
 from llm_benchmark.tool_use.builtin_tools import create_example_tool_registry
+from llm_benchmark.tool_use.calling import NormalizationToolTurn
 from llm_benchmark.tool_use.demo_provider import DemoToolProvider
+from llm_benchmark.tool_use.evaluation import TrajectoryErrorCategory
 from llm_benchmark.tool_use.loop import (
     ToolLoopPolicy,
     ToolLoopStopReason,
@@ -18,6 +21,7 @@ from llm_benchmark.tool_use.provider_models import (
 )
 from llm_benchmark.tool_use.run_config import ToolRunConfig, load_tool_run_config
 from llm_benchmark.tool_use.run_service import run_tool_benchmark
+from llm_benchmark.tool_use.runtime import ToolCall
 from llm_benchmark.tool_use.scenario_requests import build_tool_scenario_request
 from llm_benchmark.tool_use.scenarios import create_example_tool_scenarios
 from llm_benchmark.tool_use.suite import run_tool_suite
@@ -356,3 +360,126 @@ def test_shared_artifact_runner_uses_supplied_runtime_and_callbacks(tmp_path):
     assert summary["case_count"] == 2
     assert len(read_lines(directory / "results.jsonl")) == 2
     assert read_lines(directory / "trace.jsonl")
+
+
+def test_manifest_records_trajectory_evaluator_identity(tmp_path):
+    from llm_benchmark.tool_use.identity import (
+        TOOL_ARTIFACT_SCHEMA_VERSION,
+        TOOL_EVALUATOR_VERSION,
+        TOOL_RESULT_ROW_SCHEMA_VERSION,
+    )
+
+    directory, summary = run_tool_benchmark(ToolRunConfig(output_dir=tmp_path))
+    manifest = read_json(directory / "manifest.json")
+
+    assert TOOL_EVALUATOR_VERSION == "tool-trajectory-v1"
+    assert manifest["evaluator_version"] == TOOL_EVALUATOR_VERSION
+    assert manifest["artifact_schema_version"] == TOOL_ARTIFACT_SCHEMA_VERSION == 2
+    rows = read_lines(directory / "results.jsonl")
+    assert {row["schema_version"] for row in rows} == {TOOL_RESULT_ROW_SCHEMA_VERSION}
+    assert {row["case_id"]: row["tool_necessity"] for row in rows} == {
+        "calculator-multiply": "required",
+        "direct-answer": "not_needed",
+    }
+    assert all(row["trajectory_error"] is None for row in rows)
+    assert summary["trajectory_match"] == {"numerator": 2, "denominator": 2, "rate": 1.0}
+
+
+def test_v2_synthetic_run_reports_explicit_denominators(tmp_path):
+    config = load_tool_run_config(
+        Path(__file__).resolve().parents[1]
+        / "configs"
+        / "tool_trajectory_mock_smoke.yaml"
+    ).model_copy(update={"output_dir": tmp_path})
+
+    directory, summary = run_tool_benchmark(config)
+    rows = {row["case_id"]: row for row in read_lines(directory / "results.jsonl")}
+
+    assert set(rows) == {
+        "calculator-multiply",
+        "direct-answer",
+        "calculator-add-commutative",
+        "no-tool-arithmetic",
+        "two-step",
+    }
+    # The demo deliberately uses the second accepted argument order.
+    assert rows["calculator-add-commutative"]["matched_trajectory_index"] == 1
+    assert rows["two-step"]["requested_tool_call_count"] == 2
+    assert summary["case_count"] == 5
+    assert summary["tool_use_when_required"] == {
+        "numerator": 3,
+        "denominator": 3,
+        "rate": 1.0,
+    }
+    assert summary["tool_abstention_when_not_needed"] == {
+        "numerator": 2,
+        "denominator": 2,
+        "rate": 1.0,
+    }
+    assert summary["final_answer_match"]["numerator"] == 5
+    errors = summary["trajectory_error_counts"]
+    assert list(errors) == [category.value for category in TrajectoryErrorCategory]
+    assert all(
+        item == {"count": 0, "denominator": 5, "rate": 0.0} for item in errors.values()
+    )
+    manifest = read_json(directory / "manifest.json")
+    v1_directory, _ = run_tool_benchmark(ToolRunConfig(output_dir=tmp_path / "v1"))
+    v1_manifest = read_json(v1_directory / "manifest.json")
+    assert manifest["suite"] == "example-tools-v2"
+    assert manifest["suite_hash"] != v1_manifest["suite_hash"]
+    assert manifest["run_fingerprint"] != v1_manifest["run_fingerprint"]
+
+
+def test_unnecessary_tool_call_is_a_case_result_not_a_crash(tmp_path, monkeypatch):
+    original = DemoToolProvider.generate_tool_conversation
+
+    def call_tool_anyway(self, request):
+        messages = request.conversation.messages
+        if messages[0].content.startswith("Return exactly") and len(messages) == 1:
+            return ToolProviderResult(
+                status=ToolProviderStatus.SUCCEEDED,
+                turn=NormalizationToolTurn(
+                    None,
+                    (
+                        ToolCall(
+                            call_id="unneeded",
+                            tool_name="calculator",
+                            arguments={"operation": "add", "left": 1, "right": 1},
+                        ),
+                    ),
+                    "tool_calls",
+                ),
+            )
+        return original(self, request)
+
+    monkeypatch.setattr(
+        DemoToolProvider, "generate_tool_conversation", call_tool_anyway
+    )
+    directory, summary = run_tool_benchmark(ToolRunConfig(output_dir=tmp_path))
+    rows = {row["case_id"]: row for row in read_lines(directory / "results.jsonl")}
+
+    assert rows["direct-answer"]["trajectory_error"] == "unnecessary_tool_call"
+    assert summary["tool_abstention_when_not_needed"] == {
+        "numerator": 0,
+        "denominator": 1,
+        "rate": 0.0,
+    }
+    assert summary["trajectory_error_counts"]["unnecessary_tool_call"]["count"] == 1
+    assert read_json(directory / "manifest.json")["status"] == "completed"
+
+
+def test_trajectory_example_configs_load():
+    root = Path(__file__).resolve().parents[1] / "configs"
+
+    synthetic = load_tool_run_config(root / "tool_trajectory_mock_smoke.yaml")
+    real = load_tool_run_config(root / "tool_trajectory_openai_compatible_smoke.yaml")
+
+    assert synthetic.suite == real.suite == "example-tools-v2"
+    assert synthetic.provider == "synthetic"
+    assert real.provider == "openai_compatible"
+    assert real.model.model_id == "replace-with-your-model-id"
+
+
+def test_unknown_suite_is_rejected_by_config():
+    with pytest.raises(ValueError):
+        ToolRunConfig(suite="example-tools-v3")

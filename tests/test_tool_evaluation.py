@@ -19,8 +19,11 @@ from llm_benchmark.tool_use.conversation import (
 )
 from llm_benchmark.tool_use.evaluation import (
     ExpectedToolCall,
+    ExpectedTrajectory,
     ToolEvaluationCase,
     ToolEvaluationResult,
+    ToolNecessity,
+    TrajectoryErrorCategory,
     evaluate_tool_loop,
 )
 from llm_benchmark.tool_use.loop import (
@@ -43,6 +46,22 @@ from llm_benchmark.tool_use.runtime import (
 )
 
 
+def single_case(
+    case_id: str,
+    expected_calls: tuple[ExpectedToolCall, ...],
+    expected_final_text: str,
+) -> ToolEvaluationCase:
+    """One accepted trajectory; empty calls mean no tool is needed."""
+    return ToolEvaluationCase(
+        case_id=case_id,
+        tool_necessity=(
+            ToolNecessity.REQUIRED if expected_calls else ToolNecessity.NOT_NEEDED
+        ),
+        accepted_trajectories=(ExpectedTrajectory(expected_calls),),
+        expected_final_text=expected_final_text,
+    )
+
+
 def stopped_calls(calls: tuple[ToolCall, ...]) -> ToolLoopResult:
     turn = NormalizationToolTurn(
         content=None, tool_calls=calls, finish_reason="tool_calls"
@@ -61,7 +80,7 @@ def stopped_calls(calls: tuple[ToolCall, ...]) -> ToolLoopResult:
 
 @pytest.mark.parametrize("names", [("other",), (), ("echo", "echo")])
 def test_mismatched_tool_sequence_is_not_compared_to_itself(names) -> None:
-    case = ToolEvaluationCase(
+    case = single_case(
         case_id="sequence",
         expected_calls=(ExpectedToolCall(tool_name="echo", arguments={}),),
         expected_final_text="done",
@@ -78,7 +97,7 @@ def test_mismatched_tool_sequence_is_not_compared_to_itself(names) -> None:
 
 def valid_evaluation() -> ToolEvaluationResult:
     return evaluate_tool_loop(
-        case=ToolEvaluationCase(
+        case=single_case(
             case_id="case", expected_calls=(), expected_final_text="done"
         ),
         result=direct_final_result("done"),
@@ -119,7 +138,7 @@ def direct_final_result(text: str) -> ToolLoopResult:
 
 
 def test_direct_final_without_expected_tools() -> None:
-    case = ToolEvaluationCase(
+    case = single_case(
         case_id="direct-final",
         expected_calls=(),
         expected_final_text="5",
@@ -143,7 +162,7 @@ def test_direct_final_without_expected_tools() -> None:
 
 
 def test_final_matching_does_not_trim_text() -> None:
-    case = ToolEvaluationCase(
+    case = single_case(
         case_id="strict-final",
         expected_calls=(),
         expected_final_text="5",
@@ -173,11 +192,17 @@ def test_expected_arguments_are_independent_snapshots() -> None:
     assert expected.arguments == {"values": [1, 2]}
 
 
-def test_expected_calls_must_be_a_tuple() -> None:
+def test_trajectory_calls_must_be_a_tuple() -> None:
+    with pytest.raises(TypeError, match="tuple"):
+        ExpectedTrajectory([])
+
+
+def test_accepted_trajectories_must_be_a_tuple() -> None:
     with pytest.raises(TypeError, match="tuple"):
         ToolEvaluationCase(
             case_id="invalid-case",
-            expected_calls=[],
+            tool_necessity=ToolNecessity.NOT_NEEDED,
+            accepted_trajectories=[ExpectedTrajectory(())],
             expected_final_text="5",
         )
 
@@ -202,7 +227,7 @@ def test_expected_calls_must_be_a_tuple() -> None:
     ],
 )
 def test_strict_json_argument_matching(expected, actual, matches) -> None:
-    case = ToolEvaluationCase(
+    case = single_case(
         "json", (ExpectedToolCall(tool_name="echo", arguments=expected),), "done"
     )
     result = stopped_calls(
@@ -220,7 +245,7 @@ def test_call_order_matters_but_call_ids_do_not() -> None:
     expected = tuple(
         ExpectedToolCall(tool_name=name, arguments={}) for name in ("first", "second")
     )
-    case = ToolEvaluationCase("order", expected, "done")
+    case = single_case("order", expected, "done")
     calls = tuple(
         ToolCall(call_id=f"id_{i}", tool_name=e.tool_name, arguments={})
         for i, e in enumerate(expected)
@@ -245,7 +270,7 @@ def test_case_text_validation(field, value) -> None:
     values = dict(case_id="case", expected_calls=(), expected_final_text="done")
     values[field] = value
     with pytest.raises(ValueError):
-        ToolEvaluationCase(**values)
+        single_case(**values)
 
 
 @pytest.mark.parametrize(
@@ -259,15 +284,18 @@ def test_expectations_reuse_strict_json_validation(arguments) -> None:
 
 def test_expectation_types_immutability_and_repr() -> None:
     expected = ExpectedToolCall(tool_name="echo", arguments={"v": "private_marker"})
-    case = ToolEvaluationCase("case", (expected,), "private_final")
+    case = single_case("case", (expected,), "private_final")
     with pytest.raises(FrozenInstanceError):
         expected._call = None
     with pytest.raises(FrozenInstanceError):
-        case.expected_calls = ()
+        case.accepted_trajectories = ()
+    with pytest.raises(FrozenInstanceError):
+        case.accepted_trajectories[0].calls = ()
     assert "private_marker" not in repr(expected)
+    assert "private_marker" not in repr(case.accepted_trajectories[0])
     assert "private_final" not in repr(case)
     with pytest.raises(TypeError):
-        ToolEvaluationCase("case", (object(),), "done")
+        ExpectedTrajectory((object(),))
     with pytest.raises(ValueError):
         ExpectedToolCall(tool_name="invalid name", arguments={})
 
@@ -310,7 +338,7 @@ def test_result_count_types(field, value) -> None:
 @pytest.mark.parametrize("field", ["case", "result"])
 def test_evaluator_rejects_invalid_input_types(field) -> None:
     kwargs = dict(
-        case=ToolEvaluationCase("case", (), "done"), result=direct_final_result("done")
+        case=single_case("case", (), "done"), result=direct_final_result("done")
     )
     kwargs[field] = None
     with pytest.raises(TypeError):
@@ -373,7 +401,7 @@ def test_real_loop_evaluation_and_no_reexecution(
     result = run_tool_loop(
         provider=provider, request=request, policy=ToolLoopPolicy(2, 1)
     )
-    case = ToolEvaluationCase(
+    case = single_case(
         "roundtrip",
         (ExpectedToolCall(tool_name="echo", arguments={"value": value}),),
         "done",
@@ -470,7 +498,7 @@ def test_all_nonfinal_outcomes_from_real_loop(execution_setup, reason) -> None:
         provider=ScriptedProvider(script), request=request, policy=policy, **extra
     )
     evaluated = evaluate_tool_loop(
-        case=ToolEvaluationCase("nonfinal", (), "done"), result=result
+        case=single_case("nonfinal", (), "done"), result=result
     )
     assert evaluated.stop_reason is reason
     assert evaluated.completed is False
@@ -501,7 +529,7 @@ def test_prior_history_is_not_counted_as_current_execution(execution_setup) -> N
         policy=ToolLoopPolicy(1, 1),
     )
     evaluated = evaluate_tool_loop(
-        case=ToolEvaluationCase("current", (), "done"), result=current
+        case=single_case("current", (), "done"), result=current
     )
     assert (
         evaluated.requested_tool_call_count == evaluated.executed_tool_call_count == 0
@@ -531,11 +559,14 @@ def fail(*args, **kwargs):
 ToolRegistry.__init__ = fail
 ToolRuntime.__init__ = fail
 ToolRuntime.execute = fail
-from llm_benchmark.tool_use.evaluation import ToolEvaluationCase, evaluate_tool_loop
+from llm_benchmark.tool_use.evaluation import (
+    ExpectedTrajectory, ToolEvaluationCase, ToolNecessity, evaluate_tool_loop,
+)
 from llm_benchmark.tool_use.loop import ToolLoopResult, ToolLoopStopReason
 from llm_benchmark.tool_use.conversation import ToolConversation, UserMessage
 result = ToolLoopResult(ToolLoopStopReason.PROVIDER_TURN_LIMIT, ToolConversation((UserMessage('Synthetic'),)), (), ())
-assert evaluate_tool_loop(case=ToolEvaluationCase('case', (), 'done'), result=result).completed is False
+case = ToolEvaluationCase('case', ToolNecessity.NOT_NEEDED, (ExpectedTrajectory(()),), 'done')
+assert evaluate_tool_loop(case=case, result=result).completed is False
 for name in ('providers', 'runner', 'trace', 'api', 'worker', 'db', 'tools'):
     assert 'llm_benchmark.' + name not in sys.modules
 """
@@ -558,3 +589,320 @@ for name in ('providers', 'runner', 'trace', 'api', 'worker', 'db', 'tools'):
     )
     assert completed.returncode == 0, completed.stderr
     assert list(tmp_path.iterdir()) == []
+
+
+def call(name: str, call_id: str = "id", **arguments) -> ToolCall:
+    return ToolCall(call_id=call_id, tool_name=name, arguments=arguments)
+
+
+def expected(name: str, **arguments) -> ExpectedToolCall:
+    return ExpectedToolCall(tool_name=name, arguments=arguments)
+
+
+def completed_calls(calls: tuple[ToolCall, ...], text: str = "done") -> ToolLoopResult:
+    """Coherent enough for evaluation: calls, then a terminal final turn."""
+    final = NormalizationToolTurn(content=text, tool_calls=(), finish_reason="stop")
+    provider_results = tuple(
+        ToolProviderResult(
+            status=ToolProviderStatus.SUCCEEDED,
+            turn=NormalizationToolTurn(
+                content=None, tool_calls=(item,), finish_reason="tool_calls"
+            ),
+        )
+        for item in calls
+    )
+    return ToolLoopResult(
+        stop_reason=ToolLoopStopReason.FINAL_RESPONSE,
+        conversation=ToolConversation(
+            (UserMessage("Synthetic task."), AssistantMessage(final))
+        ),
+        provider_results=(
+            *provider_results,
+            ToolProviderResult(status=ToolProviderStatus.SUCCEEDED, turn=final),
+        ),
+        tool_results=(),
+        final_text=text,
+    )
+
+
+def provider_failure() -> ToolLoopResult:
+    return ToolLoopResult(
+        stop_reason=ToolLoopStopReason.PROVIDER_FAILED,
+        conversation=ToolConversation((UserMessage("Synthetic task."),)),
+        provider_results=(
+            ToolProviderResult(
+                status=ToolProviderStatus.REQUEST_FAILED,
+                error_code=ToolProviderErrorCode.TIMEOUT,
+            ),
+        ),
+        tool_results=(),
+    )
+
+
+def two_step_case() -> ToolEvaluationCase:
+    return ToolEvaluationCase(
+        case_id="two-step",
+        tool_necessity=ToolNecessity.REQUIRED,
+        accepted_trajectories=(
+            ExpectedTrajectory((expected("first", v=1), expected("second", v=2))),
+        ),
+        expected_final_text="done",
+    )
+
+
+@pytest.mark.parametrize(
+    ("result", "category"),
+    [
+        (lambda: completed_calls(()), TrajectoryErrorCategory.MISSING_TOOL_CALL),
+        (
+            lambda: completed_calls((call("first", v=1),)),
+            TrajectoryErrorCategory.MISSING_TOOL_CALL,
+        ),
+        (
+            lambda: stopped_calls((call("first", v=1),)),
+            TrajectoryErrorCategory.INCOMPLETE_TRAJECTORY,
+        ),
+        (provider_failure, TrajectoryErrorCategory.INCOMPLETE_TRAJECTORY),
+        (
+            lambda: completed_calls(
+                (call("first", "a", v=1), call("second", "b", v=2), call("first", "c"))
+            ),
+            TrajectoryErrorCategory.EXTRA_TOOL_CALL,
+        ),
+        (
+            lambda: completed_calls(
+                (call("second", "a", v=2), call("first", "b", v=1))
+            ),
+            TrajectoryErrorCategory.WRONG_ORDER,
+        ),
+        (
+            lambda: completed_calls((call("first", "a", v=1), call("other", "b"))),
+            TrajectoryErrorCategory.WRONG_TOOL,
+        ),
+        (
+            lambda: completed_calls((call("other"),)),
+            TrajectoryErrorCategory.WRONG_TOOL,
+        ),
+        (
+            lambda: completed_calls(
+                (call("first", "a", v=1), call("second", "b", v=3))
+            ),
+            TrajectoryErrorCategory.INVALID_ARGUMENTS,
+        ),
+        (
+            lambda: completed_calls(
+                (call("first", "a", v=1), call("second", "b", v=2))
+            ),
+            None,
+        ),
+    ],
+)
+def test_trajectory_error_taxonomy(result, category) -> None:
+    evaluated = evaluate_tool_loop(case=two_step_case(), result=result())
+
+    assert evaluated.trajectory_error is category
+    assert evaluated.tool_necessity is ToolNecessity.REQUIRED
+    assert evaluated.accepted_trajectory_count == 1
+    assert (evaluated.matched_trajectory_index is None) is (
+        not evaluated.tool_sequence_match
+    )
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        lambda: completed_calls((call("echo"),)),
+        lambda: stopped_calls((call("echo", v="wrong"),)),
+        lambda: completed_calls((call("other", "a"), call("echo", "b"))),
+    ],
+)
+def test_calls_in_no_tool_cases_are_unnecessary_first(result) -> None:
+    evaluated = evaluate_tool_loop(
+        case=single_case("no-tool", (), "done"), result=result()
+    )
+
+    assert evaluated.trajectory_error is TrajectoryErrorCategory.UNNECESSARY_TOOL_CALL
+    assert evaluated.tool_sequence_match is False
+    assert evaluated.matched_trajectory_index is None
+
+
+def test_no_tool_case_abstaining_has_no_error_even_when_stopped() -> None:
+    evaluated = evaluate_tool_loop(
+        case=single_case("no-tool", (), "done"), result=provider_failure()
+    )
+
+    assert evaluated.tool_sequence_match is True
+    assert evaluated.matched_trajectory_index == 0
+    assert evaluated.trajectory_error is None
+    assert evaluated.completed is False
+
+
+def commutative_case() -> ToolEvaluationCase:
+    return ToolEvaluationCase(
+        case_id="commutative",
+        tool_necessity=ToolNecessity.REQUIRED,
+        accepted_trajectories=(
+            ExpectedTrajectory((expected("add", left=17, right=23),)),
+            ExpectedTrajectory((expected("add", left=23, right=17),)),
+        ),
+        expected_final_text="40",
+    )
+
+
+@pytest.mark.parametrize(
+    ("arguments", "index", "matches"),
+    [
+        ({"left": 17, "right": 23}, 0, True),
+        ({"left": 23, "right": 17}, 1, True),
+        ({"left": 23, "right": 23}, 0, False),
+    ],
+)
+def test_alternative_trajectories_select_first_full_match(
+    arguments, index, matches
+) -> None:
+    evaluated = evaluate_tool_loop(
+        case=commutative_case(),
+        result=completed_calls((call("add", **arguments),), text="40"),
+    )
+
+    assert evaluated.tool_sequence_match is True
+    assert evaluated.matched_trajectory_index == index
+    assert evaluated.arguments_match is matches
+    assert evaluated.accepted_trajectory_count == 2
+    assert (evaluated.trajectory_error is None) is matches
+
+
+def test_alternatives_with_different_tools_and_lengths() -> None:
+    case = ToolEvaluationCase(
+        case_id="routes",
+        tool_necessity=ToolNecessity.REQUIRED,
+        accepted_trajectories=(
+            ExpectedTrajectory((expected("lookup"), expected("convert"))),
+            ExpectedTrajectory((expected("direct_lookup"),)),
+        ),
+        expected_final_text="done",
+    )
+
+    second = evaluate_tool_loop(
+        case=case, result=completed_calls((call("direct_lookup"),))
+    )
+    prefix = evaluate_tool_loop(case=case, result=completed_calls((call("lookup"),)))
+
+    assert second.matched_trajectory_index == 1
+    assert second.trajectory_error is None
+    assert prefix.trajectory_error is TrajectoryErrorCategory.MISSING_TOOL_CALL
+
+
+@pytest.mark.parametrize(
+    "names",
+    [(), ("echo",), ("echo", "echo"), ("other",), ("other", "echo")],
+)
+def test_single_trajectory_matches_legacy_exact_sequence(names) -> None:
+    expected_names = ("echo",)
+    case = single_case("legacy", (expected("echo"),), "done")
+    calls = tuple(call(name, f"id_{i}") for i, name in enumerate(names))
+
+    evaluated = evaluate_tool_loop(case=case, result=completed_calls(calls))
+
+    assert evaluated.tool_sequence_match is (names == expected_names)
+
+
+@pytest.mark.parametrize(
+    ("necessity", "trajectories", "error"),
+    [
+        (ToolNecessity.REQUIRED, (), ValueError),
+        (ToolNecessity.NOT_NEEDED, (), ValueError),
+        (
+            ToolNecessity.REQUIRED,
+            (ExpectedTrajectory((expected("echo", v=1),)),) * 2,
+            ValueError,
+        ),
+        (
+            ToolNecessity.NOT_NEEDED,
+            (ExpectedTrajectory((expected("echo"),)),),
+            ValueError,
+        ),
+        (
+            ToolNecessity.NOT_NEEDED,
+            (ExpectedTrajectory(()), ExpectedTrajectory((expected("echo"),))),
+            ValueError,
+        ),
+        (
+            ToolNecessity.REQUIRED,
+            (ExpectedTrajectory((expected("echo"),)), ExpectedTrajectory(())),
+            ValueError,
+        ),
+        ("required", (ExpectedTrajectory((expected("echo"),)),), TypeError),
+        (ToolNecessity.REQUIRED, ((expected("echo"),),), TypeError),
+    ],
+)
+def test_case_schema_validation(necessity, trajectories, error) -> None:
+    with pytest.raises(error):
+        ToolEvaluationCase("case", necessity, trajectories, "done")
+
+
+def test_strictly_distinct_arguments_are_distinct_trajectories() -> None:
+    case = ToolEvaluationCase(
+        "case",
+        ToolNecessity.REQUIRED,
+        (
+            ExpectedTrajectory((expected("echo", v=1),)),
+            ExpectedTrajectory((expected("echo", v=True),)),
+            ExpectedTrajectory((expected("echo", v=1.0),)),
+        ),
+        "done",
+    )
+    assert len(case.accepted_trajectories) == 3
+
+
+def failing_evaluation() -> ToolEvaluationResult:
+    return evaluate_tool_loop(
+        case=two_step_case(), result=completed_calls((call("other"),))
+    )
+
+
+@pytest.mark.parametrize(
+    ("base", "updates"),
+    [
+        (valid_evaluation, {"tool_necessity": "not_needed"}),
+        (valid_evaluation, {"trajectory_error": "wrong_tool"}),
+        (valid_evaluation, {"trajectory_error": TrajectoryErrorCategory.WRONG_TOOL}),
+        (valid_evaluation, {"matched_trajectory_index": None}),
+        (valid_evaluation, {"matched_trajectory_index": 1}),
+        (valid_evaluation, {"matched_trajectory_index": True}),
+        (valid_evaluation, {"accepted_trajectory_count": 0}),
+        (valid_evaluation, {"accepted_trajectory_count": 2}),
+        (valid_evaluation, {"tool_necessity": ToolNecessity.REQUIRED}),
+        (failing_evaluation, {"trajectory_error": None}),
+        (
+            failing_evaluation,
+            {"trajectory_error": TrajectoryErrorCategory.UNNECESSARY_TOOL_CALL},
+        ),
+        (
+            failing_evaluation,
+            {"trajectory_error": TrajectoryErrorCategory.INVALID_ARGUMENTS},
+        ),
+        (
+            failing_evaluation,
+            {"trajectory_error": TrajectoryErrorCategory.INCOMPLETE_TRAJECTORY},
+        ),
+        (failing_evaluation, {"tool_necessity": ToolNecessity.NOT_NEEDED}),
+        (failing_evaluation, {"matched_trajectory_index": 0}),
+    ],
+)
+def test_inconsistent_trajectory_contracts(base, updates) -> None:
+    with pytest.raises((TypeError, ValueError)):
+        replace(base(), **updates)
+
+
+def test_missing_call_requires_completed_loop() -> None:
+    missing = evaluate_tool_loop(case=two_step_case(), result=completed_calls(()))
+    assert missing.trajectory_error is TrajectoryErrorCategory.MISSING_TOOL_CALL
+
+    with pytest.raises(ValueError):
+        replace(
+            missing,
+            stop_reason=ToolLoopStopReason.PROVIDER_FAILED,
+            completed=False,
+            final_answer_match=None,
+        )

@@ -13,7 +13,7 @@ class ToolRunConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: Literal[1] = 1
-    suite: Literal["example-tools-v1"] = "example-tools-v1"
+    suite: Literal["example-tools-v1", "example-tools-v2"] = "example-tools-v1"
     provider: Literal["synthetic", "openai_compatible"] = "synthetic"
     model: ModelConfig | None = None
     max_wall_time_seconds: float = Field(default=60, gt=0, le=3600, allow_inf_nan=False)

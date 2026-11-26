@@ -116,6 +116,11 @@ def test_trace_event_serializes_typed_data() -> None:
         "tokens_per_second": None,
         "total_output_tokens": None,
         "total_tokens": None,
+        "requested_k": None,
+        "retrieved_chunk_count": None,
+        "context_chunk_count": None,
+        "context_char_count": None,
+        "citation_count": None,
     }
 
 
@@ -246,3 +251,89 @@ def test_write_jsonl_preserves_utf8_and_cleans_temporary_file(tmp_path) -> None:
 
     assert path.read_text(encoding="utf-8") == ('{"message": "Türkçe doğrulama"}\n')
     assert not path.with_suffix(".jsonl.tmp").exists()
+
+
+@pytest.mark.parametrize(
+    ("event_type", "expected_value"),
+    [
+        (TraceEventType.RETRIEVAL_QUERY, "retrieval_query"),
+        (TraceEventType.RETRIEVAL_RESULT, "retrieval_result"),
+        (TraceEventType.TOOL_CALL, "tool_call"),
+        (TraceEventType.TOOL_RESULT, "tool_result"),
+        (TraceEventType.FINAL_ANSWER, "final_answer"),
+    ],
+)
+def test_trace_serializes_new_event_types(
+    event_type: TraceEventType,
+    expected_value: str,
+) -> None:
+    recorder = InMemoryTraceRecorder()
+
+    event = recorder.record(
+        event_type,
+        run_id="run-1",
+        sample_id="query-1",
+    )
+
+    serialized = event.to_dict()
+
+    assert serialized["event_type"] == expected_value
+    assert serialized["run_id"] == "run-1"
+    assert serialized["sample_id"] == "query-1"
+
+
+TRACE_COUNT_FIELDS = (
+    "requested_k",
+    "retrieved_chunk_count",
+    "context_chunk_count",
+    "context_char_count",
+    "citation_count",
+)
+
+
+@pytest.mark.parametrize("field", TRACE_COUNT_FIELDS)
+@pytest.mark.parametrize("value", [None, 0, 3])
+def test_trace_count_fields_preserve_valid_values(
+    field: str,
+    value: int | None,
+) -> None:
+    data = TraceEventData(**{field: value})
+    event = InMemoryTraceRecorder().record(
+        TraceEventType.RETRIEVAL_RESULT,
+        run_id="run-1",
+        data=data,
+    )
+
+    serialized = event.to_dict()
+
+    assert serialized["data"][field] == value
+
+
+@pytest.mark.parametrize("field", TRACE_COUNT_FIELDS)
+@pytest.mark.parametrize("value", [True, False, 1.5, "3"])
+def test_trace_count_fields_reject_invalid_types(
+    field: str,
+    value: object,
+) -> None:
+    data = TraceEventData(**{field: value})
+    event = InMemoryTraceRecorder().record(
+        TraceEventType.RETRIEVAL_RESULT,
+        run_id="run-1",
+        data=data,
+    )
+
+    with pytest.raises(TypeError, match="integers"):
+        event.to_dict()
+
+
+@pytest.mark.parametrize("field", TRACE_COUNT_FIELDS)
+def test_trace_count_fields_reject_negative_values(field: str) -> None:
+    data = TraceEventData(**{field: -1})
+    event = InMemoryTraceRecorder().record(
+        TraceEventType.RETRIEVAL_RESULT,
+        run_id="run-1",
+        data=data,
+    )
+
+    with pytest.raises(ValueError, match="nonnegative"):
+        event.to_dict()
